@@ -133,26 +133,44 @@ jobs:
 
       - name: Run image and curl /v1/health
         run: |
-          # Dummy unused key so loadConfig() accepts the process. Health
-          # talks to a closed RPC and should return 503; 200 is also fine.
+          set -euo pipefail
+          # Throwaway key, generated in this job. Never committed.
+          KEY=$(docker run --rm --entrypoint node sana-guard-relay --input-type=module -e \
+            "import { KeyPair } from 'near-api-js'; process.stdout.write(KeyPair.fromRandom('ed25519').toString());")
           docker run -d --name sana-relay-ci -p 127.0.0.1:3000:3000 \
             -e RELAY_ACCOUNT_ID=relay.ci.testnet \
-            -e RELAY_NEAR_PRIVATE_KEY=ed25519:577HXCCqGsBpgPLET3FB5P5xUJ46EmjPqSEtb2tsEoJ6dXwAjAqW9P4bNXNhKEVni36oYLhyREydGaM1FaWsarD \
+            -e RELAY_NEAR_PRIVATE_KEY="$KEY" \
             -e DATABASE_URL=sqlite:/tmp/relay.db \
             -e LOG_LEVEL=error \
             -e NEAR_RPC_URL=http://127.0.0.1:9 \
             sana-guard-relay
+          unset KEY
+          trap 'docker logs sana-relay-ci || true; docker stop sana-relay-ci >/dev/null || true' EXIT
           ok=0
           for i in $(seq 1 30); do
             code=$(curl -s -o /tmp/relay-health.json -w "%{http_code}" http://127.0.0.1:3000/v1/health || true)
             if [ "$code" = "200" ] || [ "$code" = "503" ]; then
               echo "health HTTP $code"
-              cat /tmp/relay-health.json || true
+              python3 - "$code" <<'PY'
+          import json, sys
+          code = sys.argv[1]
+          body = json.load(open("/tmp/relay-health.json"))
+          status = body.get("status")
+          assert status in ("healthy", "degraded", "unhealthy"), body
+          if status == "unhealthy":
+              assert code == "503", code
+              assert isinstance(body.get("error"), str) and body["error"], body
+          else:
+              assert code in ("200", "503"), code
+              assert "relayBalanceNear" in body, body
+              assert "relayBalanceFloor" in body, body
+              assert body.get("network") in ("testnet", "mainnet"), body
+              assert isinstance(body.get("guardContract"), str) and body["guardContract"], body
+          print("health body ok:", body)
+          PY
               ok=1
               break
             fi
             sleep 1
           done
-          docker logs sana-relay-ci || true
-          docker stop sana-relay-ci >/dev/null || true
           test "$ok" = "1"

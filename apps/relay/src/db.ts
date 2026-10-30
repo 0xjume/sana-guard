@@ -20,15 +20,28 @@ export interface UnknownReservation {
   nonce: number;
   txHash: string | null;
   spentYocto: string;
-  depositYocto: string;
+  reservedYocto: string;
+  depositYocto: string | null;
   expiresAtMs: number | null;
   timestamp: number;
 }
 
 const MAX_OWNER_LOCKS = 256;
 
-function utcDate(nowMs: number): string {
+export function utcDate(nowMs: number): string {
   return new Date(nowMs).toISOString().split("T")[0]!;
+}
+
+function reservedAmount(row: {
+  reservedYocto?: string | null;
+  spentYocto: string;
+}): string {
+  return row.reservedYocto || row.spentYocto;
+}
+
+function knownDeposit(row: { depositYocto: string | null }): string | null {
+  if (row.depositYocto == null || row.depositYocto === "") return null;
+  return row.depositYocto;
 }
 
 export class RelayDatabase {
@@ -204,7 +217,7 @@ export class RelayDatabase {
     actionType: string,
     spentYocto: string,
     nowMs: number,
-    extras: { depositYocto?: string; expiresAtMs?: number } = {}
+    extras: { depositYocto?: string | null; expiresAtMs?: number } = {}
   ): void {
     const txn = this.db.transaction(() => {
       this.insertReservation({
@@ -212,7 +225,8 @@ export class RelayDatabase {
         nonce,
         actionType,
         spentYocto,
-        depositYocto: extras.depositYocto ?? "0",
+        depositYocto:
+          extras.depositYocto === undefined ? "0" : extras.depositYocto,
         nowMs,
         expiresAtMs: extras.expiresAtMs,
       });
@@ -225,7 +239,7 @@ export class RelayDatabase {
     nonce: number;
     actionType: string;
     spentYocto: string;
-    depositYocto: string;
+    depositYocto: string | null;
     nowMs: number;
     expiresAtMs?: number;
   }): void {
@@ -287,51 +301,72 @@ export class RelayDatabase {
   }
 
   /**
-   * Replace the reserved spend with the actual tokens_burnt + deposit.
-   * Adjusts the global daily total by the delta.
+   * Replace the reserved spend with the actual amount.
+   * Adjusts the global total for the row's own UTC date, not "today".
    */
   reconcileBudget(
     owner: string,
     nonce: number,
     actualSpentYocto: string,
     txHash: string,
-    success: boolean,
-    nowMs: number
+    success: boolean | null,
+    _nowMs: number,
+    opts: { status?: "completed" | "settled-unverified" } = {}
   ): void {
-    const today = utcDate(nowMs);
+    const status = opts.status ?? "completed";
 
     const txn = this.db.transaction(() => {
       const row = this.db
         .prepare(
-          `SELECT spent_yocto FROM owner_requests
+          `SELECT spent_yocto, timestamp FROM owner_requests
            WHERE owner = ? AND nonce = ? AND status IN ('pending', 'unknown')`
         )
-        .get(owner, nonce) as { spent_yocto: string } | undefined;
+        .get(owner, nonce) as
+        | { spent_yocto: string; timestamp: number }
+        | undefined;
 
       if (!row) return;
 
       const delta = BigInt(actualSpentYocto) - BigInt(row.spent_yocto);
+      const rowDay = utcDate(row.timestamp);
 
       this.db
         .prepare(
           `UPDATE owner_requests
-           SET spent_yocto = ?, tx_hash = ?, success = ?, status = 'completed'
+           SET spent_yocto = ?, tx_hash = ?, success = ?, status = ?
            WHERE owner = ? AND nonce = ? AND status IN ('pending', 'unknown')`
         )
-        .run(actualSpentYocto, txHash, success ? 1 : 0, owner, nonce);
+        .run(
+          actualSpentYocto,
+          txHash,
+          success === null ? null : success ? 1 : 0,
+          status,
+          owner,
+          nonce
+        );
 
-      const existing = this.db
-        .prepare(`SELECT spent_yocto FROM global_stats WHERE date = ?`)
-        .get(today) as { spent_yocto: string } | undefined;
-
-      if (existing) {
-        const next = BigInt(existing.spent_yocto) + delta;
-        this.db
-          .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
-          .run(next < 0n ? "0" : next.toString(), today);
-      }
+      this.applyGlobalDelta(rowDay, delta);
     });
     txn();
+  }
+
+  private applyGlobalDelta(day: string, delta: bigint): void {
+    const existing = this.db
+      .prepare(`SELECT spent_yocto FROM global_stats WHERE date = ?`)
+      .get(day) as { spent_yocto: string } | undefined;
+
+    if (existing) {
+      const next = BigInt(existing.spent_yocto) + delta;
+      this.db
+        .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
+        .run(next < 0n ? "0" : next.toString(), day);
+      return;
+    }
+    if (delta > 0n) {
+      this.db
+        .prepare(`INSERT INTO global_stats (date, spent_yocto) VALUES (?, ?)`)
+        .run(day, delta.toString());
+    }
   }
 
   markUnknown(owner: string, nonce: number, txHash?: string): void {
@@ -347,7 +382,9 @@ export class RelayDatabase {
    * Resolve 'unknown' rows.
    * - With a hash: check txStatus. Record deposit+burnt on success, burnt only on failure.
    * - Still pending/UNKNOWN after expiry + tx validity: settle via nonce
-   *   (release if unused; if consumed, record deposit or a looked-up outcome).
+   *   (release if unused). A nonce bump is not proof this row landed —
+   *   re-check the stored hash first; if still unknown, keep the reserved
+   *   amount and mark settled-unverified.
    * - Without a hash (legacy): same expiry + nonce path.
    */
   async resolveUnknownReservations(args: {
@@ -392,9 +429,12 @@ export class RelayDatabase {
     nowMs: number
   ): void {
     const burnt = result.tokensBurntYocto ?? "0";
+    const deposit = knownDeposit(row);
     const actual =
       result.status === "success"
-        ? (BigInt(row.depositYocto) + BigInt(burnt)).toString()
+        ? deposit != null
+          ? (BigInt(deposit) + BigInt(burnt)).toString()
+          : reservedAmount(row)
         : burnt;
     this.reconcileBudget(
       row.owner,
@@ -431,15 +471,16 @@ export class RelayDatabase {
 
     const onChainNonce = await args.checkOwnerNonce(row.owner);
     if (onChainNonce >= row.nonce) {
-      // Nonce was consumed but we never saw tokens_burnt. Count deposit
-      // only — not the prepaid 0.1 NEAR gas ceiling.
+      // Nonce moved, but that is not proof this row's tx landed. Keep the
+      // full reserved amount (deposit + gas) so spend is never under-counted.
       this.reconcileBudget(
         row.owner,
         row.nonce,
-        row.depositYocto,
-        row.txHash ?? "settled-by-nonce",
-        true,
-        args.nowMs
+        reservedAmount(row),
+        row.txHash ?? "settled-unverified",
+        null,
+        args.nowMs,
+        { status: "settled-unverified" }
       );
     } else {
       this.releaseBudget(row.owner, row.nonce, args.nowMs);
@@ -450,23 +491,52 @@ export class RelayDatabase {
     return this.db
       .prepare(
         `SELECT owner, nonce, tx_hash as txHash, spent_yocto as spentYocto,
-                COALESCE(deposit_yocto, '0') as depositYocto,
+                COALESCE(reserved_yocto, spent_yocto) as reservedYocto,
+                deposit_yocto as depositYocto,
                 expires_at_ms as expiresAtMs, timestamp
          FROM owner_requests WHERE status = 'unknown'`
       )
       .all() as UnknownReservation[];
   }
 
-  releaseBudget(owner: string, nonce: number, nowMs: number): void {
-    const today = utcDate(nowMs);
+  getRequest(
+    owner: string,
+    nonce: number
+  ): {
+    status: string;
+    spentYocto: string;
+    success: number | null;
+    txHash: string | null;
+    timestamp: number;
+  } | undefined {
+    return this.db
+      .prepare(
+        `SELECT status, spent_yocto as spentYocto, success,
+                tx_hash as txHash, timestamp
+         FROM owner_requests WHERE owner = ? AND nonce = ?
+         ORDER BY timestamp DESC LIMIT 1`
+      )
+      .get(owner, nonce) as
+      | {
+          status: string;
+          spentYocto: string;
+          success: number | null;
+          txHash: string | null;
+          timestamp: number;
+        }
+      | undefined;
+  }
 
+  releaseBudget(owner: string, nonce: number, _nowMs: number): void {
     const txn = this.db.transaction(() => {
       const row = this.db
         .prepare(
-          `SELECT spent_yocto FROM owner_requests
+          `SELECT spent_yocto, timestamp FROM owner_requests
            WHERE owner = ? AND nonce = ? AND status IN ('pending', 'unknown')`
         )
-        .get(owner, nonce) as { spent_yocto: string } | undefined;
+        .get(owner, nonce) as
+        | { spent_yocto: string; timestamp: number }
+        | undefined;
 
       if (!row) return;
 
@@ -477,16 +547,7 @@ export class RelayDatabase {
         )
         .run(owner, nonce);
 
-      const existing = this.db
-        .prepare(`SELECT spent_yocto FROM global_stats WHERE date = ?`)
-        .get(today) as { spent_yocto: string } | undefined;
-
-      if (existing) {
-        const next = BigInt(existing.spent_yocto) - BigInt(row.spent_yocto);
-        this.db
-          .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
-          .run(next < 0n ? "0" : next.toString(), today);
-      }
+      this.applyGlobalDelta(utcDate(row.timestamp), -BigInt(row.spent_yocto));
     });
     txn();
   }
