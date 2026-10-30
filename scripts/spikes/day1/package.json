@@ -1,0 +1,15 @@
+{
+  "name": "sana-guard-spike-day1",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.99.0",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.7",
+    "near-api-js": "^5.0.1"
+  }
+}

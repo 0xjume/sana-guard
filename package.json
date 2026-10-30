@@ -1,0 +1,33 @@
+{
+  "name": "sana-guard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Policy-enforced AI agent wallets via NEAR Chain Signatures",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xjume/sana-guard.git"
+  },
+  "license": "MIT",
+  "author": "Jume / 0xjume",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.1"
+}
