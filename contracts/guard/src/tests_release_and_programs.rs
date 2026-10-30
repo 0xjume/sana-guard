@@ -29,6 +29,7 @@ fn policy(programs: Vec<[u8; 32]>) -> Policy {
         daily_cap: vec![(Mint::Sol, U64(10_000_000_000))],
         programs: programs.iter().map(|p| base58_encode(p)).collect(),
         max_priority_fee_lamports: U64(1_000_000),
+        max_total_priority_fee_lamports: Some(U64(2_000_000)),
         max_memo_len: 100,
         expires_at_ns: U64(u64::MAX),
         loosen_delay_ns: U64(HOUR_NS),
@@ -55,6 +56,7 @@ fn setup(programs: Vec<[u8; 32]>) -> Guard {
     vault.recipients.insert(RECIPIENT);
     contract.vaults.insert(0, vault);
     contract.agent_to_vault.insert(accounts(1), 0);
+    contract.activate_vault_for_test(0);
     contract
 }
 

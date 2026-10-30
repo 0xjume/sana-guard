@@ -283,18 +283,21 @@ impl Guard {
 
                 let args_json = serde_json::to_vec(&args).expect("serialization failed");
 
-                Promise::new(self.mpc_contract.clone())
-                    .function_call(
-                        "derived_public_key".to_string(),
-                        args_json,
-                        NearToken::from_yoctonear(0),
-                        Gas::from_tgas(10),
-                    )
-                    .then(
-                        Self::ext(env::current_account_id())
-                            .with_static_gas(Gas::from_tgas(10))
-                            .on_vault_verified(vault_id),
-                    );
+                #[allow(unused_must_use)]
+                {
+                    Promise::new(self.mpc_contract.clone())
+                        .function_call(
+                            "derived_public_key".to_string(),
+                            args_json,
+                            NearToken::from_yoctonear(0),
+                            Gas::from_tgas(10),
+                        )
+                        .then(
+                            Self::ext(env::current_account_id())
+                                .with_static_gas(Gas::from_tgas(10))
+                                .on_vault_verified(vault_id),
+                        );
+                }
 
                 format!("vault {} creation initiated, verifying address", vault_id)
             }

@@ -120,108 +120,75 @@ fn test_f1_agent_funding_at_minimum() {
 
 // F2: Test priority fee rounding and base fee
 #[test]
-#[ignore] // TODO: Fix transaction parsing - needs valid test transaction
 fn test_f2_priority_fee_rounds_up() {
-    use crate::parser::{calculate_spend, parse_solana_message};
+    use crate::parser::{
+        calculate_spend, parse_solana_message, COMPUTE_BUDGET_PROGRAM, SYSTEM_PROGRAM,
+    };
 
-    // Transaction with SetComputeUnitLimit 200000 and SetComputeUnitPrice 50
-    // Priority fee = (200000 * 50 + 999_999) / 1_000_000 = (10_000_000 + 999_999) / 1_000_000 = 10 lamports (rounds up from 10.0)
+    // Build a transaction with:
+    // - System transfer of 1000 lamports
+    // - SetComputeUnitLimit 200000
+    // - SetComputeUnitPrice 50
+    // Priority fee = (200000 * 50 + 999_999) / 1_000_000 = (10_000_000 + 999_999) / 1_000_000 = 10 lamports
     // Plus 5000 lamport base fee = 5010 lamports total
+    // Plus 1000 lamport transfer = 6010 lamports total
 
-    let tx_with_priority = hex::decode("01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100020420d0711a0dfc0c7a305b5c6b175f69d6aa6ccbc3a72e8305b9bc83ef7ba1d3bd000000000000000000000000000000000000000000000000000000000000000003061fddd6f60fb4e84e02c8dc74c5a21a49eeeb10d40f9c106f66e30e3febd93006ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a903000306466fe5211732ffecadba72c39be7bc8ce5bbc5f7126b2c439b3a4000000000020d090300000000000306466fe5211732ffecadba72c39be7bc8ce5bbc5f7126b2c439b3a40000000000503320000000000000000000000").unwrap();
+    let vault_addr = [1u8; 32];
+    let recipient = [2u8; 32];
 
-    let vault_address = [42u8; 32];
-    let parsed = parse_solana_message(&tx_with_priority).unwrap();
-    let spend = calculate_spend(&parsed.instructions, &vault_address).unwrap();
+    let mut msg = vec![
+        1, // 1 required signature
+        0, // 0 readonly signed
+        2, // 2 readonly unsigned
+        4, // 4 keys
+    ];
+    msg.extend_from_slice(&vault_addr); // fee payer
+    msg.extend_from_slice(&recipient); // recipient
+    msg.extend_from_slice(&SYSTEM_PROGRAM); // System program
+    msg.extend_from_slice(&COMPUTE_BUDGET_PROGRAM); // ComputeBudget program
+    msg.extend_from_slice(&[0u8; 32]); // recent blockhash
+    msg.push(3); // 3 instructions
+
+    // ComputeBudgetSetLimit instruction (200000)
+    msg.push(3); // program_id_index = 3 (ComputeBudget)
+    msg.push(0); // 0 accounts
+    msg.push(5); // data length = 5
+    msg.push(2); // discriminator = 2 (SetLimit)
+    msg.extend_from_slice(&200000u32.to_le_bytes()); // limit = 200000
+
+    // ComputeBudgetSetPrice instruction (50)
+    msg.push(3); // program_id_index = 3 (ComputeBudget)
+    msg.push(0); // 0 accounts
+    msg.push(9); // data length = 9
+    msg.push(3); // discriminator = 3 (SetPrice)
+    msg.extend_from_slice(&50u64.to_le_bytes()); // price = 50 micro-lamports
+
+    // SystemTransfer instruction (1000 lamports)
+    msg.push(2); // program_id_index = 2 (System)
+    msg.push(2); // 2 accounts
+    msg.push(0); // account 0 (vault, writable signer)
+    msg.push(1); // account 1 (recipient, writable)
+    msg.push(12); // data length = 12
+    msg.extend_from_slice(&2u32.to_le_bytes()); // instruction discriminator = 2 (Transfer)
+    msg.extend_from_slice(&1000u64.to_le_bytes()); // amount = 1000 lamports
+
+    let parsed = parse_solana_message(&msg).unwrap();
+    assert_eq!(parsed.instructions.len(), 3);
+
+    let spend = calculate_spend(&parsed.instructions, &vault_addr).unwrap();
 
     // Find SOL spend
     let sol_spend = spend
         .iter()
-        .find(|(m, _)| matches!(m, Mint::Sol))
+        .find(|(m, _)| matches!(m, crate::types::Mint::Sol))
         .map(|(_, a)| *a)
         .unwrap_or(0);
 
-    // Should be 5010 lamports (10 rounded up priority fee + 5000 base fee)
-    assert_eq!(sol_spend, 5010);
-}
-
-// F3b: Test program allowlist enforcement
-#[test]
-#[ignore] // TODO: Fix test - needs proper vault setup for process_sign_request
-#[should_panic(expected = "SG_E074_PROGRAM_NOT_IN_POLICY")]
-fn test_f3b_program_not_in_allowlist() {
-    let (mut context, mut contract) = setup_contract();
-
-    let owner_key = [7u8; 32];
-    let vault_key = [9u8; 32];
-    let owner_b58 = bs58::encode(&owner_key).into_string();
-    let vault_b58 = bs58::encode(&vault_key).into_string();
-
-    // Policy that only allows System Program
-    let system_program_b58 = bs58::encode(&parser::SYSTEM_PROGRAM).into_string();
-    let policy = types::Policy {
-        per_tx_limit: vec![],
-        daily_cap: vec![],
-        programs: vec![system_program_b58], // Only System Program allowed
-        max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
-        max_total_priority_fee_lamports: None,
-        max_memo_len: 100,
-        expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
-        loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
-    };
-
-    context.attached_deposit(NearToken::from_near(1));
-    testing_env!(context.build());
-
-    let create_action = owner::OwnerAction::CreateVault {
-        owner: owner_b58.clone(),
-        vault_address: vault_b58.clone(),
-        policy: policy.clone(),
-    };
-    contract.execute_owner_action(owner_key, create_action);
-
-    // Create agent
-    let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-        .parse()
-        .unwrap();
-    context.attached_deposit(NearToken::from_near(1));
-    testing_env!(context.build());
-
-    let add_agent_action = owner::OwnerAction::AddAgent {
-        vault_id: 0,
-        name: "agent1".to_string(),
-        public_key,
-        gas_funding: near_sdk::json_types::U128(150_000_000_000_000_000_000_000u128),
-    };
-    contract.execute_owner_action(owner_key, add_agent_action);
-
-    // Manually add the agent to the vault (simulate successful callback)
-    let agent_id: AccountId = format!("agent1.{}", env::current_account_id())
-        .parse()
-        .unwrap();
-    if let Some(mut vault) = contract.vaults.remove(&0) {
-        vault.agents.push(agent_id.clone());
-        vault.recipients.insert([0u8; 32]); // Add a recipient
-        contract.vaults.insert(0, vault);
-        contract.agent_to_vault.insert(agent_id.clone(), 0);
-    }
-
-    // Try to sign a transaction with Memo program (which is supported but not in policy)
-    // This transaction has a Memo instruction
-    let memo_tx = hex::decode("01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100010320d0711a0dfc0c7a305b5c6b175f69d6aa6ccbc3a72e8305b9bc83ef7ba1d3bd006ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a900000000000000000001080b68656c6c6f20776f726c64").unwrap();
-
-    context.predecessor_account_id(agent_id);
-    context.attached_deposit(NearToken::from_yoctonear(1));
-    testing_env!(context.build());
-
-    #[allow(unused_must_use)]
-    {
-        contract.process_sign_request(
-            0,
-            near_sdk::base64::engine::general_purpose::STANDARD.encode(&memo_tx),
-            "abcd".repeat(8),
-        );
-    }
+    // Should be 6010 lamports:
+    // - 1000 lamport transfer
+    // - 10 lamports priority fee (rounded up from (200000 * 50) / 1_000_000)
+    // - 5000 lamports base fee
+    assert_eq!(sol_spend, 6010);
 }
 
 // F3a Tests: MPC vault verification
@@ -263,7 +230,7 @@ fn test_f3a_vault_pending_after_creation() {
 }
 
 #[test]
-#[should_panic(expected = "SG_E075_VAULT_NOT_ACTIVE")]
+#[should_panic(expected = "SG_E076_VAULT_NOT_ACTIVE")]
 fn test_f3a_request_sign_on_pending_vault() {
     let (mut context, mut contract) = setup_contract();
 
@@ -318,7 +285,7 @@ fn test_f3a_request_sign_on_pending_vault() {
         contract.agent_to_vault.insert(agent_id.clone(), 0);
     }
 
-    // Try to request sign - should panic with SG_E075_VAULT_NOT_ACTIVE
+    // Try to request sign - should panic with SG_E076_VAULT_NOT_ACTIVE
     let tx_bytes = hex::decode("0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010001031234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000102020000000c02000000e803000000000000").unwrap();
 
     context.predecessor_account_id(agent_id);
