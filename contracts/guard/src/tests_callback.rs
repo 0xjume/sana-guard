@@ -1,6 +1,6 @@
 // MPC callback tests
-use crate::*;
 use crate::types::*;
+use crate::*;
 use near_sdk::json_types::U64;
 use near_sdk::test_utils::{accounts, VMContextBuilder};
 use near_sdk::{testing_env, Gas, NearToken, PromiseError};
@@ -12,7 +12,7 @@ fn setup_contract_with_request() -> (Guard, [u8; 32]) {
         "near-testnet".to_string(),
         accounts(0),
     );
-    
+
     let req_id = [42u8; 32];
     let request = SignRequest {
         vault_id: 0,
@@ -24,7 +24,7 @@ fn setup_contract_with_request() -> (Guard, [u8; 32]) {
         signature: None,
         created_ns: 1_000_000_000,
     };
-    
+
     // Create vault with spend reservation
     let mut vault = Vault::new(
         0,
@@ -41,15 +41,15 @@ fn setup_contract_with_request() -> (Guard, [u8; 32]) {
             programs: vec![],
         },
     );
-    
+
     // Add reservation to bucket
     let mut bucket = vec![];
     bucket.push(([0u8; 32], 100_000_000));
     vault.buckets.insert(1000, bucket);
     contract.vaults.insert(0, vault);
-    
+
     contract.requests.insert(req_id, request);
-    
+
     (contract, req_id)
 }
 
@@ -60,17 +60,17 @@ mod callback_tests {
     #[test]
     fn test_handle_signed_callback_success() {
         let (mut contract, req_id) = setup_contract_with_request();
-        
+
         // Simulate successful MPC response
         let result = Ok(MpcSignature::Ed25519 {
             signature: vec![9u8; 64],
         });
-        
+
         let signature = contract.handle_signed_callback(req_id, result);
-        
+
         assert!(signature.is_some());
         assert_eq!(signature.unwrap().len(), 64);
-        
+
         // Verify request status
         let request = contract.requests.get(&req_id).unwrap();
         assert!(matches!(request.status, Status::Signed));
@@ -80,36 +80,36 @@ mod callback_tests {
     #[test]
     fn test_handle_signed_callback_failure_doesnt_panic() {
         let (mut contract, req_id) = setup_contract_with_request();
-        
+
         // Simulate MPC failure
         let result: Result<MpcSignature, PromiseError> = Err(PromiseError::Failed);
-        
+
         let signature = contract.handle_signed_callback(req_id, result);
-        
+
         // Signature should be None
         assert!(signature.is_none());
-        
+
         // Verify request status is Failed
         let request = contract.requests.get(&req_id).unwrap();
         assert!(matches!(request.status, Status::Failed));
-        
+
         // Verify no panic occurred
     }
 
     #[test]
     fn test_callback_with_wrong_signature_length() {
         let (mut contract, req_id) = setup_contract_with_request();
-        
+
         // Wrong signature length (not 64 bytes)
         let result = Ok(MpcSignature::Ed25519 {
             signature: vec![9u8; 32], // Only 32 bytes, not 64
         });
-        
+
         let signature = contract.handle_signed_callback(req_id, result);
-        
+
         // Should fail due to wrong length
         assert!(signature.is_none());
-        
+
         let request = contract.requests.get(&req_id).unwrap();
         assert!(matches!(request.status, Status::Failed));
     }

@@ -72,7 +72,9 @@ mod parser_valid_tests {
         let parsed = parse_solana_message(&msg).unwrap();
         assert_eq!(parsed.instructions.len(), 1);
         match &parsed.instructions[0] {
-            ParsedInstruction::TokenTransfer { authority, amount, .. } => {
+            ParsedInstruction::TokenTransfer {
+                authority, amount, ..
+            } => {
                 assert_eq!(authority, &vault);
                 assert_eq!(*amount, 1_000_000_000);
             }
@@ -110,7 +112,9 @@ mod parser_valid_tests {
 
         let parsed = parse_solana_message(&msg).unwrap();
         match &parsed.instructions[0] {
-            ParsedInstruction::TokenTransfer { amount, decimals, .. } => {
+            ParsedInstruction::TokenTransfer {
+                amount, decimals, ..
+            } => {
                 assert_eq!(*amount, 1_000_000_000);
                 assert_eq!(*decimals, Some(9));
             }
@@ -152,7 +156,12 @@ mod parser_valid_tests {
 
         let parsed = parse_solana_message(&msg).unwrap();
         match &parsed.instructions[0] {
-            ParsedInstruction::AtaCreate { payer, ata: parsed_ata, wallet: _, mint: parsed_mint } => {
+            ParsedInstruction::AtaCreate {
+                payer,
+                ata: parsed_ata,
+                wallet: _,
+                mint: parsed_mint,
+            } => {
                 assert_eq!(payer, &vault);
                 assert_eq!(parsed_ata, &ata);
                 assert_eq!(parsed_mint, &mint);
