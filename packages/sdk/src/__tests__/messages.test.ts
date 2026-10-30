@@ -150,4 +150,15 @@ describe('Messages', () => {
       expect(extractRecentBlockhash(message)).toBe(blockhash);
     });
   });
+
+  describe('memo option', () => {
+    it('skips the memo instruction when the memo is empty', () => {
+      const without = buildSolTransfer(from, to, BigInt(1000), blockhash, { version: 'v0' });
+      const empty = buildSolTransfer(from, to, BigInt(1000), blockhash, {
+        version: 'v0',
+        memo: '',
+      });
+      expect(Buffer.from(empty).equals(Buffer.from(without))).toBe(true);
+    });
+  });
 });

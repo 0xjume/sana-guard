@@ -180,6 +180,7 @@ class Views {
   constructor(nearAccount: NearAccount, guardContract: string);
 
   getVault(vaultId: number): Promise<VaultView | null>;
+  getRecipients(vaultId: number, fromIndex?: number, limit?: number): Promise<string[]>;
   getRequest(reqIdHex: string): Promise<SignRequestView | null>;
   getSpend24h(vaultId: number): Promise<Array<{ mint: string; amount: bigint }>>;
   getNonce(ownerB58: string): Promise<number>;

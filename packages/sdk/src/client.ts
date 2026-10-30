@@ -20,6 +20,11 @@ interface FunctionCallAccount {
     gas: bigint;
     attachedDeposit: bigint;
   }): Promise<unknown>;
+  viewFunction(opts: {
+    contractId: string;
+    methodName: string;
+    args: Record<string, unknown>;
+  }): Promise<unknown>;
 }
 
 function parseSignResult(outcome: unknown): number[] {
@@ -169,7 +174,12 @@ export class AgentClient {
       maxMemoLen?: number;
     } = {}
   ): Promise<BroadcastResult> {
-    const { version = 'v0', computeUnitLimit, computeUnitPrice, memo, maxMemoLen } = options;
+    const { version = 'v0', computeUnitLimit, computeUnitPrice, memo } = options;
+
+    let maxMemoLen = options.maxMemoLen;
+    if (memo && maxMemoLen === undefined) {
+      maxMemoLen = await this.policyMaxMemoLen(vaultId);
+    }
 
     const { blockhash, lastValidBlockHeight } =
       await this.solanaConnection.getLatestBlockhash('confirmed');
@@ -215,5 +225,19 @@ export class AgentClient {
     }
 
     return this.requestSignAndBroadcast({ vaultId, message, lastValidBlockHeight });
+  }
+
+  private async policyMaxMemoLen(vaultId: number): Promise<number> {
+    const account = this.nearAccount as unknown as FunctionCallAccount;
+    const policy = (await account.viewFunction({
+      contractId: this.guardContract,
+      methodName: 'get_policy',
+      args: { vault_id: vaultId },
+    })) as { max_memo_len?: number } | null;
+
+    if (policy == null || typeof policy.max_memo_len !== 'number') {
+      throw new SanaGuardError('Could not read vault policy max_memo_len');
+    }
+    return policy.max_memo_len;
   }
 }

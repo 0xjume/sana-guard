@@ -93,6 +93,7 @@ describe('Errors', () => {
       }
 
       expect(contractCodes.size).toBeGreaterThan(0);
+      expect(contractCodes.has('SG_E076_VAULT_NOT_ACTIVE')).toBe(true);
 
       const mapped = new Set(knownErrorCodes());
       const missing = [...contractCodes].filter((code) => !mapped.has(code)).sort();

@@ -6,8 +6,17 @@ import {
   ComputeBudgetProgram,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import bs58 from 'bs58';
 import { MessageVersion } from './types';
 import { SanaGuardError } from './errors';
+
+function encodeBase58(bytes: Uint8Array): string {
+  return bs58.encode(Buffer.from(bytes));
+}
+
+function decodeBase58(value: string): Buffer {
+  return Buffer.from(bs58.decode(value));
+}
 
 // Supported program IDs (must match contract parser)
 export const SYSTEM_PROGRAM = SystemProgram.programId;
@@ -126,7 +135,7 @@ export function buildSolTransfer(
     })
   );
 
-  if (memo !== undefined) {
+  if (memo) {
     instructions.push(memoInstruction(memo, maxMemoLen));
   }
 
@@ -209,7 +218,7 @@ export function buildTokenTransfer(
     )
   );
 
-  if (memo !== undefined) {
+  if (memo) {
     instructions.push(memoInstruction(memo, maxMemoLen));
   }
 
@@ -243,18 +252,9 @@ export function buildMessageWithMemo(
   maxMemoLen: number,
   version: MessageVersion = 'v0'
 ): Uint8Array {
-  const memoBytes = Buffer.from(memo, 'utf-8');
-  if (memoBytes.length > maxMemoLen) {
-    throw new SanaGuardError(`Memo too long (max ${maxMemoLen} bytes)`);
-  }
-
-  const memoInstruction = new TransactionInstruction({
-    keys: [],
-    programId: MEMO_PROGRAM,
-    data: memoBytes,
-  });
-
-  const allInstructions = [...instructions, memoInstruction];
+  const allInstructions = memo
+    ? [...instructions, memoInstruction(memo, maxMemoLen)]
+    : instructions;
 
   if (version === 'v0') {
     const message = new TransactionMessage({
@@ -295,8 +295,7 @@ function serializeV0Message(message: any): Uint8Array {
   const keys = Buffer.concat(message.staticAccountKeys.map((k: PublicKey) => k.toBuffer()));
 
   // Recent blockhash
-  const bs58 = require('bs58');
-  const blockhash = Buffer.from(bs58.default ? bs58.default.decode(message.recentBlockhash) : bs58.decode(message.recentBlockhash));
+  const blockhash = decodeBase58(message.recentBlockhash);
 
   // Instructions
   const numInstructions = message.compiledInstructions.length;
@@ -344,8 +343,7 @@ function serializeLegacyMessage(message: any): Uint8Array {
   const keys = Buffer.concat(message.staticAccountKeys.map((k: PublicKey) => k.toBuffer()));
 
   // Recent blockhash
-  const bs58 = require('bs58');
-  const blockhash = Buffer.from(bs58.default ? bs58.default.decode(message.recentBlockhash) : bs58.decode(message.recentBlockhash));
+  const blockhash = decodeBase58(message.recentBlockhash);
 
   // Instructions
   const numInstructions = message.compiledInstructions.length;
@@ -440,9 +438,7 @@ function decodeCompactU16(bytes: Uint8Array, offset: number): { value: number; s
 }
 
 function decodeBs58(data: Uint8Array): string {
-  const bs58 = require('bs58');
-  const decode = bs58.default?.encode ?? bs58.encode;
-  return decode(Buffer.from(data));
+  return encodeBase58(data);
 }
 
 /**
