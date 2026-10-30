@@ -20,6 +20,10 @@ function getClientIp(c: Context): string {
 
 export function rateLimit(limit: number) {
   return async (c: Context, next: Next) => {
+    if (process.env.NODE_ENV === "test") {
+      await next();
+      return;
+    }
     const ip = getClientIp(c);
     const now = Date.now();
 

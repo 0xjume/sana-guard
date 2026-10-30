@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { logger } from "./logger.js";
+import { Mutex } from "./mutex.js";
 
 export interface OwnerStats {
   owner: string;
@@ -13,10 +14,15 @@ export interface GlobalStats {
 
 export class RelayDatabase {
   private db: Database.Database;
-  private ownerLocks = new Map<string, Promise<void>>();
+  private readonly ownerMutexes = new Map<string, Mutex>();
 
   constructor(databaseUrl: string) {
-    const dbPath = databaseUrl.replace("sqlite:", "");
+    if (databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://")) {
+      throw new Error(
+        "Postgres is not supported. Use DATABASE_URL=sqlite:<path> and a Railway volume for the file."
+      );
+    }
+    const dbPath = databaseUrl.replace(/^sqlite:/, "");
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.initTables();
@@ -35,12 +41,12 @@ export class RelayDatabase {
         status TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_owner_requests_owner_time 
+      CREATE INDEX IF NOT EXISTS idx_owner_requests_owner_time
         ON owner_requests(owner, timestamp);
-      
+
       CREATE INDEX IF NOT EXISTS idx_owner_requests_nonce
         ON owner_requests(owner, nonce, status);
-      
+
       CREATE INDEX IF NOT EXISTS idx_owner_requests_action
         ON owner_requests(action_type, timestamp);
 
@@ -51,29 +57,19 @@ export class RelayDatabase {
     `);
   }
 
-  async withOwnerLock<T>(owner: string, fn: () => Promise<T>): Promise<T> {
-    while (this.ownerLocks.has(owner)) {
-      await this.ownerLocks.get(owner);
+  withOwnerLock<T>(owner: string, fn: () => Promise<T>): Promise<T> {
+    let mutex = this.ownerMutexes.get(owner);
+    if (!mutex) {
+      mutex = new Mutex();
+      this.ownerMutexes.set(owner, mutex);
     }
-
-    let resolve: () => void;
-    const promise = new Promise<void>((r) => {
-      resolve = r;
-    });
-    this.ownerLocks.set(owner, promise);
-
-    try {
-      return await fn();
-    } finally {
-      this.ownerLocks.delete(owner);
-      resolve!();
-    }
+    return mutex.run(fn);
   }
 
   checkNonceInFlight(owner: string, nonce: number): boolean {
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) as count FROM owner_requests 
+        `SELECT COUNT(*) as count FROM owner_requests
          WHERE owner = ? AND nonce = ? AND status = 'pending'`
       )
       .get(owner, nonce) as { count: number } | undefined;
@@ -90,29 +86,30 @@ export class RelayDatabase {
   ): void {
     const today = new Date(nowMs).toISOString().split("T")[0];
 
-    this.db
-      .prepare(
-        `INSERT INTO owner_requests (owner, timestamp, nonce, action_type, spent_yocto, tx_hash, success, status)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, 'pending')`
-      )
-      .run(owner, nowMs, nonce, actionType, spentYocto);
-
-    const existing = this.db
-      .prepare(`SELECT spent_yocto FROM global_stats WHERE date = ?`)
-      .get(today) as { spent_yocto: string } | undefined;
-
-    if (existing) {
-      const newTotal = (
-        BigInt(existing.spent_yocto) + BigInt(spentYocto)
-      ).toString();
+    const txn = this.db.transaction(() => {
       this.db
-        .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
-        .run(newTotal, today);
-    } else {
-      this.db
-        .prepare(`INSERT INTO global_stats (date, spent_yocto) VALUES (?, ?)`)
-        .run(today, spentYocto);
-    }
+        .prepare(
+          `INSERT INTO owner_requests (owner, timestamp, nonce, action_type, spent_yocto, tx_hash, success, status)
+           VALUES (?, ?, ?, ?, ?, NULL, NULL, 'pending')`
+        )
+        .run(owner, nowMs, nonce, actionType, spentYocto);
+
+      const existing = this.db
+        .prepare(`SELECT spent_yocto FROM global_stats WHERE date = ?`)
+        .get(today) as { spent_yocto: string } | undefined;
+
+      if (existing) {
+        const newTotal = (BigInt(existing.spent_yocto) + BigInt(spentYocto)).toString();
+        this.db
+          .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
+          .run(newTotal, today);
+      } else {
+        this.db
+          .prepare(`INSERT INTO global_stats (date, spent_yocto) VALUES (?, ?)`)
+          .run(today, spentYocto);
+      }
+    });
+    txn();
   }
 
   finalizeBudget(
@@ -132,14 +129,16 @@ export class RelayDatabase {
   releaseBudget(owner: string, nonce: number, nowMs: number): void {
     const today = new Date(nowMs).toISOString().split("T")[0];
 
-    const row = this.db
-      .prepare(
-        `SELECT spent_yocto FROM owner_requests 
-         WHERE owner = ? AND nonce = ? AND status = 'pending'`
-      )
-      .get(owner, nonce) as { spent_yocto: string } | undefined;
+    const txn = this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT spent_yocto FROM owner_requests
+           WHERE owner = ? AND nonce = ? AND status = 'pending'`
+        )
+        .get(owner, nonce) as { spent_yocto: string } | undefined;
 
-    if (row) {
+      if (!row) return;
+
       this.db
         .prepare(
           `UPDATE owner_requests SET status = 'released'
@@ -152,14 +151,13 @@ export class RelayDatabase {
         .get(today) as { spent_yocto: string } | undefined;
 
       if (existing) {
-        const newTotal = (
-          BigInt(existing.spent_yocto) - BigInt(row.spent_yocto)
-        ).toString();
+        const next = BigInt(existing.spent_yocto) - BigInt(row.spent_yocto);
         this.db
           .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
-          .run(newTotal, today);
+          .run(next < 0n ? "0" : next.toString(), today);
       }
-    }
+    });
+    txn();
   }
 
   getOwnerStats(owner: string, nowMs: number): OwnerStats {
@@ -169,14 +167,14 @@ export class RelayDatabase {
 
     const countRow = this.db
       .prepare(
-        `SELECT COUNT(*) as count FROM owner_requests 
+        `SELECT COUNT(*) as count FROM owner_requests
          WHERE owner = ? AND timestamp >= ? AND status != 'released'`
       )
       .get(owner, oneHourAgo) as { count: number } | undefined;
 
     const spentRows = this.db
       .prepare(
-        `SELECT spent_yocto FROM owner_requests 
+        `SELECT spent_yocto FROM owner_requests
          WHERE owner = ? AND timestamp >= ? AND status != 'released'`
       )
       .all(owner, todayStartMs) as Array<{ spent_yocto: string }>;
@@ -211,7 +209,7 @@ export class RelayDatabase {
 
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) as count FROM owner_requests 
+        `SELECT COUNT(*) as count FROM owner_requests
          WHERE action_type = ? AND timestamp >= ? AND status != 'released'`
       )
       .get(actionType, todayStartMs) as { count: number } | undefined;

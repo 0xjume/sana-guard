@@ -65,6 +65,33 @@ describe("parseAdminMessage", () => {
     expect(() => parseAdminMessage(msg)).toThrow("expected 7 lines");
   });
 
+  it("parses BackfillRecipients", () => {
+    const msg = [
+      "SANA-GUARD-ADMIN-v1",
+      "network: near-testnet",
+      "contract: guard.djume.testnet",
+      "vault: 0",
+      "nonce: 6",
+      "expires: 1234567890000000000",
+      'action: {"type":"BackfillRecipients","vault_id":0,"recipients":["DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB"]}',
+    ].join("\n");
+    const parsed = parseAdminMessage(msg);
+    expect(parsed.action.type).toBe("BackfillRecipients");
+  });
+
+  it("rejects unknown action types", () => {
+    const msg = [
+      "SANA-GUARD-ADMIN-v1",
+      "network: near-testnet",
+      "contract: guard.djume.testnet",
+      "vault: 0",
+      "nonce: 1",
+      "expires: 1234567890000000000",
+      'action: {"type":"StealFunds","vault_id":0}',
+    ].join("\n");
+    expect(() => parseAdminMessage(msg)).toThrow("Unknown action type");
+  });
+
   it("rejects invalid action JSON", () => {
     const msg = [
       "SANA-GUARD-ADMIN-v1",

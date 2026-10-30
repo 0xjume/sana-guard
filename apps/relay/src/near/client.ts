@@ -1,5 +1,6 @@
 import * as nearAPI from "near-api-js";
 import { logger } from "../logger.js";
+import { Mutex } from "../mutex.js";
 import type { NearClient, NearTransaction, VaultInfo } from "./interface.js";
 
 const { connect, keyStores, KeyPair } = nearAPI;
@@ -9,7 +10,7 @@ export class NearClientImpl implements NearClient {
   private account!: nearAPI.Account;
   private readonly contractId: string;
   private readonly accountId: string;
-  private readonly submitMutex = new SubmitMutex();
+  private readonly submitMutex = new Mutex();
 
   constructor(
     private readonly networkId: string,
@@ -181,21 +182,3 @@ export class NearClientImpl implements NearClient {
   }
 }
 
-class SubmitMutex {
-  private queue: Array<() => void> = [];
-  private locked = false;
-
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    while (this.locked) {
-      await new Promise<void>((resolve) => this.queue.push(resolve));
-    }
-    this.locked = true;
-    try {
-      return await fn();
-    } finally {
-      this.locked = false;
-      const next = this.queue.shift();
-      if (next) next();
-    }
-  }
-}
