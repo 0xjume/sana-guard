@@ -58,6 +58,10 @@ pub enum OwnerAction {
     Unpause {
         vault_id: u32,
     },
+    BackfillRecipients {
+        vault_id: u32,
+        recipients: Vec<String>,
+    },
     Release {
         vault_id: u32,
         req_id: String,
@@ -235,6 +239,7 @@ impl Guard {
             OwnerAction::RegisterTokenAccount { vault_id, .. } => *vault_id,
             OwnerAction::Pause { vault_id } => *vault_id,
             OwnerAction::Unpause { vault_id } => *vault_id,
+            OwnerAction::BackfillRecipients { vault_id, .. } => *vault_id,
             OwnerAction::Release { vault_id, .. } => *vault_id,
         }
     }
@@ -479,6 +484,17 @@ impl Guard {
                 emit_event(Event::Unpaused { vault_id });
 
                 format!("vault {} unpaused", vault_id)
+            }
+            OwnerAction::BackfillRecipients {
+                vault_id,
+                recipients,
+            } => {
+                let vault = self.vaults.get(&vault_id).expect("vault not found");
+                if vault.owner != owner {
+                    env::panic_str("not owner");
+                }
+
+                self.backfill_recipients(vault_id, recipients)
             }
             OwnerAction::Release { vault_id, req_id } => {
                 let vault = self.vaults.get(&vault_id).expect("vault not found");
