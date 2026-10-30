@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  addAgentDeposit,
   calculateRequiredDeposit,
   calculateGas,
   checkBudgets,
+  estimateGasCostYocto,
+  wouldBreachFloor,
   yoctoToNear,
 } from "./budget.js";
 import {
@@ -12,6 +15,8 @@ import {
   AGENT_OVERHEAD,
   MIN_AGENT_FUNDING,
   MAX_AGENT_FUNDING,
+  parseNearToYocto,
+  maxGasCostYocto,
 } from "./constants.js";
 import { RelayDatabase } from "./db.js";
 import type { Config } from "./config.js";
@@ -36,14 +41,32 @@ const testConfig: Config = {
   inviteToken: undefined,
   ownerAllowlist: undefined,
   corsOrigins: undefined,
+  adminGateEnabled: true,
 };
 
 describe("Gas constants", () => {
-  it("are within valid range", () => {
+  it("are at least 1e14 and below 3e14", () => {
+    expect(GAS_100_TGAS >= 100_000_000_000_000n).toBe(true);
+    expect(GAS_100_TGAS < 300_000_000_000_000n).toBe(true);
+    expect(GAS_150_TGAS >= 100_000_000_000_000n).toBe(true);
+    expect(GAS_150_TGAS < 300_000_000_000_000n).toBe(true);
     expect(Number(GAS_100_TGAS)).toBeGreaterThanOrEqual(1e14);
     expect(Number(GAS_100_TGAS)).toBeLessThan(3e14);
     expect(Number(GAS_150_TGAS)).toBeGreaterThanOrEqual(1e14);
     expect(Number(GAS_150_TGAS)).toBeLessThan(3e14);
+  });
+});
+
+describe("parseNearToYocto", () => {
+  it("parses decimal NEAR exactly", () => {
+    expect(parseNearToYocto("0.15")).toBe(MIN_AGENT_FUNDING);
+    expect(parseNearToYocto("0.5")).toBe(CREATE_VAULT_DEPOSIT);
+    expect(parseNearToYocto("1")).toBe(1_000_000_000_000_000_000_000_000n);
+    expect(parseNearToYocto("0.05")).toBe(AGENT_OVERHEAD);
+  });
+
+  it("parses yocto integer strings as-is", () => {
+    expect(parseNearToYocto("150000000000000000000000")).toBe(MIN_AGENT_FUNDING);
   });
 });
 
@@ -64,11 +87,11 @@ describe("calculateRequiredDeposit", () => {
     };
     const deposit = calculateRequiredDeposit(action);
     expect(deposit).toBe(CREATE_VAULT_DEPOSIT.toString());
-    expect(yoctoToNear(deposit)).toBe(0.5);
+    expect(deposit).toBe("500000000000000000000000");
   });
 
-  it("returns exact gas_funding + 0.05 NEAR for AddAgent", () => {
-    const gasFunding = 200_000_000_000_000_000_000_000n; // 0.2 NEAR
+  it("returns exact BigInt(gas_funding) + overhead for AddAgent", () => {
+    const gasFunding = parseNearToYocto("0.15");
     const action = {
       type: "AddAgent" as const,
       vault_id: 0,
@@ -77,65 +100,107 @@ describe("calculateRequiredDeposit", () => {
       gas_funding: gasFunding.toString(),
     };
     const deposit = calculateRequiredDeposit(action);
-    const expected = gasFunding + AGENT_OVERHEAD;
-    expect(deposit).toBe(expected.toString());
-    expect(yoctoToNear(deposit)).toBe(0.25);
+    expect(deposit).toBe((gasFunding + AGENT_OVERHEAD).toString());
+    expect(deposit).toBe(addAgentDeposit(gasFunding));
+    expect(deposit).toBe("200000000000000000000000");
+  });
+
+  it("quote and submit agree for 0.15 AddAgent funding", () => {
+    const funding = parseNearToYocto("0.15");
+    const fromAction = calculateRequiredDeposit({
+      type: "AddAgent",
+      vault_id: 0,
+      name: "agent1",
+      public_key: "ed25519:test",
+      gas_funding: funding.toString(),
+    });
+    const fromQuote = addAgentDeposit(parseNearToYocto("0.15"));
+    expect(fromAction).toBe(fromQuote);
+    expect(fromAction).toBe("200000000000000000000000");
   });
 
   it("throws if AddAgent gas_funding below 0.15 NEAR", () => {
-    const action = {
-      type: "AddAgent" as const,
-      vault_id: 0,
-      name: "agent1",
-      public_key: "ed25519:test",
-      gas_funding: "100000000000000000000000", // 0.1 NEAR
-    };
-    expect(() => calculateRequiredDeposit(action)).toThrow("below minimum");
+    expect(() =>
+      calculateRequiredDeposit({
+        type: "AddAgent",
+        vault_id: 0,
+        name: "agent1",
+        public_key: "ed25519:test",
+        gas_funding: "100000000000000000000000",
+      })
+    ).toThrow("below minimum");
   });
 
   it("throws if AddAgent gas_funding above 0.5 NEAR", () => {
-    const action = {
-      type: "AddAgent" as const,
-      vault_id: 0,
-      name: "agent1",
-      public_key: "ed25519:test",
-      gas_funding: "600000000000000000000000", // 0.6 NEAR
-    };
-    expect(() => calculateRequiredDeposit(action)).toThrow("exceeds maximum");
+    expect(() =>
+      calculateRequiredDeposit({
+        type: "AddAgent",
+        vault_id: 0,
+        name: "agent1",
+        public_key: "ed25519:test",
+        gas_funding: "600000000000000000000000",
+      })
+    ).toThrow("exceeds maximum");
   });
 
-  it("returns 0 for other actions", () => {
-    const action = {
-      type: "Pause" as const,
-      vault_id: 0,
-    };
-    const deposit = calculateRequiredDeposit(action);
-    expect(deposit).toBe("0");
+  it("returns 0 for BackfillRecipients and other actions", () => {
+    expect(
+      calculateRequiredDeposit({
+        type: "BackfillRecipients",
+        vault_id: 0,
+        recipients: ["DeF8"],
+      })
+    ).toBe("0");
+    expect(calculateRequiredDeposit({ type: "Pause", vault_id: 0 })).toBe("0");
   });
 });
 
 describe("calculateGas", () => {
-  it("returns 150 Tgas for AddAgent", () => {
-    const action = {
-      type: "AddAgent" as const,
-      vault_id: 0,
-      name: "agent1",
-      public_key: "ed25519:test",
-      gas_funding: MIN_AGENT_FUNDING.toString(),
-    };
-    const gas = calculateGas(action);
-    expect(gas).toBe(GAS_150_TGAS.toString());
+  it("returns 150 Tgas for AddAgent and 100 Tgas otherwise", () => {
+    expect(
+      calculateGas({
+        type: "AddAgent",
+        vault_id: 0,
+        name: "agent1",
+        public_key: "ed25519:test",
+        gas_funding: MIN_AGENT_FUNDING.toString(),
+      })
+    ).toBe(GAS_150_TGAS.toString());
+    expect(
+      calculateGas({
+        type: "CreateVault",
+        owner: "owner",
+        vault_address: "vault",
+        policy: {} as never,
+      })
+    ).toBe(GAS_100_TGAS.toString());
+    expect(BigInt(estimateGasCostYocto({ type: "Pause", vault_id: 0 }))).toBe(
+      maxGasCostYocto(GAS_100_TGAS)
+    );
+  });
+});
+
+describe("wouldBreachFloor", () => {
+  it("rejects CreateVault when remaining would fall below the floor", () => {
+    const balance = parseNearToYocto("0.66");
+    const deposit = CREATE_VAULT_DEPOSIT;
+    const gas = maxGasCostYocto(GAS_100_TGAS);
+    const floor = parseNearToYocto("0.5");
+    expect(
+      wouldBreachFloor(balance.toString(), deposit.toString(), gas.toString(), floor)
+    ).toBe(true);
   });
 
-  it("returns 100 Tgas for other actions", () => {
-    const action = {
-      type: "CreateVault" as const,
-      owner: "owner",
-      vault_address: "vault",
-      policy: {} as never,
-    };
-    const gas = calculateGas(action);
-    expect(gas).toBe(GAS_100_TGAS.toString());
+  it("allows a send that leaves the floor intact", () => {
+    const balance = parseNearToYocto("1.2");
+    expect(
+      wouldBreachFloor(
+        balance.toString(),
+        CREATE_VAULT_DEPOSIT.toString(),
+        maxGasCostYocto(GAS_100_TGAS).toString(),
+        parseNearToYocto("0.5")
+      )
+    ).toBe(false);
   });
 });
 
@@ -155,7 +220,7 @@ describe("checkBudgets", () => {
     const check = checkBudgets(
       "owner1",
       CREATE_VAULT_DEPOSIT.toString(),
-      "100000000000000",
+      maxGasCostYocto(GAS_100_TGAS).toString(),
       db,
       testConfig,
       Date.now()
@@ -167,7 +232,7 @@ describe("checkBudgets", () => {
     const check = checkBudgets(
       "owner1",
       "3000000000000000000000000",
-      "100000000000000",
+      "0",
       db,
       testConfig,
       Date.now()
@@ -192,7 +257,7 @@ describe("checkBudgets", () => {
     const check = checkBudgets(
       "owner1",
       CREATE_VAULT_DEPOSIT.toString(),
-      "100000000000000",
+      "0",
       db,
       testConfig,
       now
@@ -228,7 +293,7 @@ describe("checkBudgets", () => {
     const check = checkBudgets(
       "owner99",
       CREATE_VAULT_DEPOSIT.toString(),
-      "100000000000000",
+      "0",
       db,
       testConfig,
       now

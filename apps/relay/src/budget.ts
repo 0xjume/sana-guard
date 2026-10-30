@@ -8,10 +8,27 @@ import {
   MAX_AGENT_FUNDING,
   GAS_100_TGAS,
   GAS_150_TGAS,
+  maxGasCostYocto,
+  parseNearToYocto,
+  yoctoToNearString,
 } from "./constants.js";
 
 export function yoctoToNear(yocto: string): number {
   return Number(BigInt(yocto)) / 1e24;
+}
+
+export function addAgentDeposit(gasFundingYocto: bigint): string {
+  if (gasFundingYocto < MIN_AGENT_FUNDING) {
+    throw new Error(
+      `AddAgent gas_funding below minimum of ${yoctoToNearString(MIN_AGENT_FUNDING)} NEAR`
+    );
+  }
+  if (gasFundingYocto > MAX_AGENT_FUNDING) {
+    throw new Error(
+      `AddAgent gas_funding exceeds maximum of ${yoctoToNearString(MAX_AGENT_FUNDING)} NEAR`
+    );
+  }
+  return (gasFundingYocto + AGENT_OVERHEAD).toString();
 }
 
 export function calculateRequiredDeposit(action: AdminAction): string {
@@ -20,22 +37,7 @@ export function calculateRequiredDeposit(action: AdminAction): string {
   }
 
   if (action.type === "AddAgent") {
-    const gasFunding = BigInt(action.gas_funding);
-
-    if (gasFunding < MIN_AGENT_FUNDING) {
-      throw new Error(
-        `AddAgent gas_funding below minimum of ${yoctoToNear(MIN_AGENT_FUNDING.toString())} NEAR`
-      );
-    }
-
-    if (gasFunding > MAX_AGENT_FUNDING) {
-      throw new Error(
-        `AddAgent gas_funding exceeds maximum of ${yoctoToNear(MAX_AGENT_FUNDING.toString())} NEAR`
-      );
-    }
-
-    const total = gasFunding + AGENT_OVERHEAD;
-    return total.toString();
+    return addAgentDeposit(BigInt(action.gas_funding));
   }
 
   return "0";
@@ -46,6 +48,10 @@ export function calculateGas(action: AdminAction): string {
     return GAS_150_TGAS.toString();
   }
   return GAS_100_TGAS.toString();
+}
+
+export function estimateGasCostYocto(action: AdminAction): string {
+  return maxGasCostYocto(BigInt(calculateGas(action))).toString();
 }
 
 export interface BudgetCheck {
@@ -65,7 +71,7 @@ export function checkBudgets(
   const globalStats = db.getGlobalStats(nowMs);
 
   const totalCost = BigInt(depositYocto) + BigInt(gasCostYocto);
-  const maxDepositYocto = BigInt(config.maxDepositPerCallNear) * 1_000_000_000_000_000_000_000_000n;
+  const maxDepositYocto = parseNearToYocto(String(config.maxDepositPerCallNear));
 
   if (totalCost > maxDepositYocto) {
     return {
@@ -82,7 +88,7 @@ export function checkBudgets(
   }
 
   const ownerNewTotal = BigInt(ownerStats.spentToday) + totalCost;
-  const ownerBudgetYocto = BigInt(config.ownerDailyBudgetNear) * 1_000_000_000_000_000_000_000_000n;
+  const ownerBudgetYocto = parseNearToYocto(String(config.ownerDailyBudgetNear));
   if (ownerNewTotal > ownerBudgetYocto) {
     return {
       allowed: false,
@@ -91,7 +97,7 @@ export function checkBudgets(
   }
 
   const globalNewTotal = BigInt(globalStats.spentToday) + totalCost;
-  const globalBudgetYocto = BigInt(config.globalDailyBudgetNear) * 1_000_000_000_000_000_000_000_000n;
+  const globalBudgetYocto = parseNearToYocto(String(config.globalDailyBudgetNear));
   if (globalNewTotal > globalBudgetYocto) {
     return {
       allowed: false,
@@ -128,4 +134,14 @@ export function checkActionLimits(
   }
 
   return { allowed: true };
+}
+
+export function wouldBreachFloor(
+  balanceYocto: string,
+  depositYocto: string,
+  gasCostYocto: string,
+  floorYocto: bigint
+): boolean {
+  const remaining = BigInt(balanceYocto) - BigInt(depositYocto) - BigInt(gasCostYocto);
+  return remaining < floorYocto;
 }

@@ -1,15 +1,51 @@
-// Exact BigInt yocto constants for NEAR amounts
+// Exact BigInt yocto constants. Never convert through IEEE floats.
+
 export const YOCTO_PER_NEAR = 1_000_000_000_000_000_000_000_000n;
 
-// Gas constants in gas units
+// Gas units (not yocto). 1 Tgas = 1e12.
 export const GAS_100_TGAS = 100_000_000_000_000n;
 export const GAS_150_TGAS = 150_000_000_000_000n;
 
-// Deposit constants in yoctoNEAR
+// Prepaid gas is charged at ~1e9 yocto/gas (see E2E: 95 Tgas ≈ 0.096 NEAR).
+export const YOCTO_PER_GAS = 1_000_000_000n;
+
+// Deposits in yoctoNEAR
 export const CREATE_VAULT_DEPOSIT = 500_000_000_000_000_000_000_000n; // 0.5 NEAR
 export const AGENT_OVERHEAD = 50_000_000_000_000_000_000_000n; // 0.05 NEAR
 export const MIN_AGENT_FUNDING = 150_000_000_000_000_000_000_000n; // 0.15 NEAR
 export const MAX_AGENT_FUNDING = 500_000_000_000_000_000_000_000n; // 0.5 NEAR
 
-// Gas cost estimates in yoctoNEAR (1 yoctoNEAR per gas unit)
-export const ESTIMATED_GAS_COST = 100_000_000_000_000n; // 100 Tgas in yocto
+export function maxGasCostYocto(gasUnits: bigint): bigint {
+  return gasUnits * YOCTO_PER_GAS;
+}
+
+/**
+ * Parse a NEAR decimal ("0.15") or a yocto integer string
+ * ("150000000000000000000000") into exact yocto. No floats.
+ */
+export function parseNearToYocto(input: string): bigint {
+  const trimmed = input.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error("Invalid NEAR amount");
+  }
+
+  if (!trimmed.includes(".")) {
+    if (trimmed.length >= 10) {
+      return BigInt(trimmed);
+    }
+    return BigInt(trimmed) * YOCTO_PER_NEAR;
+  }
+
+  const [whole, fracRaw] = trimmed.split(".");
+  if (fracRaw!.length > 24) {
+    throw new Error("NEAR amount has more than 24 decimal places");
+  }
+  return BigInt(whole! + fracRaw!.padEnd(24, "0"));
+}
+
+export function yoctoToNearString(yocto: string | bigint): string {
+  const value = BigInt(yocto);
+  const whole = value / YOCTO_PER_NEAR;
+  const frac = (value % YOCTO_PER_NEAR).toString().padStart(24, "0").replace(/0+$/, "");
+  return frac.length === 0 ? whole.toString() : `${whole}.${frac}`;
+}

@@ -3,13 +3,26 @@ import { createRequestLogger } from "../logger.js";
 import { randomBytes } from "crypto";
 import {
   CREATE_VAULT_DEPOSIT,
-  AGENT_OVERHEAD,
-  MIN_AGENT_FUNDING,
-  MAX_AGENT_FUNDING,
-  ESTIMATED_GAS_COST,
+  GAS_100_TGAS,
+  GAS_150_TGAS,
+  parseNearToYocto,
+  yoctoToNearString,
+  maxGasCostYocto,
 } from "../constants.js";
-import { yoctoToNear } from "../budget.js";
+import { addAgentDeposit } from "../budget.js";
 import { readRateLimit } from "../middleware/rateLimit.js";
+
+const ZERO_DEPOSIT_ACTIONS = [
+  "AddRecipient",
+  "RemoveRecipient",
+  "BackfillRecipients",
+  "RemoveAgent",
+  "SetPolicy",
+  "Pause",
+  "Unpause",
+  "RegisterTokenAccount",
+  "Release",
+];
 
 export function createQuoteRouter() {
   const app = new Hono();
@@ -23,6 +36,7 @@ export function createQuoteRouter() {
       log.info({ action }, "Quote request");
 
       let depositYocto = "0";
+      let gasUnits = GAS_100_TGAS;
 
       if (action === "CreateVault") {
         depositYocto = CREATE_VAULT_DEPOSIT.toString();
@@ -35,58 +49,45 @@ export function createQuoteRouter() {
           );
         }
 
-        const gasFundingNear = parseFloat(gasFundingParam);
-        if (isNaN(gasFundingNear) || gasFundingNear < 0) {
+        let gasFundingYocto: bigint;
+        try {
+          gasFundingYocto = parseNearToYocto(gasFundingParam);
+        } catch {
           return c.json({ error: "Invalid gas_funding value" }, 400);
         }
 
-        const gasFundingYocto = BigInt(Math.floor(gasFundingNear * 1e24));
-
-        if (gasFundingYocto < MIN_AGENT_FUNDING) {
+        try {
+          depositYocto = addAgentDeposit(gasFundingYocto);
+        } catch (error: unknown) {
           return c.json(
             {
-              error: `gas_funding below minimum of ${yoctoToNear(MIN_AGENT_FUNDING.toString())} NEAR`,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Invalid gas_funding value",
             },
             400
           );
         }
-
-        if (gasFundingYocto > MAX_AGENT_FUNDING) {
-          return c.json(
-            {
-              error: `gas_funding exceeds maximum of ${yoctoToNear(MAX_AGENT_FUNDING.toString())} NEAR`,
-            },
-            400
-          );
-        }
-
-        depositYocto = (gasFundingYocto + AGENT_OVERHEAD).toString();
-      } else if (
-        [
-          "AddRecipient",
-          "RemoveRecipient",
-          "BackfillRecipients",
-          "RemoveAgent",
-          "SetPolicy",
-          "Pause",
-          "Unpause",
-          "RegisterTokenAccount",
-          "Release",
-        ].includes(action)
-      ) {
+        gasUnits = GAS_150_TGAS;
+      } else if (ZERO_DEPOSIT_ACTIONS.includes(action)) {
         depositYocto = "0";
       } else {
         return c.json({ error: "Unknown action type" }, 400);
       }
 
+      const estimatedGasYocto = maxGasCostYocto(gasUnits).toString();
+
       return c.json({
         action,
-        depositNear: yoctoToNear(depositYocto),
+        depositNear: yoctoToNearString(depositYocto),
         depositYocto,
-        estimatedGasNear: yoctoToNear(ESTIMATED_GAS_COST.toString()),
-        estimatedGasYocto: ESTIMATED_GAS_COST.toString(),
-        totalNear:
-          yoctoToNear(depositYocto) + yoctoToNear(ESTIMATED_GAS_COST.toString()),
+        estimatedGasNear: yoctoToNearString(estimatedGasYocto),
+        estimatedGasYocto,
+        totalYocto: (BigInt(depositYocto) + BigInt(estimatedGasYocto)).toString(),
+        totalNear: yoctoToNearString(
+          BigInt(depositYocto) + BigInt(estimatedGasYocto)
+        ),
       });
     } catch (error: unknown) {
       log.error({ error }, "Quote request failed");

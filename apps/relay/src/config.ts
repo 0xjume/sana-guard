@@ -19,6 +19,10 @@ const configSchema = z.object({
   inviteToken: z.string().optional(),
   ownerAllowlist: z.string().optional(),
   corsOrigins: z.string().optional(),
+  adminGateEnabled: z
+    .string()
+    .default("true")
+    .transform((v) => v !== "false" && v !== "0"),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -44,6 +48,7 @@ export function loadConfig(): Config {
     inviteToken: process.env.INVITE_TOKEN,
     ownerAllowlist: process.env.OWNER_ALLOWLIST,
     corsOrigins: process.env.CORS_ORIGINS,
+    adminGateEnabled: process.env.ADMIN_GATE_ENABLED ?? "true",
   };
 
   return configSchema.parse(raw);
