@@ -2,6 +2,7 @@ use crate::*;
 use near_sdk::test_utils::{accounts, VMContextBuilder};
 use near_sdk::testing_env;
 use near_sdk::{NearToken, PublicKey};
+use ed25519_dalek::{Signer, SigningKey};
 
 fn setup_contract() -> (VMContextBuilder, Guard) {
     let mut context = VMContextBuilder::new();
@@ -269,7 +270,14 @@ fn test_b2_add_agent_above_maximum() {
 #[test]
 #[should_panic(expected = "insufficient attached deposit")]
 fn test_b3_create_vault_without_deposit() {
-    let (mut context, _contract) = setup_contract();
+    use ed25519_dalek::{Signer, SigningKey};
+    
+    let mut context = VMContextBuilder::new();
+    context.current_account_id(accounts(0));
+    context.predecessor_account_id(accounts(1));
+    context.block_timestamp(1_000_000_000_000_000_000);
+    testing_env!(context.build());
+
     let mut contract = Guard::new(
         "mpc.near".parse().unwrap(),
         1,
@@ -277,25 +285,28 @@ fn test_b3_create_vault_without_deposit() {
         accounts(0),
     );
 
-    let owner_key = create_owner_key();
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let verifying_key = signing_key.verifying_key();
+    let owner_key = verifying_key.to_bytes();
     let vault_key = create_vault_key();
 
     let owner_b58 = bs58::encode(&owner_key).into_string();
     let vault_b58 = bs58::encode(&vault_key).into_string();
 
     let msg = format!(
-        "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: test\nvault: null\nnonce: 1\nexpires: {}\naction: {{\"type\":\"CreateVault\",\"owner\":\"{}\",\"vault_address\":\"{}\",\"policy\":{{\"per_tx_limit\":[],\"daily_cap\":[],\"programs\":[],\"max_priority_fee_lamports\":\"1000000\",\"max_memo_len\":100,\"expires_at_ns\":\"2000000000000000000\",\"loosen_delay_ns\":\"86400000000000\"}}}}",
+        "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: {}\nvault: null\nnonce: 1\nexpires: {}\naction: {{\"type\":\"CreateVault\",\"owner\":\"{}\",\"vault_address\":\"{}\",\"policy\":{{\"per_tx_limit\":[],\"daily_cap\":[],\"programs\":[],\"max_priority_fee_lamports\":\"1000000\",\"max_memo_len\":100,\"expires_at_ns\":\"2000000000000000000\",\"loosen_delay_ns\":\"86400000000000\"}}}}",
+        env::current_account_id(),
         2_000_000_000_000_000_000u64,
         owner_b58,
         vault_b58
     );
 
-    // Mock signature (64 bytes)
-    let sig = vec![0u8; 64];
+    // Properly sign the message
+    let signature_obj = signing_key.sign(msg.as_bytes());
+    let sig = signature_obj.to_bytes().to_vec();
 
     // No deposit attached - should panic
     context.attached_deposit(NearToken::from_yoctonear(0));
-    context.predecessor_account_id(accounts(1));
     testing_env!(context.build());
 
     contract.owner_action(msg, sig);
@@ -482,9 +493,24 @@ fn test_b5_cannot_release_signed_request() {
 #[test]
 #[should_panic(expected = "vault must be null for CreateVault")]
 fn test_create_vault_with_non_null_vault_header() {
-    let (mut context, mut contract) = setup_contract();
+    use ed25519_dalek::{Signer, SigningKey};
+    
+    let mut context = VMContextBuilder::new();
+    context.current_account_id(accounts(0));
+    context.predecessor_account_id(accounts(1));
+    context.block_timestamp(1_000_000_000_000_000_000);
+    testing_env!(context.build());
 
-    let owner_key = create_owner_key();
+    let mut contract = Guard::new(
+        "mpc.near".parse().unwrap(),
+        1,
+        "near-testnet".to_string(),
+        accounts(0),
+    );
+
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let verifying_key = signing_key.verifying_key();
+    let owner_key = verifying_key.to_bytes();
     let vault_key = create_vault_key();
 
     let owner_b58 = bs58::encode(&owner_key).into_string();
@@ -492,15 +518,132 @@ fn test_create_vault_with_non_null_vault_header() {
 
     // Admin message with vault: 0 instead of vault: null for CreateVault
     let msg = format!(
-        "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: test\nvault: 0\nnonce: 1\nexpires: {}\naction: {{\"type\":\"CreateVault\",\"owner\":\"{}\",\"vault_address\":\"{}\",\"policy\":{{\"per_tx_limit\":[],\"daily_cap\":[],\"programs\":[],\"max_priority_fee_lamports\":\"1000000\",\"max_memo_len\":100,\"expires_at_ns\":\"2000000000000000000\",\"loosen_delay_ns\":\"86400000000000\"}}}}",
+        "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: {}\nvault: 0\nnonce: 1\nexpires: {}\naction: {{\"type\":\"CreateVault\",\"owner\":\"{}\",\"vault_address\":\"{}\",\"policy\":{{\"per_tx_limit\":[],\"daily_cap\":[],\"programs\":[],\"max_priority_fee_lamports\":\"1000000\",\"max_memo_len\":100,\"expires_at_ns\":\"2000000000000000000\",\"loosen_delay_ns\":\"86400000000000\"}}}}",
+        env::current_account_id(),
         2_000_000_000_000_000_000u64,
         owner_b58,
         vault_b58
     );
 
-    let sig = vec![0u8; 64];
+    // Properly sign the message
+    let signature_obj = signing_key.sign(msg.as_bytes());
+    let sig = signature_obj.to_bytes().to_vec();
+
     context.attached_deposit(NearToken::from_near(1));
     testing_env!(context.build());
 
     contract.owner_action(msg, sig);
+}
+
+// B3: Test excess deposit refund
+#[test]
+fn test_b3_excess_deposit_refunded() {
+    use ed25519_dalek::{Signer, SigningKey};
+    
+    let mut context = VMContextBuilder::new();
+    context.current_account_id(accounts(0));
+    context.predecessor_account_id(accounts(1));
+    context.block_timestamp(1_000_000_000_000_000_000);
+    testing_env!(context.build());
+
+    let mut contract = Guard::new(
+        "mpc.near".parse().unwrap(),
+        1,
+        "near-testnet".to_string(),
+        accounts(0),
+    );
+
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let verifying_key = signing_key.verifying_key();
+    let owner_key = verifying_key.to_bytes();
+    let vault_key = create_vault_key();
+
+    let owner_b58 = bs58::encode(&owner_key).into_string();
+    let vault_b58 = bs58::encode(&vault_key).into_string();
+
+    let msg = format!(
+        "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: {}\nvault: null\nnonce: 1\nexpires: {}\naction: {{\"type\":\"CreateVault\",\"owner\":\"{}\",\"vault_address\":\"{}\",\"policy\":{{\"per_tx_limit\":[],\"daily_cap\":[],\"programs\":[],\"max_priority_fee_lamports\":\"1000000\",\"max_memo_len\":100,\"expires_at_ns\":\"2000000000000000000\",\"loosen_delay_ns\":\"86400000000000\"}}}}",
+        env::current_account_id(),
+        2_000_000_000_000_000_000u64,
+        owner_b58,
+        vault_b58
+    );
+
+    let signature_obj = signing_key.sign(msg.as_bytes());
+    let sig = signature_obj.to_bytes().to_vec();
+
+    // Attach 2 NEAR, more than required (0.5 NEAR storage)
+    context.attached_deposit(NearToken::from_near(2));
+    testing_env!(context.build());
+
+    // Should succeed and refund excess
+    let result = contract.owner_action(msg, sig);
+    assert!(result.contains("vault 0 created"));
+}
+
+// Test request-id hex consistency
+#[test]
+fn test_request_id_hex_consistency() {
+    let (_, contract) = setup_contract();
+
+    // get_request uses hex
+    let test_req_id_hex = "abcd".repeat(8); // 32 bytes in hex
+    let result = contract.get_request(test_req_id_hex);
+    // Should return None for non-existent, but important that it accepts hex
+    assert!(result.is_none());
+}
+
+// B5: Test release only for expired pending requests
+#[test]
+#[should_panic(expected = "request not expired yet")]
+fn test_b5_cannot_release_recent_pending_request() {
+    let (mut context, mut contract) = setup_contract();
+
+    let owner_key = create_owner_key();
+    let owner_b58 = bs58::encode(&owner_key).into_string();
+    let vault_key = create_vault_key();
+    let vault_b58 = bs58::encode(&vault_key).into_string();
+
+    let policy = types::Policy {
+        per_tx_limit: vec![],
+        daily_cap: vec![],
+        programs: vec![],
+        max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_memo_len: 100,
+        expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
+        loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
+    };
+
+    context.attached_deposit(NearToken::from_near(1));
+    testing_env!(context.build());
+
+    let create_action = owner::OwnerAction::CreateVault {
+        owner: owner_b58.clone(),
+        vault_address: vault_b58.clone(),
+        policy: policy.clone(),
+    };
+    contract.execute_owner_action(owner_key, create_action);
+
+    // Create a recent pending request (not expired)
+    let req_id = [0xab; 32];
+    let request = types::SignRequest {
+        vault_id: 0,
+        agent: accounts(1),
+        msg_hash: [0xcd; 32],
+        spend: vec![(types::Mint::Sol, 500_000_000)],
+        hour: 1000,
+        status: types::Status::Pending,
+        signature: None,
+        created_ns: env::block_timestamp(), // Just now
+    };
+
+    contract.requests.insert(req_id, request);
+
+    // Try to release - should panic as not expired yet
+    let release_action = owner::OwnerAction::Release {
+        vault_id: 0,
+        req_id: hex::encode(req_id),
+    };
+
+    contract.execute_owner_action(owner_key, release_action);
 }

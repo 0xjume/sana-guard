@@ -63,7 +63,8 @@ mod admin_signature_tests {
         let owner_address = bs58::encode(&owner_pk).into_string();
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -81,7 +82,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .build();
         testing_env!(context);
@@ -108,7 +109,8 @@ mod admin_signature_tests {
         let owner_address = bs58::encode(&owner_pk).into_string();
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -127,7 +129,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .build();
         testing_env!(context);
@@ -151,7 +153,8 @@ mod admin_signature_tests {
         let owner_address = bs58::encode(&owner_pk).into_string();
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -172,7 +175,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .build();
         testing_env!(context);
@@ -196,7 +199,8 @@ mod admin_signature_tests {
         let owner_address = bs58::encode(&owner_pk).into_string();
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -217,7 +221,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .build();
         testing_env!(context);
@@ -241,7 +245,8 @@ mod admin_signature_tests {
         let owner_address = bs58::encode(&owner_pk).into_string();
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -249,7 +254,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .block_timestamp(now)
             .build();
@@ -289,7 +294,8 @@ mod admin_signature_tests {
         contract.owner_nonce.insert(owner_pk, 1);
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -308,7 +314,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .build();
         testing_env!(context);
@@ -335,7 +341,8 @@ mod admin_signature_tests {
         contract.owner_nonce.insert(owner_pk, 5);
 
         let action_json = format!(
-            r#"{{"type":"CreateVault","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
+            owner_address,
             owner_address
         );
 
@@ -354,7 +361,7 @@ mod admin_signature_tests {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(1))
             .signer_account_pk(make_public_key(owner_pk))
-            .attached_deposit(NearToken::from_yoctonear(1))
+            .attached_deposit(NearToken::from_near(1))
             .prepaid_gas(Gas::from_tgas(300))
             .build();
         testing_env!(context);

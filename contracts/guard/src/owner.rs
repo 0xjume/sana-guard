@@ -10,8 +10,8 @@ const MAX_AGENT_FUNDING: u128 = 500_000_000_000_000_000_000_000; // 0.5 NEAR
 const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.25 NEAR
 
 // Approximate storage costs in yoctoNEAR (at 10^19 yocto per byte)
-const VAULT_STORAGE_COST: u128 = 5_000_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
-const AGENT_STORAGE_OVERHEAD: u128 = 500_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
+const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage  
+const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
 
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]
