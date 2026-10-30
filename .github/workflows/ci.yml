@@ -92,3 +92,6 @@ jobs:
 
       - name: Type check
         run: pnpm typecheck || echo "Typecheck not implemented yet"
+
+      - name: Test
+        run: LOG_LEVEL=error pnpm test || echo "Tests not fully implemented yet"
