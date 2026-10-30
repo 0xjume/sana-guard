@@ -586,7 +586,7 @@ fn test_b3_excess_deposit_refunded() {
 
     // Should succeed and refund excess
     let result = contract.owner_action(msg, sig);
-    assert!(result.contains("vault 0 created"));
+    assert!(result.contains("vault 0 creation initiated"));
 }
 
 // Test request-id hex consistency

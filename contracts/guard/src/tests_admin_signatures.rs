@@ -87,7 +87,7 @@ mod admin_signature_tests {
         testing_env!(context);
 
         let result = contract.owner_action(message, signature);
-        assert!(result.contains("vault 0 created"));
+        assert!(result.contains("vault 0 creation initiated"));
         assert_eq!(contract.next_vault_id, 1);
     }
 

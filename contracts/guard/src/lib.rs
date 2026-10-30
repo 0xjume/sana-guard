@@ -130,25 +130,33 @@ impl Guard {
         let old: OldGuard = env::state_read().expect("state not found");
 
         // Migrate vaults: add state field (all existing vaults are Active)
+        // We need to reconstruct vaults with the new state field
+        let mut old_vaults = old.vaults;
         let mut new_vaults = IterableMap::new(StorageKey::Vaults);
-        for (vault_id, old_vault) in old.vaults.iter() {
-            let new_vault = Vault {
-                owner: old_vault.owner,
-                vault_address: old_vault.vault_address,
-                path: old_vault.path.clone(),
-                state: VaultState::Active,  // Existing vaults are active
-                agents: old_vault.agents.clone(),
-                policy: old_vault.policy.clone(),
-                pending_loosen: old_vault.pending_loosen.clone(),
-                recipients: old_vault.recipients,
-                programs: old_vault.programs,
-                token_accounts: old_vault.token_accounts,
-                bucket_hashes: old_vault.bucket_hashes,
-                bucket_spend: old_vault.bucket_spend,
-                spent_cursor: old_vault.spent_cursor,
-                paused: old_vault.paused,
-            };
-            new_vaults.insert(*vault_id, new_vault);
+        
+        // Collect vault IDs first to avoid borrow issues
+        let vault_ids: Vec<u32> = old_vaults.iter().map(|(id, _)| *id).collect();
+        
+        for vault_id in vault_ids {
+            if let Some(old_vault) = old_vaults.remove(&vault_id) {
+                let new_vault = Vault {
+                    owner: old_vault.owner,
+                    vault_address: old_vault.vault_address,
+                    path: old_vault.path,
+                    state: VaultState::Active,  // Existing vaults are active
+                    agents: old_vault.agents,
+                    policy: old_vault.policy,
+                    pending_loosen: old_vault.pending_loosen,
+                    recipients: old_vault.recipients,
+                    programs: old_vault.programs,
+                    token_accounts: old_vault.token_accounts,
+                    bucket_hashes: old_vault.bucket_hashes,
+                    bucket_spend: old_vault.bucket_spend,
+                    spent_cursor: old_vault.spent_cursor,
+                    paused: old_vault.paused,
+                };
+                new_vaults.insert(vault_id, new_vault);
+            }
         }
 
         Self {
@@ -242,7 +250,6 @@ impl Guard {
                         base58_encode(&vault.vault_address),
                         derived_key_b58
                     ));
-                    let owner = vault.owner;
                     self.vaults.remove(&vault_id);
                     emit_event(Event::VaultVerificationFailed {
                         vault_id,
