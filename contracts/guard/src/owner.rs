@@ -89,7 +89,7 @@ impl Guard {
             env::panic_str("invalid signature");
         }
 
-        let last_nonce = self.owner_nonce.get(&owner_pubkey).unwrap_or(0);
+        let last_nonce = self.owner_nonce.get(&owner_pubkey).copied().unwrap_or(0);
         if parsed.nonce <= last_nonce {
             env::panic_str("nonce too old");
         }
@@ -232,7 +232,7 @@ impl Guard {
 
                 Promise::new(agent_id.clone())
                     .create_account()
-                    .transfer(NearToken::from_yoctonear(gas_funding.0))
+                    .transfer(NearToken::from_yoctonear(gas_funding.0 as u128))
                     .then(
                         Self::ext(env::current_account_id())
                             .with_static_gas(Gas::from_tgas(5))
@@ -242,13 +242,12 @@ impl Guard {
                 format!("agent {} creation initiated", name)
             }
             OwnerAction::RemoveAgent { vault_id, agent } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
 
                 vault.agents.retain(|a| a != &agent);
-                self.vaults.insert(vault_id, vault);
                 self.agent_to_vault.remove(&agent);
 
                 emit_event(Event::AgentRemoved {
@@ -259,7 +258,7 @@ impl Guard {
                 format!("agent {} removed", agent)
             }
             OwnerAction::SetPolicy { vault_id, policy } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -269,13 +268,11 @@ impl Guard {
                 if is_stricter {
                     vault.policy = policy;
                     vault.pending_loosen = None;
-                    self.vaults.insert(vault_id, vault);
                     emit_event(Event::PolicyChanged { vault_id });
                     "policy updated immediately (stricter)".to_string()
                 } else {
                     let effective_ns = env::block_timestamp() + vault.policy.loosen_delay_ns.0;
                     vault.pending_loosen = Some((policy, effective_ns));
-                    self.vaults.insert(vault_id, vault);
                     emit_event(Event::PolicyLoosenScheduled {
                         vault_id,
                         effective_ns,
@@ -287,14 +284,13 @@ impl Guard {
                 vault_id,
                 recipient,
             } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
 
                 let recipient_bytes = base58_decode(&recipient);
                 vault.recipients.insert(recipient_bytes);
-                self.vaults.insert(vault_id, vault);
 
                 format!("recipient {} added", recipient)
             }
@@ -302,14 +298,13 @@ impl Guard {
                 vault_id,
                 recipient,
             } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
 
                 let recipient_bytes = base58_decode(&recipient);
                 vault.recipients.remove(&recipient_bytes);
-                self.vaults.insert(vault_id, vault);
 
                 format!("recipient {} removed", recipient)
             }
@@ -319,7 +314,7 @@ impl Guard {
                 mint,
                 decimals,
             } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -327,31 +322,28 @@ impl Guard {
                 let ata_bytes = base58_decode(&ata);
                 let mint_bytes = base58_decode(&mint);
                 vault.token_accounts.insert(ata_bytes, (mint_bytes, decimals));
-                self.vaults.insert(vault_id, vault);
 
                 format!("token account {} registered", ata)
             }
             OwnerAction::Pause { vault_id } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
 
                 vault.paused = true;
-                self.vaults.insert(vault_id, vault);
 
                 emit_event(Event::Paused { vault_id });
 
                 format!("vault {} paused", vault_id)
             }
             OwnerAction::Unpause { vault_id } => {
-                let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
 
                 vault.paused = false;
-                self.vaults.insert(vault_id, vault);
 
                 emit_event(Event::Unpaused { vault_id });
 
@@ -370,10 +362,11 @@ impl Guard {
                 let mut req_id_arr = [0u8; 32];
                 req_id_arr.copy_from_slice(&req_id_bytes);
 
-                let mut request = self
+                let request = self
                     .requests
                     .get(&req_id_arr)
                     .expect("request not found");
+                let mut request = request.clone();
 
                 if request.vault_id != vault_id {
                     env::panic_str("request not in vault");
@@ -383,7 +376,7 @@ impl Guard {
                     env::panic_str("request not signed");
                 }
 
-                self.release_reservation(&mut request);
+                self.release_reservation(&request);
                 request.status = Status::Released;
                 self.requests.insert(req_id_arr, request);
 
@@ -431,15 +424,5 @@ impl Guard {
         }
 
         true
-    }
-
-    fn release_reservation(&mut self, request: &mut SignRequest) {
-        if let Some(mut vault) = self.vaults.get(&request.vault_id) {
-            if let Some(mut entries) = vault.buckets.get(&request.hour) {
-                entries.retain(|(hash, _)| hash != &request.msg_hash);
-                vault.buckets.insert(request.hour, entries);
-                self.vaults.insert(request.vault_id, vault);
-            }
-        }
     }
 }

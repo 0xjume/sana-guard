@@ -84,12 +84,11 @@ impl Guard {
         #[callback_result] result: Result<(), PromiseError>,
     ) {
         if result.is_ok() {
-            if let Some(mut vault) = self.vaults.get(&vault_id) {
+            if let Some(mut vault) = self.vaults.get_mut(&vault_id) {
                 let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
                     .parse()
                     .unwrap();
                 vault.agents.push(agent_id.clone());
-                self.vaults.insert(vault_id, vault);
                 self.agent_to_vault.insert(agent_id.clone(), vault_id);
                 emit_event(Event::AgentAdded {
                     vault_id,
@@ -100,12 +99,11 @@ impl Guard {
     }
 
     pub fn apply_pending_policy(&mut self, vault_id: u32) {
-        let mut vault = self.vaults.get(&vault_id).expect("vault not found");
+        let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
         
         if let Some((pending_policy, effective_ns)) = vault.pending_loosen.take() {
             require!(env::block_timestamp() >= effective_ns, "delay not elapsed");
             vault.policy = pending_policy;
-            self.vaults.insert(vault_id, vault);
             emit_event(Event::PolicyChanged { vault_id });
         } else {
             env::panic_str("no pending policy");
@@ -140,8 +138,13 @@ impl Guard {
         for hour_offset in 0..24 {
             if let Some(hour) = now_hour.checked_sub(hour_offset) {
                 if let Some(entries) = vault.buckets.get(&hour) {
-                    for (mint, amount) in entries.iter() {
-                        *totals.entry(mint.clone()).or_insert(0) += amount;
+                    for (mint_bytes, amount) in entries.iter() {
+                        let mint = if mint_bytes == &[0u8; 32] {
+                            Mint::Sol
+                        } else {
+                            Mint::Spl(*mint_bytes)
+                        };
+                        *totals.entry(mint).or_insert(0) += amount;
                     }
                 }
             }
@@ -161,7 +164,7 @@ impl Guard {
             .iter()
             .skip(from as usize)
             .take(limit)
-            .map(|(id, v)| (id, v.to_view()))
+            .map(|(id, v)| (*id, v.to_view()))
             .collect()
     }
 
@@ -174,15 +177,15 @@ impl Guard {
 
     pub fn owner_nonce(&self, owner_b58: String) -> u64 {
         let owner = base58_decode(&owner_b58);
-        self.owner_nonce.get(&owner).unwrap_or(0)
+        self.owner_nonce.get(&owner).copied().unwrap_or(0)
     }
 
-    fn release_reservation(&mut self, request: &mut SignRequest) {
-        if let Some(mut vault) = self.vaults.get(&request.vault_id) {
-            if let Some(mut entries) = vault.buckets.get(&request.hour) {
-                entries.retain(|(hash, _)| hash != &request.msg_hash);
-                vault.buckets.insert(request.hour, entries);
-                self.vaults.insert(request.vault_id, vault);
+    fn release_reservation(&mut self, request: &SignRequest) {
+        if let Some(mut vault) = self.vaults.get_mut(&request.vault_id) {
+            if let Some(entries) = vault.buckets.get(&request.hour) {
+                let mut new_entries = entries.clone();
+                new_entries.retain(|(hash, _)| hash != &request.msg_hash);
+                vault.buckets.insert(request.hour, new_entries);
             }
         }
     }

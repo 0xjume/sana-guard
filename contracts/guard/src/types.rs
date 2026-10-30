@@ -113,7 +113,7 @@ pub enum Status {
     Released,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
 #[borsh(crate = "near_sdk::borsh")]
 pub struct SignRequest {
     pub vault_id: u32,

@@ -20,6 +20,7 @@ impl Guard {
         let agent_vault = self
             .agent_to_vault
             .get(&predecessor)
+            .copied()
             .unwrap_or_else(|| env::panic_str("SG_E052_AGENT_NOT_REGISTERED"));
 
         if agent_vault != vault_id {
@@ -28,7 +29,7 @@ impl Guard {
 
         let mut vault = self
             .vaults
-            .get(&vault_id)
+            .get_mut(&vault_id)
             .unwrap_or_else(|| env::panic_str("SG_E054_VAULT_NOT_FOUND"));
 
         if vault.paused {
@@ -156,7 +157,7 @@ impl Guard {
             env::panic_str("SG_E066_INSUFFICIENT_GAS");
         }
 
-        let mut bucket_entries = vault.buckets.get(&now_hour).unwrap_or_default();
+        let mut bucket_entries = vault.buckets.get(&now_hour).cloned().unwrap_or_default();
         bucket_entries.push((msg_hash_arr, 0));
         vault.buckets.insert(now_hour, bucket_entries);
 
@@ -166,7 +167,7 @@ impl Guard {
                 Mint::Spl(b) => *b,
             };
 
-            let mut bucket_entries = vault.buckets.get(&now_hour).unwrap_or_default();
+            let mut bucket_entries = vault.buckets.get(&now_hour).cloned().unwrap_or_default();
             let mut found = false;
             for (m, a) in bucket_entries.iter_mut() {
                 if m == &mint_bytes && *m != msg_hash_arr {
@@ -180,8 +181,6 @@ impl Guard {
             }
             vault.buckets.insert(now_hour, bucket_entries);
         }
-
-        self.vaults.insert(vault_id, vault);
 
         let request = SignRequest {
             vault_id,
@@ -321,10 +320,11 @@ impl Guard {
         req_id: [u8; 32],
         result: Result<MpcSignature, near_sdk::PromiseError>,
     ) -> Option<Vec<u8>> {
-        let mut request = match self.requests.get(&req_id) {
-            Some(r) => r,
+        let request = match self.requests.get(&req_id) {
+            Some(r) => r.clone(),
             None => return None,
         };
+        let mut request = request;
 
         match result {
             Ok(MpcSignature::Ed25519 { signature }) => {
