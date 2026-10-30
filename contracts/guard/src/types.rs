@@ -25,7 +25,8 @@ pub struct Vault {
     pub recipients: LookupSet<[u8; 32]>,
     pub programs: LookupSet<[u8; 32]>,
     pub token_accounts: LookupMap<[u8; 32], ([u8; 32], u8)>,
-    pub buckets: LookupMap<u64, Vec<([u8; 32], u64)>>,
+    pub bucket_hashes: LookupMap<u64, Vec<[u8; 32]>>,
+    pub bucket_spend: LookupMap<u64, Vec<(Mint, u64)>>,
     pub spent_cursor: u64,
     pub paused: bool,
 }
@@ -48,7 +49,8 @@ impl Vault {
             recipients: LookupSet::new(StorageKey::Recipients { vault: vault_id }),
             programs: LookupSet::new(StorageKey::Programs { vault: vault_id }),
             token_accounts: LookupMap::new(StorageKey::TokenAccts { vault: vault_id }),
-            buckets: LookupMap::new(StorageKey::Buckets { vault: vault_id }),
+            bucket_hashes: LookupMap::new(StorageKey::BucketHashes { vault: vault_id }),
+            bucket_spend: LookupMap::new(StorageKey::BucketSpend { vault: vault_id }),
             spent_cursor: 0,
             paused: false,
         }

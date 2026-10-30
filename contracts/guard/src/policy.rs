@@ -10,7 +10,7 @@ impl Guard {
         &mut self,
         vault_id: u32,
         message_b64: String,
-        req_id_b64: String,
+        req_id_hex: String,
     ) -> Promise {
         if self.global_paused {
             env::panic_str("SG_E051_GLOBAL_PAUSED");
@@ -46,7 +46,7 @@ impl Guard {
             env::panic_str("SG_E057_POLICY_EXPIRED");
         }
 
-        let req_id_vec = base64_decode_vec(&req_id_b64);
+        let req_id_vec = hex::decode(&req_id_hex).expect("invalid req_id hex");
         if req_id_vec.len() != 32 {
             env::panic_str("SG_E058_INVALID_REQ_ID");
         }
@@ -66,8 +66,8 @@ impl Guard {
         let now_hour = now / (3600 * 1_000_000_000);
         for hour_offset in 0..24 {
             if let Some(hour) = now_hour.checked_sub(hour_offset) {
-                if let Some(entries) = vault.buckets.get(&hour) {
-                    for (hash, _) in entries.iter() {
+                if let Some(hashes) = vault.bucket_hashes.get(&hour) {
+                    for hash in hashes.iter() {
                         if hash == &msg_hash_arr {
                             env::panic_str("SG_E060_DUPLICATE_MSG_HASH");
                         }
@@ -115,14 +115,9 @@ impl Guard {
         let mut spend_24h: std::collections::HashMap<Mint, u64> = std::collections::HashMap::new();
         for hour_offset in 0..24 {
             if let Some(hour) = now_hour.checked_sub(hour_offset) {
-                if let Some(entries) = vault.buckets.get(&hour) {
-                    for (mint_bytes, amount) in entries.iter() {
-                        let mint = if mint_bytes == &[0u8; 32] {
-                            Mint::Sol
-                        } else {
-                            Mint::Spl(*mint_bytes)
-                        };
-                        *spend_24h.entry(mint).or_insert(0) += amount;
+                if let Some(entries) = vault.bucket_spend.get(&hour) {
+                    for (mint, amount) in entries.iter() {
+                        *spend_24h.entry(mint.clone()).or_insert(0) += amount;
                     }
                 }
             }
@@ -161,29 +156,36 @@ impl Guard {
         // Now do mutations with mutable access
         let vault = self.vaults.get_mut(&vault_id).unwrap();
 
-        let mut bucket_entries = vault.buckets.get(&now_hour).cloned().unwrap_or_default();
-        bucket_entries.push((msg_hash_arr, 0));
-        vault.buckets.insert(now_hour, bucket_entries);
+        // Add message hash to prevent replays
+        let mut hashes = vault
+            .bucket_hashes
+            .get(&now_hour)
+            .cloned()
+            .unwrap_or_default();
+        hashes.push(msg_hash_arr);
+        vault.bucket_hashes.insert(now_hour, hashes);
 
+        // Add spend amounts
         for (mint, amount) in &spend {
-            let mint_bytes = match mint {
-                Mint::Sol => [0u8; 32],
-                Mint::Spl(b) => *b,
-            };
+            let mut spend_entries = vault
+                .bucket_spend
+                .get(&now_hour)
+                .cloned()
+                .unwrap_or_default();
 
-            let mut bucket_entries = vault.buckets.get(&now_hour).cloned().unwrap_or_default();
             let mut found = false;
-            for (m, a) in bucket_entries.iter_mut() {
-                if m == &mint_bytes && *m != msg_hash_arr {
-                    *a = a.checked_add(*amount).unwrap_or(u64::MAX);
+            for (existing_mint, existing_amount) in spend_entries.iter_mut() {
+                if existing_mint == mint {
+                    *existing_amount = existing_amount.checked_add(*amount).unwrap_or(u64::MAX);
                     found = true;
                     break;
                 }
             }
             if !found {
-                bucket_entries.push((mint_bytes, *amount));
+                spend_entries.push((mint.clone(), *amount));
             }
-            vault.buckets.insert(now_hour, bucket_entries);
+
+            vault.bucket_spend.insert(now_hour, spend_entries);
         }
 
         // Get vault info before dropping the mutable borrow
@@ -203,7 +205,7 @@ impl Guard {
         self.requests.insert(req_id, request);
 
         emit_event(Event::SignRequested {
-            req_id: req_id_b64.clone(),
+            req_id: hex::encode(req_id),
             vault_id,
             agent: predecessor.to_string(),
             spend: spend.iter().map(|(m, a)| (mint_to_string(m), *a)).collect(),
@@ -337,11 +339,7 @@ impl Guard {
                 self.requests.insert(req_id, request.clone());
 
                 emit_event(Event::Signed {
-                    req_id: {
-                        use near_sdk::base64::engine::general_purpose::STANDARD;
-                        use near_sdk::base64::Engine;
-                        STANDARD.encode(req_id)
-                    },
+                    req_id: hex::encode(req_id),
                     vault_id: request.vault_id,
                 });
 

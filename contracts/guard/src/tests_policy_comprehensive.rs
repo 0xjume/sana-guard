@@ -67,12 +67,12 @@ mod rolling_24h_cap_tests {
 
         // Spend 0.5 SOL at hour 0
         let vault = contract.vaults.get_mut(&0).unwrap();
-        let bucket = vec![([0u8; 32], 500_000_000)]; // 0.5 SOL
-        vault.buckets.insert(hour_0, bucket);
+        let spend = vec![(Mint::Sol, 500_000_000)]; // 0.5 SOL
+        vault.bucket_spend.insert(hour_0, spend);
 
         // Spend another 0.3 SOL at hour 12
-        let bucket = vec![([0u8; 32], 300_000_000)]; // 0.3 SOL
-        vault.buckets.insert(hour_12, bucket);
+        let spend = vec![(Mint::Sol, 300_000_000)]; // 0.3 SOL
+        vault.bucket_spend.insert(hour_12, spend);
         let _ = vault;
 
         // Check total spend in 24h window from hour 12 (should be 0.8 SOL)
@@ -80,9 +80,9 @@ mod rolling_24h_cap_tests {
         let mut total = 0u64;
         for offset in 0..24 {
             if let Some(hour) = hour_12.checked_sub(offset) {
-                if let Some(entries) = vault.buckets.get(&hour) {
-                    for (mint_bytes, amount) in entries.iter() {
-                        if mint_bytes == &[0u8; 32] {
+                if let Some(entries) = vault.bucket_spend.get(&hour) {
+                    for (mint, amount) in entries.iter() {
+                        if *mint == Mint::Sol {
                             total += amount;
                         }
                     }
@@ -95,9 +95,9 @@ mod rolling_24h_cap_tests {
         let mut total = 0u64;
         for offset in 0..24 {
             if let Some(hour) = hour_25.checked_sub(offset) {
-                if let Some(entries) = vault.buckets.get(&hour) {
-                    for (mint_bytes, amount) in entries.iter() {
-                        if mint_bytes == &[0u8; 32] {
+                if let Some(entries) = vault.bucket_spend.get(&hour) {
+                    for (mint, amount) in entries.iter() {
+                        if *mint == Mint::Sol {
                             total += amount;
                         }
                     }
@@ -371,14 +371,14 @@ mod idempotency_tests {
             },
         );
 
-        let bucket = vec![(msg_hash, 0u64)];
-        vault.buckets.insert(hour, bucket);
+        let hashes = vec![msg_hash];
+        vault.bucket_hashes.insert(hour, hashes);
         contract.vaults.insert(0, vault);
 
         // Check msg_hash exists in bucket
         let vault = contract.vaults.get(&0).unwrap();
-        let entries = vault.buckets.get(&hour).unwrap();
-        let found = entries.iter().any(|(h, _)| h == &msg_hash);
+        let entries = vault.bucket_hashes.get(&hour).unwrap();
+        let found = entries.iter().any(|h| h == &msg_hash);
         assert!(found);
     }
 }

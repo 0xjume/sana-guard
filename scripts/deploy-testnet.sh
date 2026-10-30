@@ -17,26 +17,10 @@ NETWORK_TAG="${NETWORK_TAG:-near-testnet}"
 echo "Building contract..."
 cd contracts/guard
 
-# Build with cargo-near if available, otherwise use wasm-opt
-if command -v cargo-near &> /dev/null; then
-    echo "Using cargo-near build..."
-    cargo near build --release
-    WASM_FILE="target/near/sana_guard_contract/sana_guard_contract.wasm"
-else
-    echo "Using cargo build + wasm-opt..."
-    cargo build --target wasm32-unknown-unknown --release
-    
-    # Optimize with wasm-opt
-    if command -v wasm-opt &> /dev/null; then
-        wasm-opt -Oz --strip-debug \
-            ../../target/wasm32-unknown-unknown/release/sana_guard_contract.wasm \
-            -o ../../target/wasm32-unknown-unknown/release/sana_guard_contract_opt.wasm
-        WASM_FILE="../../target/wasm32-unknown-unknown/release/sana_guard_contract_opt.wasm"
-    else
-        echo "Warning: wasm-opt not found, deploying unoptimized binary"
-        WASM_FILE="../../target/wasm32-unknown-unknown/release/sana_guard_contract.wasm"
-    fi
-fi
+# Build with cargo-near
+echo "Using cargo-near build..."
+cargo near build non-reproducible-wasm --no-abi
+WASM_FILE="target/near/sana_guard_contract.wasm"
 
 cd ../..
 
@@ -47,14 +31,33 @@ if [ $WASM_SIZE -gt 419430 ]; then
     echo "Warning: WASM file is larger than 409 KB ($((WASM_SIZE / 1024)) KB)"
 fi
 
+# Calculate required storage deposit (1 NEAR per 100 KB)
+STORAGE_BYTES=$WASM_SIZE
+STORAGE_NEAR=$(echo "scale=2; $STORAGE_BYTES / 100000 + 0.5" | bc)
+echo "Estimated storage cost: ${STORAGE_NEAR} NEAR"
+
+# Check current balance and storage
+echo "Checking contract account balance..."
+CURRENT_BALANCE=$(near account view-account-summary "$CONTRACT_ACCOUNT" network-config testnet 2>/dev/null | grep "Balance" | awk '{print $2}' || echo "0")
+
+echo "Current balance: ${CURRENT_BALANCE}"
+echo ""
+echo "Note: Ensure the contract account has at least ${STORAGE_NEAR} NEAR available for storage."
+echo "If needed, transfer NEAR to $CONTRACT_ACCOUNT before deploying."
+echo ""
+
 echo "Deploying to $CONTRACT_ACCOUNT..."
-near deploy "$CONTRACT_ACCOUNT" "$WASM_FILE"
+near contract deploy "$CONTRACT_ACCOUNT" \
+    use-file "$WASM_FILE" \
+    with-init-call new \
+    json-args "{\"mpc_contract\": \"$MPC_CONTRACT\", \"mpc_domain_id\": $MPC_DOMAIN_ID, \"network_tag\": \"$NETWORK_TAG\", \"admin\": \"$NEAR_ADMIN_ACCOUNT\"}" \
+    prepaid-gas '100.0 Tgas' \
+    attached-deposit '0 NEAR' \
+    network-config testnet \
+    sign-with-keychain \
+    send
 
-echo "Initializing contract..."
-near call "$CONTRACT_ACCOUNT" new \
-    "{\"mpc_contract\": \"$MPC_CONTRACT\", \"mpc_domain_id\": $MPC_DOMAIN_ID, \"network_tag\": \"$NETWORK_TAG\", \"admin\": \"$NEAR_ADMIN_ACCOUNT\"}" \
-    --accountId "$NEAR_OWNER_ACCOUNT"
-
+echo ""
 echo "Deployment complete!"
 echo "Contract: $CONTRACT_ACCOUNT"
 echo "MPC Contract: $MPC_CONTRACT"
