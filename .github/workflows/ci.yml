@@ -65,7 +65,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -87,11 +87,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Scoped to apps/relay: dashboard/mcp are README-only placeholders
+      # with no lint/typecheck/test scripts. Failures here fail the job.
       - name: Lint
-        run: cd apps/relay && pnpm lint
+        run: pnpm --filter @sana-guard/relay lint
 
       - name: Type check
-        run: pnpm typecheck
+        run: pnpm --filter @sana-guard/relay typecheck
 
       - name: Test
-        run: LOG_LEVEL=error pnpm test
+        run: LOG_LEVEL=error pnpm --filter @sana-guard/relay test

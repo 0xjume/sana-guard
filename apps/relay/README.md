@@ -20,15 +20,16 @@ Submit an owner-signed admin message.
 
 ```json
 {
-  "action": { "type": "CreateVault", "owner": "...", "vault_address": "...", "policy": {...} },
-  "vault": null,
-  "nonce": 1,
-  "expiry": "1234567890000000000",
-  "signature": [0, 1, 2, ...]
+  "msg": "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\n...",
+  "signature": [0, 1, 2, ...],
+  "owner": "DeF8... (required except CreateVault; used to verify the sig before any RPC)"
 }
 ```
 
-The relay reconstructs the full admin message, verifies the signature, checks budgets, and submits to the guard contract.
+The relay verifies ed25519 over those exact `msg` bytes, then parses the 7 signed lines. It never rebuilds the message with `JSON.stringify`.
+
+**Headers:**
+- `X-Invite-Token`: required for CreateVault/AddAgent when `INVITE_TOKEN` is set (the gate is on by default)
 
 **Response (success):**
 
@@ -52,28 +53,17 @@ The relay reconstructs the full admin message, verifies the signature, checks bu
 
 **Error codes:**
 
-- `400` — Invalid message, signature, nonce, or expiry
+- `400` — Invalid message, signature, nonce, expiry, vault header mismatch
 - `401` — Invalid signature
+- `403` — Invite gate or allowlist denied
 - `404` — Vault not found
-- `429` — Budget or rate limit exceeded
+- `409` — Nonce already in flight
+- `429` — Budget, rate limit, or action limit exceeded
 - `503` — Relay balance below floor
 
 ### `GET /v1/vaults/:id`
 
 Fetch vault info from the guard contract.
-
-**Response:**
-
-```json
-{
-  "owner": "DeF8...",
-  "vault_address": "Fkk515...",
-  "path": "vault/DeF8.../0",
-  "agents": ["agent1.guard.djume.testnet"],
-  "policy": { ... },
-  "paused": false
-}
-```
 
 ### `GET /v1/quote/:action`
 
@@ -90,27 +80,16 @@ Get the required deposit for an action.
   "action": "CreateVault",
   "depositNear": 0.5,
   "depositYocto": "500000000000000000000000",
-  "estimatedGasNear": 0.1,
+  "estimatedGasNear": "0.1",
   "estimatedGasYocto": "100000000000000000000000",
-  "totalNear": 0.6
+  "totalYocto": "600000000000000000000000",
+  "totalNear": "0.6"
 }
 ```
 
 ### `GET /v1/health`
 
 Health check endpoint.
-
-**Response:**
-
-```json
-{
-  "status": "healthy",
-  "relayBalanceNear": 5.23,
-  "relayBalanceFloor": 0.5,
-  "network": "testnet",
-  "guardContract": "guard.djume.testnet"
-}
-```
 
 ## Environment Variables
 
@@ -121,16 +100,23 @@ See `.env.example` for all configuration. Required variables:
 - `NEAR_NETWORK` — testnet or mainnet
 - `NEAR_RPC_URL` — https://rpc.testnet.near.org
 - `GUARD_CONTRACT_ID` — guard.djume.testnet
-- `DATABASE_URL` — sqlite:./relay.db or postgresql://...
+- `DATABASE_URL` — sqlite:./relay.db
 
 Security settings:
 
-- `RELAY_BALANCE_FLOOR_NEAR` — refuse requests below this balance
-- `MAX_AGENT_GAS_FUNDING_NEAR` — cap for AddAgent gas_funding
-- `GLOBAL_DAILY_BUDGET_NEAR` — total NEAR spending limit per day
-- `MAX_DEPOSIT_PER_CALL_NEAR` — hard cap on any single deposit
-- `OWNER_RATE_LIMIT_PER_HOUR` — max requests per owner per hour
-- `OWNER_DAILY_BUDGET_NEAR` — max NEAR per owner per day
+- `RELAY_BALANCE_FLOOR_NEAR` — refuse requests below this balance (default: 0.5)
+- `MAX_AGENT_GAS_FUNDING_NEAR` — cap for AddAgent gas_funding (default: 0.5)
+- `GLOBAL_DAILY_BUDGET_NEAR` — total NEAR spending limit per day (default: **1.0**)
+- `MAX_DEPOSIT_PER_CALL_NEAR` — hard cap on any single deposit (default: 2.0)
+- `OWNER_RATE_LIMIT_PER_HOUR` — max requests per owner per hour (default: 30)
+- `OWNER_DAILY_BUDGET_NEAR` — max NEAR per owner per day (default: 5.0)
+
+Anti-drain gates (on by default for CreateVault / AddAgent):
+
+- `ADMIN_GATE_ENABLED` — default `true`. If true and neither token nor allowlist is set, CreateVault/AddAgent return 403
+- `INVITE_TOKEN` — require this token in `X-Invite-Token` for CreateVault/AddAgent
+- `OWNER_ALLOWLIST` — comma-separated allowed owner pubkeys (base58)
+- `CORS_ORIGINS` — comma-separated allowed origins (`*` for all)
 
 ## Development
 
@@ -144,12 +130,12 @@ pnpm dev
 ## Testing
 
 ```bash
-# Unit tests with mocked NEAR RPC
+# Unit tests (NEAR RPC mocked)
 pnpm test
 
-# Live integration tests (view calls only, no transactions)
-# Requires RELAY_NEAR_PRIVATE_KEY in .env
-pnpm test:live
+# Live integration tests (view calls + one real AddRecipient on testnet)
+# Requires RELAY_NEAR_PRIVATE_KEY and OWNER_KEY_PATH in .env
+RELAY_LIVE=1 pnpm test
 ```
 
 Test coverage:
@@ -157,17 +143,20 @@ Test coverage:
 - ✅ Admin message parsing (valid/invalid formats)
 - ✅ Signature verification (valid/invalid/wrong length)
 - ✅ Budget tracking and limits (owner rate limit, owner daily, global daily, hard cap)
-- ✅ Deposit calculations (CreateVault, AddAgent, others)
-- ✅ Balance floor check
-- ✅ Live view calls to guard.djume.testnet (opt-in with `RELAY_LIVE=1`)
+- ✅ Deposit calculations (exact BigInt yocto constants, no float precision issues)
+- ✅ Gas values (100 Tgas normal, 150 Tgas AddAgent, validated range 1e14–3e14)
+- ✅ Balance floor check (before every send, inside owner lock)
+- ✅ Live testnet: AddRecipient submission with real tx hash
+
+**48 passing** (unit tests), **4 skipped** (live view calls + one real AddRecipient require `RELAY_LIVE=1` and `OWNER_KEY_PATH`)
 
 ## Deployment
 
 ### Railway
 
 1. Create a new project in Railway
-2. Add a PostgreSQL database (optional; SQLite works for low traffic)
-3. Set environment variables from `.env.example`
+2. Add environment variables from `.env.example`
+3. Create a **persistent volume** mounted at `/app/relay.db` for SQLite (budgets otherwise reset on redeploy)
 4. Connect your GitHub repo
 5. Railway will detect `railway.json` and deploy automatically
 
@@ -227,7 +216,20 @@ The health check endpoint is `/v1/health`.
 - Monitor the health endpoint
 - Keep the relay balance above the floor
 
-#### Scenario 3: Database is corrupted or lost
+#### Scenario 3: CreateVault drain (public demo)
+
+**Impact:** CreateVault is permissionless and new Solana keys are free. Without gates, an attacker can drain the relay by creating unlimited vaults.
+
+**Mitigation (required for public demo):**
+
+- Enable `INVITE_TOKEN` to require an invite token in the `X-Invite-Token` header
+- Enable `OWNER_ALLOWLIST` to restrict CreateVault/AddAgent to specific owner pubkeys
+- Set a low `GLOBAL_DAILY_BUDGET_NEAR` (default: 1 NEAR/day)
+- Daily action count limits: CreateVault max 3/day, AddAgent max 5/day
+
+**Default configuration:** `ADMIN_GATE_ENABLED=true`. CreateVault and AddAgent are refused until you set `INVITE_TOKEN` and/or `OWNER_ALLOWLIST`. The global daily budget defaults to 1 NEAR. Daily count caps: CreateVault 3, AddAgent 5. Set `ADMIN_GATE_ENABLED=false` only for a private, trusted deployment.
+
+#### Scenario 4: Database is corrupted or lost
 
 **Impact:** Rate limits and budget tracking reset. An attacker with a valid owner signature could bypass daily limits until the database is restored.
 
@@ -235,8 +237,8 @@ The health check endpoint is `/v1/health`.
 
 **Mitigation:**
 
+- Use a **persistent volume** for the SQLite file (Railway: mount at the `DATABASE_URL` path, e.g. `/data/relay.db`). Without a volume, budgets reset on every redeploy.
 - Regular database backups
-- Use a managed database (Railway Postgres)
 - Set conservative on-chain policy limits
 
 ### Summary
@@ -252,7 +254,7 @@ The relay is a **convenience service** that reduces friction for dashboard users
 
 ## Admin Message Format
 
-The relay reconstructs this exact format before submission:
+The relay expects the raw signed message string:
 
 ```
 SANA-GUARD-ADMIN-v1
@@ -266,15 +268,44 @@ action: {"type":"CreateVault","owner":"...","vault_address":"...","policy":{...}
 
 The signature is computed over this entire string (UTF-8 bytes) using ed25519.
 
+**Important:** The relay does NOT rebuild the message. It validates and passes the exact signed string to `owner_action`. This prevents signature mismatches from JSON encoding differences (e.g., Unicode escaping).
+
 ## Deposits
 
 | Action | Deposit |
 |--------|---------|
 | CreateVault | 0.5 NEAR (contract storage) |
 | AddAgent | `gas_funding` + 0.05 NEAR (agent account + storage) |
-| Others (Pause, Unpause, AddRecipient, etc.) | 0 NEAR |
+| Others (Pause, Unpause, AddRecipient, BackfillRecipients, etc.) | 0 NEAR |
 
-Gas cost is estimated at 0.1 NEAR per transaction. The relay tracks `deposit + gas` against budgets.
+**Gas:**
+- Normal actions: 100 Tgas
+- AddAgent: 150 Tgas
+
+**AddAgent constraints:**
+- Minimum `gas_funding`: 0.15 NEAR
+- Maximum `gas_funding`: 0.5 NEAR
+
+Prepaid gas is costed at ~1e9 yocto/gas (100 Tgas ≈ 0.1 NEAR, 150 Tgas ≈ 0.15 NEAR). The relay tracks `deposit + max gas cost` against budgets and the balance floor.
+
+## Concurrency
+
+The relay uses a per-owner lock for nonce checking, budget reservation, and submission:
+
+1. Lock the owner
+2. Check that the nonce is not in flight (409 if duplicate)
+3. Verify on-chain nonce freshness
+4. Check budgets and action limits
+5. Reserve budget atomically (insert pending row in one SQLite transaction)
+6. **Check balance floor** (must have `deposit + max_gas_cost + floor` remaining)
+7. Submit to NEAR
+8. Finalize budget with tx hash (or release on pre-send failure)
+9. Unlock the owner
+
+This prevents:
+- Two requests with the same nonce from both passing the nonce check
+- Budget double-spending
+- Balance floor breaches
 
 ## License
 
