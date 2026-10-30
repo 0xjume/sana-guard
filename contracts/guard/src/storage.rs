@@ -8,9 +8,12 @@ pub enum StorageKey {
     AgentToVault,
     Requests,
     OwnerNonce,
+    OwnerVaultCount,
     Recipients { vault: u32 },
     Programs { vault: u32 },
     Mints { vault: u32 },
     TokenAccts { vault: u32 },
     Buckets { vault: u32 },
+    BucketHashes { vault: u32 },
+    BucketSpend { vault: u32 },
 }

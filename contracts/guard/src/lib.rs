@@ -23,6 +23,9 @@ mod tests_callback;
 #[cfg(test)]
 mod tests_admin_signatures;
 
+#[cfg(test)]
+mod tests_e2e_fixes;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -48,6 +51,7 @@ pub struct Guard {
     owner_nonce: LookupMap<[u8; 32], u64>,
     requests: LookupMap<[u8; 32], SignRequest>,
     next_vault_id: u32,
+    owner_vault_count: LookupMap<[u8; 32], u32>,
 }
 
 #[near]
@@ -70,9 +74,46 @@ impl Guard {
             owner_nonce: LookupMap::new(StorageKey::OwnerNonce),
             requests: LookupMap::new(StorageKey::Requests),
             next_vault_id: 0,
+            owner_vault_count: LookupMap::new(StorageKey::OwnerVaultCount),
         }
     }
 
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate() -> Self {
+        #[derive(near_sdk::borsh::BorshDeserialize)]
+        #[borsh(crate = "near_sdk::borsh")]
+        struct OldGuard {
+            mpc_contract: AccountId,
+            mpc_domain_id: u32,
+            network_tag: String,
+            admin: AccountId,
+            global_paused: bool,
+            vaults: IterableMap<u32, Vault>,
+            agent_to_vault: LookupMap<AccountId, u32>,
+            owner_nonce: LookupMap<[u8; 32], u64>,
+            requests: LookupMap<[u8; 32], SignRequest>,
+            next_vault_id: u32,
+        }
+
+        let old: OldGuard = env::state_read().expect("state not found");
+
+        Self {
+            mpc_contract: old.mpc_contract,
+            mpc_domain_id: old.mpc_domain_id,
+            network_tag: old.network_tag,
+            admin: old.admin,
+            global_paused: old.global_paused,
+            vaults: old.vaults,
+            agent_to_vault: old.agent_to_vault,
+            owner_nonce: old.owner_nonce,
+            requests: old.requests,
+            next_vault_id: old.next_vault_id,
+            owner_vault_count: LookupMap::new(StorageKey::OwnerVaultCount),
+        }
+    }
+
+    #[payable]
     pub fn owner_action(&mut self, msg: String, sig: Vec<u8>) -> String {
         self.handle_owner_action(msg, sig)
     }
@@ -81,9 +122,9 @@ impl Guard {
         &mut self,
         vault_id: u32,
         message_b64: String,
-        req_id_b64: String,
+        req_id_hex: String,
     ) -> Promise {
-        self.process_sign_request(vault_id, message_b64, req_id_b64)
+        self.process_sign_request(vault_id, message_b64, req_id_hex)
     }
 
     #[private]
@@ -150,8 +191,13 @@ impl Guard {
         self.vaults.get(&vault_id).map(|v| v.policy.clone())
     }
 
-    pub fn get_request(&self, req_id_b64: String) -> Option<SignRequestView> {
-        let req_id = base64_decode(&req_id_b64);
+    pub fn get_request(&self, req_id_hex: String) -> Option<SignRequestView> {
+        let req_id_bytes = hex::decode(&req_id_hex).ok()?;
+        if req_id_bytes.len() != 32 {
+            return None;
+        }
+        let mut req_id = [0u8; 32];
+        req_id.copy_from_slice(&req_id_bytes);
         self.requests.get(&req_id).map(|r| r.to_view())
     }
 
@@ -162,14 +208,9 @@ impl Guard {
 
         for hour_offset in 0..24 {
             if let Some(hour) = now_hour.checked_sub(hour_offset) {
-                if let Some(entries) = vault.buckets.get(&hour) {
-                    for (mint_bytes, amount) in entries.iter() {
-                        let mint = if mint_bytes == &[0u8; 32] {
-                            Mint::Sol
-                        } else {
-                            Mint::Spl(*mint_bytes)
-                        };
-                        *totals.entry(mint).or_insert(0) += amount;
+                if let Some(entries) = vault.bucket_spend.get(&hour) {
+                    for (mint, amount) in entries.iter() {
+                        *totals.entry(mint.clone()).or_insert(0) += amount;
                     }
                 }
             }
@@ -207,10 +248,26 @@ impl Guard {
 
     fn release_reservation(&mut self, request: &SignRequest) {
         if let Some(vault) = self.vaults.get_mut(&request.vault_id) {
-            if let Some(entries) = vault.buckets.get(&request.hour) {
-                let mut new_entries = entries.clone();
-                new_entries.retain(|(hash, _)| hash != &request.msg_hash);
-                vault.buckets.insert(request.hour, new_entries);
+            // Remove hash marker
+            if let Some(hashes) = vault.bucket_hashes.get(&request.hour) {
+                let mut new_hashes = hashes.clone();
+                new_hashes.retain(|hash| hash != &request.msg_hash);
+                vault.bucket_hashes.insert(request.hour, new_hashes);
+            }
+
+            // Subtract spend amounts
+            if let Some(spend_entries) = vault.bucket_spend.get(&request.hour) {
+                let mut new_spend = spend_entries.clone();
+
+                for (req_mint, req_amount) in &request.spend {
+                    if let Some((_, existing_amount)) =
+                        new_spend.iter_mut().find(|(mint, _)| mint == req_mint)
+                    {
+                        *existing_amount = existing_amount.saturating_sub(*req_amount);
+                    }
+                }
+
+                vault.bucket_spend.insert(request.hour, new_spend);
             }
         }
     }

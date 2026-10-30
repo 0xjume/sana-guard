@@ -43,8 +43,10 @@ fn setup_contract_with_request() -> (Guard, [u8; 32]) {
     );
 
     // Add reservation to bucket
-    let bucket = vec![([0u8; 32], 100_000_000)];
-    vault.buckets.insert(1000, bucket);
+    let spend = vec![(types::Mint::Sol, 100_000_000)];
+    vault.bucket_spend.insert(1000, spend);
+    let hashes = vec![[0u8; 32]];
+    vault.bucket_hashes.insert(1000, hashes);
     contract.vaults.insert(0, vault);
 
     contract.requests.insert(req_id, request);
