@@ -335,7 +335,7 @@ fn test_f3a_vault_activated_on_match() {
     // Simulate successful MPC callback with matching key
     context.predecessor_account_id(env::current_account_id());
     testing_env!(context.build());
-    let result = Ok(vault_b58.clone());
+    let result = Ok(format!("ed25519:{}", vault_b58));
     contract.on_vault_verified(
         0,
         accounts(0),
@@ -383,7 +383,7 @@ fn test_f3a_vault_removed_on_mismatch() {
     // Simulate MPC callback with mismatched key
     context.predecessor_account_id(env::current_account_id());
     testing_env!(context.build());
-    let result = Ok(wrong_b58);
+    let result = Ok(format!("ed25519:{}", wrong_b58));
     contract.on_vault_verified(
         0,
         accounts(0),

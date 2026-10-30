@@ -127,6 +127,10 @@ impl Guard {
             }
         }
 
+        // Cheap AddAgent checks before requiring the 0.2 NEAR deposit, so a
+        // duplicate name or bad funding fails without attaching funds.
+        self.precheck_add_agent(&parsed.action);
+
         // Validate attached deposit for actions that consume contract resources
         let attached = env::attached_deposit().as_yoctonear();
         let required = Self::calculate_required_deposit(&parsed.action);
@@ -148,6 +152,31 @@ impl Guard {
         self.owner_nonce.insert(owner_pubkey, parsed.nonce);
 
         self.execute_owner_action(owner_pubkey, parsed.action)
+    }
+
+    fn precheck_add_agent(&self, action: &OwnerAction) {
+        let OwnerAction::AddAgent {
+            name, gas_funding, ..
+        } = action
+        else {
+            return;
+        };
+
+        let funding = gas_funding.0;
+        if funding < MIN_AGENT_FUNDING {
+            env::panic_str("gas_funding below minimum");
+        }
+        if funding > MAX_AGENT_FUNDING {
+            env::panic_str("gas_funding above maximum");
+        }
+
+        let agent_id: AccountId = format!("{}.{}", name, env::current_account_id())
+            .parse()
+            .unwrap_or_else(|_| env::panic_str("invalid agent name"));
+
+        if self.agent_to_vault.get(&agent_id).is_some() {
+            env::panic_str("SG_E077_AGENT_EXISTS");
+        }
     }
 
     fn calculate_required_deposit(action: &OwnerAction) -> u128 {
@@ -271,7 +300,10 @@ impl Guard {
                 let vault = Vault::new(vault_id, owner, vault_address_bytes, path.clone(), policy);
                 self.vaults.insert(vault_id, vault);
 
-                // Call MPC to verify the derived public key
+                // MPC v1.signer-prod.testnet ABI:
+                //   derived_public_key(path: String, predecessor: Option<AccountId>,
+                //                      domain_id: Option<DomainId>) -> PublicKey
+                // JSON args: {"path","predecessor","domain_id"}. Return: "ed25519:<b58>".
                 #[derive(near_sdk::serde::Serialize)]
                 #[serde(crate = "near_sdk::serde")]
                 struct DerivedKeyArgs {

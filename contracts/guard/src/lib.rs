@@ -262,8 +262,10 @@ impl Guard {
         };
 
         match result {
-            Ok(derived_key_b58) => {
-                match try_base58_decode(&derived_key_b58) {
+            Ok(derived_key_json) => {
+                // v1.signer-prod.testnet derived_public_key returns a JSON string
+                // "ed25519:<b58>" (near-sdk PublicKey / dtos::PublicKey).
+                match parse_mpc_ed25519_key(&derived_key_json) {
                     Some(derived_key_bytes) if derived_key_bytes == vault.vault_address => {
                         vault.state = VaultState::Active;
                         emit_event(Event::VaultCreated {
@@ -273,11 +275,10 @@ impl Guard {
                         });
                     }
                     _ => {
-                        // Mismatch or undecodable key: remove vault and refund.
                         env::log_str(&format!(
                             "vault address mismatch: expected {} got {}",
                             base58_encode(&vault.vault_address),
-                            derived_key_b58
+                            derived_key_json
                         ));
                         self.vaults.remove(&vault_id);
                         emit_event(Event::VaultVerificationFailed {
@@ -468,6 +469,14 @@ fn base58_encode(bytes: &[u8]) -> String {
 fn try_base58_decode(s: &str) -> Option<[u8; 32]> {
     let bytes = bs58::decode(s).into_vec().ok()?;
     bytes.try_into().ok()
+}
+
+/// Parse the JSON string returned by MPC `derived_public_key`.
+/// Live shape (v1.signer-prod.testnet, domain 1): `"ed25519:<b58>"`.
+/// Missing/wrong prefix or non-32-byte base58 is a mismatch.
+fn parse_mpc_ed25519_key(s: &str) -> Option<[u8; 32]> {
+    let b58 = s.strip_prefix("ed25519:")?;
+    try_base58_decode(b58)
 }
 
 fn base58_decode(s: &str) -> [u8; 32] {

@@ -7,7 +7,7 @@
 use crate::*;
 use ed25519_dalek::{Signer, SigningKey};
 use near_sdk::mock::MockAction;
-use near_sdk::test_utils::{accounts, get_created_receipts, VMContextBuilder};
+use near_sdk::test_utils::{accounts, get_created_receipts, get_logs, VMContextBuilder};
 use near_sdk::{env, testing_env, AccountId, Gas, NearToken};
 
 const VAULT_STORAGE_COST: u128 = owner::VAULT_STORAGE_COST;
@@ -142,6 +142,10 @@ fn callback_args(method: &str) -> serde_json::Value {
         }
     }
     panic!("no {method} receipt");
+}
+
+fn mpc_ed25519(key: &[u8; 32]) -> String {
+    format!("ed25519:{}", bs58::encode(key).into_string())
 }
 
 fn agent_account() -> AccountId {
@@ -300,12 +304,11 @@ fn test_vault_verification_refunds_original_caller() {
         "callback predecessor is the guard; refunds must not use it"
     );
 
-    let wrong_b58 = bs58::encode(&[10u8; 32]).into_string();
     contract.on_vault_verified(
         0,
         caller.clone(),
         NearToken::from_yoctonear(VAULT_STORAGE_COST),
-        Ok(wrong_b58),
+        Ok(mpc_ed25519(&[10u8; 32])),
     );
 
     assert!(contract.vaults.get(&0).is_none());
@@ -495,7 +498,7 @@ fn test_vault_verification_refunds_when_vault_missing() {
         99,
         caller.clone(),
         NearToken::from_yoctonear(VAULT_STORAGE_COST),
-        Ok(bs58::encode(&[9u8; 32]).into_string()),
+        Ok(mpc_ed25519(&[9u8; 32])),
     );
     assert_eq!(
         transfer_amounts_to(&caller),
@@ -519,7 +522,7 @@ fn test_vault_verification_bad_base58_refunds() {
         0,
         caller.clone(),
         NearToken::from_yoctonear(VAULT_STORAGE_COST),
-        Ok("%%%not-base58%%%".to_string()),
+        Ok("ed25519:%%%not-base58%%%".to_string()),
     );
 
     assert!(contract.vaults.get(&0).is_none());
@@ -527,6 +530,145 @@ fn test_vault_verification_bad_base58_refunds() {
         transfer_amounts_to(&caller),
         vec![VAULT_STORAGE_COST],
         "undecodable MPC key must be treated as a mismatch and refunded"
+    );
+}
+
+#[test]
+fn test_vault_verification_prefixed_match_activates() {
+    // Live MPC returns "ed25519:<b58>". A correctly prefixed matching key
+    // must activate the vault, emit vault_created, and not refund.
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+
+    let vault_key = [9u8; 32];
+    let vault_b58 = bs58::encode(&vault_key).into_string();
+    context.predecessor_account_id(caller.clone());
+    context.attached_deposit(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+    testing_env!(context.build());
+
+    let msg = create_vault_message(1, &vault_b58);
+    let sig = sign_admin(&msg);
+    contract.owner_action(msg, sig);
+
+    let mpc_args = callback_args("derived_public_key");
+    assert_eq!(
+        mpc_args["path"],
+        format!("vault/{}/0", bs58::encode(&owner_pubkey()).into_string())
+    );
+    assert_eq!(
+        mpc_args["predecessor"],
+        env::current_account_id().to_string()
+    );
+    assert_eq!(mpc_args["domain_id"], 1);
+
+    enter_callback_context(&mut context);
+    contract.on_vault_verified(
+        0,
+        caller.clone(),
+        NearToken::from_yoctonear(VAULT_STORAGE_COST),
+        Ok(mpc_ed25519(&vault_key)),
+    );
+
+    let vault = contract.vaults.get(&0).expect("vault should exist");
+    assert_eq!(vault.state, types::VaultState::Active);
+    assert!(
+        get_logs()
+            .iter()
+            .any(|log| log.contains("vault_created") && log.contains("\"vault_id\":0")),
+        "matching prefixed key must emit vault_created; logs={:?}",
+        get_logs()
+    );
+    assert!(
+        transfer_amounts_to(&caller).is_empty(),
+        "successful verification must not refund"
+    );
+}
+
+#[test]
+fn test_vault_verification_prefixed_mismatch_refunds() {
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+
+    let vault_key = [9u8; 32];
+    let vault_b58 = bs58::encode(&vault_key).into_string();
+    context.predecessor_account_id(caller.clone());
+    context.attached_deposit(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+    testing_env!(context.build());
+
+    let msg = create_vault_message(1, &vault_b58);
+    let sig = sign_admin(&msg);
+    contract.owner_action(msg, sig);
+
+    enter_callback_context(&mut context);
+    contract.on_vault_verified(
+        0,
+        caller.clone(),
+        NearToken::from_yoctonear(VAULT_STORAGE_COST),
+        Ok(mpc_ed25519(&[10u8; 32])),
+    );
+
+    assert!(contract.vaults.get(&0).is_none());
+    assert_eq!(
+        transfer_amounts_to(&caller),
+        vec![VAULT_STORAGE_COST],
+        "prefixed but different key must refund the original caller"
+    );
+}
+
+#[test]
+fn test_vault_verification_missing_or_wrong_prefix_refunds() {
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+    let vault_key = [9u8; 32];
+    let vault_b58 = bs58::encode(&vault_key).into_string();
+
+    context.predecessor_account_id(caller.clone());
+    context.attached_deposit(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+    testing_env!(context.build());
+    let msg = create_vault_message(1, &vault_b58);
+    let sig = sign_admin(&msg);
+    contract.owner_action(msg, sig);
+
+    enter_callback_context(&mut context);
+    // Raw base58 without the live "ed25519:" prefix is a mismatch.
+    contract.on_vault_verified(
+        0,
+        caller.clone(),
+        NearToken::from_yoctonear(VAULT_STORAGE_COST),
+        Ok(vault_b58.clone()),
+    );
+    assert!(contract.vaults.get(&0).is_none());
+    assert_eq!(transfer_amounts_to(&caller), vec![VAULT_STORAGE_COST]);
+}
+
+#[test]
+fn test_add_agent_duplicate_e077_without_deposit() {
+    // Cheap E077 / funding / name checks run before the deposit check.
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+    create_and_activate_vault(&mut contract, &mut context);
+
+    enter_callback_context(&mut context);
+    register_live_agent(&mut contract, 0, "agent1");
+
+    context.predecessor_account_id(caller);
+    context.attached_deposit(NearToken::from_yoctonear(0));
+    testing_env!(context.build());
+
+    let msg = add_agent_message(1, MIN_AGENT_FUNDING);
+    let sig = sign_admin(&msg);
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contract.owner_action(msg, sig);
+    }));
+    let payload = panicked.expect_err("duplicate must fail before deposit check");
+    let err = panic_message(&payload);
+    assert!(
+        err.contains("SG_E077_AGENT_EXISTS"),
+        "expected E077 without requiring 0.2 NEAR, got {err}"
+    );
+    assert!(
+        !err.contains("insufficient attached deposit"),
+        "duplicate must not reach the deposit check"
     );
 }
 
