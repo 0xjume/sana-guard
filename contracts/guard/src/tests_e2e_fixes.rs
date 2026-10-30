@@ -160,10 +160,13 @@ fn test_b2_add_agent_with_proper_funding() {
     contract.execute_owner_action(owner_key, create_action);
 
     // Test AddAgent with minimum funding
-    let min_funding = 2_500_000_000_000_000_000_000u128; // 0.0025 NEAR
+    let min_funding = 150_000_000_000_000_000_000_000u128; // 0.15 NEAR (new minimum for 90-100 Tgas calls)
     let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
         .parse()
         .unwrap();
+
+    context.attached_deposit(NearToken::from_near(1)); // Cover agent funding + storage overhead
+    testing_env!(context.build());
 
     let add_agent_action = owner::OwnerAction::AddAgent {
         vault_id: 0,
@@ -173,7 +176,8 @@ fn test_b2_add_agent_with_proper_funding() {
     };
 
     // This should not panic
-    contract.execute_owner_action(owner_key, add_agent_action);
+    let result = contract.execute_owner_action(owner_key, add_agent_action);
+    assert!(result.contains("agent1 creation initiated"));
 }
 
 #[test]

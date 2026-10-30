@@ -172,7 +172,6 @@ pub struct SignRequestView {
 
 #[derive(BorshSerialize, BorshDeserialize, Clone)]
 #[borsh(crate = "near_sdk::borsh")]
-
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 #[serde(tag = "scheme")]

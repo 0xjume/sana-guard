@@ -165,7 +165,6 @@ impl Guard {
         }
     }
 
-
     pub fn apply_pending_policy(&mut self, vault_id: u32) {
         let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
 
