@@ -3,6 +3,10 @@ export class Mutex {
   private locked = false;
   private readonly queue: Array<() => void> = [];
 
+  get isBusy(): boolean {
+    return this.locked || this.queue.length > 0;
+  }
+
   async run<T>(fn: () => Promise<T>): Promise<T> {
     await new Promise<void>((resolve) => {
       if (!this.locked) {

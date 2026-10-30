@@ -7,6 +7,8 @@ export const GAS_100_TGAS = 100_000_000_000_000n;
 export const GAS_150_TGAS = 150_000_000_000_000n;
 
 // Prepaid gas is charged at ~1e9 yocto/gas (see E2E: 95 Tgas ≈ 0.096 NEAR).
+// Used only as a pre-send reservation ceiling; actual spend is reconciled
+// from tokens_burnt on the tx outcome.
 export const YOCTO_PER_GAS = 1_000_000_000n;
 
 // Deposits in yoctoNEAR
@@ -19,20 +21,27 @@ export function maxGasCostYocto(gasUnits: bigint): bigint {
   return gasUnits * YOCTO_PER_GAS;
 }
 
+export type NearUnit = "near" | "yocto";
+
 /**
- * Parse a NEAR decimal ("0.15") or a yocto integer string
- * ("150000000000000000000000") into exact yocto. No floats.
+ * Parse an amount into yoctoNEAR.
+ * `unit` is required: "near" is a decimal NEAR string ("0.15"),
+ * "yocto" is an integer yocto string. No digit-count heuristic.
  */
-export function parseNearToYocto(input: string): bigint {
+export function parseNearToYocto(input: string, unit: NearUnit): bigint {
   const trimmed = input.trim();
+  if (unit === "yocto") {
+    if (!/^\d+$/.test(trimmed)) {
+      throw new Error("Invalid yocto amount");
+    }
+    return BigInt(trimmed);
+  }
+
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {
     throw new Error("Invalid NEAR amount");
   }
 
   if (!trimmed.includes(".")) {
-    if (trimmed.length >= 10) {
-      return BigInt(trimmed);
-    }
     return BigInt(trimmed) * YOCTO_PER_NEAR;
   }
 
@@ -46,6 +55,9 @@ export function parseNearToYocto(input: string): bigint {
 export function yoctoToNearString(yocto: string | bigint): string {
   const value = BigInt(yocto);
   const whole = value / YOCTO_PER_NEAR;
-  const frac = (value % YOCTO_PER_NEAR).toString().padStart(24, "0").replace(/0+$/, "");
+  const frac = (value % YOCTO_PER_NEAR)
+    .toString()
+    .padStart(24, "0")
+    .replace(/0+$/, "");
   return frac.length === 0 ? whole.toString() : `${whole}.${frac}`;
 }

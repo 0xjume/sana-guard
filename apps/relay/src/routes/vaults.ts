@@ -1,15 +1,14 @@
 import { Hono } from "hono";
 import type { NearClient } from "../near/interface.js";
 import { createRequestLogger } from "../logger.js";
-import { randomBytes } from "crypto";
-import { readRateLimit } from "../middleware/rateLimit.js";
+import { createReadRateLimit } from "../middleware/rateLimit.js";
+import type { Config } from "../config.js";
 
-export function createVaultsRouter(nearClient: NearClient) {
+export function createVaultsRouter(nearClient: NearClient, config: Config) {
   const app = new Hono();
 
-  app.get("/v1/vaults/:id", readRateLimit, async (c) => {
-    const requestId = randomBytes(16).toString("hex");
-    const log = createRequestLogger(requestId);
+  app.get("/v1/vaults/:id", createReadRateLimit(config), async (c) => {
+    const log = createRequestLogger();
 
     try {
       const id = parseInt(c.req.param("id")!, 10);
@@ -27,13 +26,7 @@ export function createVaultsRouter(nearClient: NearClient) {
       return c.json(vault);
     } catch (error: unknown) {
       log.error({ error }, "Failed to fetch vault");
-      return c.json(
-        {
-          error:
-            error instanceof Error ? error.message : "Internal server error",
-        },
-        500
-      );
+      return c.json({ error: "Internal server error" }, 500);
     }
   });
 

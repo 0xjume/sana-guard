@@ -2,6 +2,7 @@ export interface NearTransaction {
   txHash: string;
   success: boolean;
   errorMessage?: string;
+  tokensBurntYocto?: string;
 }
 
 export interface VaultInfo {
@@ -24,15 +25,17 @@ export interface VaultInfo {
 
 export interface NearClient {
   getBalance(): Promise<string>;
-  
+
   getOwnerNonce(ownerB58: string): Promise<number>;
-  
+
   getVault(vaultId: number): Promise<VaultInfo | null>;
-  
+
   submitOwnerAction(
     msg: string,
     sig: number[],
     depositYocto: string,
     gasAmount: string
   ): Promise<NearTransaction>;
+
+  getTransactionStatus(txHash: string): Promise<"success" | "failure" | "pending">;
 }

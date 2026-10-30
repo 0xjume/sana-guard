@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseNearToYocto, yoctoToNearString } from "./constants.js";
 
 const configSchema = z.object({
   relayAccountId: z.string().min(1),
@@ -23,11 +24,23 @@ const configSchema = z.object({
     .string()
     .default("true")
     .transform((v) => v !== "false" && v !== "0"),
+  trustProxy: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
+  trustProxyHops: z.coerce.number().int().min(1).max(10),
 });
 
 export type Config = z.infer<typeof configSchema>;
 
+/** Default per-owner daily budget is 0.3 of the global daily budget. */
+export function defaultOwnerDailyBudget(globalNear: string): string {
+  const globalYocto = parseNearToYocto(globalNear, "near");
+  return yoctoToNearString((globalYocto * 3n) / 10n);
+}
+
 export function loadConfig(): Config {
+  const globalDaily = process.env.GLOBAL_DAILY_BUDGET_NEAR ?? "1.0";
   const raw = {
     relayAccountId: process.env.RELAY_ACCOUNT_ID,
     relayPrivateKey: process.env.RELAY_NEAR_PRIVATE_KEY,
@@ -38,10 +51,11 @@ export function loadConfig(): Config {
     databaseUrl: process.env.DATABASE_URL ?? "sqlite:./relay.db",
     relayBalanceFloorNear: process.env.RELAY_BALANCE_FLOOR_NEAR ?? "0.5",
     maxAgentGasFundingNear: process.env.MAX_AGENT_GAS_FUNDING_NEAR ?? "0.5",
-    globalDailyBudgetNear: process.env.GLOBAL_DAILY_BUDGET_NEAR ?? "1.0",
+    globalDailyBudgetNear: globalDaily,
     maxDepositPerCallNear: process.env.MAX_DEPOSIT_PER_CALL_NEAR ?? "2.0",
     ownerRateLimitPerHour: process.env.OWNER_RATE_LIMIT_PER_HOUR ?? "30",
-    ownerDailyBudgetNear: process.env.OWNER_DAILY_BUDGET_NEAR ?? "5.0",
+    ownerDailyBudgetNear:
+      process.env.OWNER_DAILY_BUDGET_NEAR ?? defaultOwnerDailyBudget(globalDaily),
     port: process.env.PORT ?? "3000",
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: process.env.LOG_LEVEL ?? "info",
@@ -49,6 +63,8 @@ export function loadConfig(): Config {
     ownerAllowlist: process.env.OWNER_ALLOWLIST,
     corsOrigins: process.env.CORS_ORIGINS,
     adminGateEnabled: process.env.ADMIN_GATE_ENABLED ?? "true",
+    trustProxy: process.env.TRUST_PROXY ?? "false",
+    trustProxyHops: process.env.TRUST_PROXY_HOPS ?? "1",
   };
 
   return configSchema.parse(raw);

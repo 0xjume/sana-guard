@@ -2,20 +2,22 @@ import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { z } from "zod";
 
+const policySchema = z.object({
+  per_tx_limit: z.array(z.tuple([z.string(), z.string()])),
+  daily_cap: z.array(z.tuple([z.string(), z.string()])),
+  programs: z.array(z.string()),
+  max_priority_fee_lamports: z.string(),
+  max_memo_len: z.number(),
+  expires_at_ns: z.string(),
+  loosen_delay_ns: z.string(),
+});
+
 const ACTION_SCHEMAS = {
   CreateVault: z.object({
     type: z.literal("CreateVault"),
     owner: z.string(),
     vault_address: z.string(),
-    policy: z.object({
-      per_tx_limit: z.array(z.tuple([z.string(), z.string()])),
-      daily_cap: z.array(z.tuple([z.string(), z.string()])),
-      programs: z.array(z.string()),
-      max_priority_fee_lamports: z.string(),
-      max_memo_len: z.number(),
-      expires_at_ns: z.string(),
-      loosen_delay_ns: z.string(),
-    }),
+    policy: policySchema,
   }),
   AddAgent: z.object({
     type: z.literal("AddAgent"),
@@ -42,15 +44,7 @@ const ACTION_SCHEMAS = {
   SetPolicy: z.object({
     type: z.literal("SetPolicy"),
     vault_id: z.number(),
-    policy: z.object({
-      per_tx_limit: z.array(z.tuple([z.string(), z.string()])),
-      daily_cap: z.array(z.tuple([z.string(), z.string()])),
-      programs: z.array(z.string()),
-      max_priority_fee_lamports: z.string(),
-      max_memo_len: z.number(),
-      expires_at_ns: z.string(),
-      loosen_delay_ns: z.string(),
-    }),
+    policy: policySchema,
   }),
   Pause: z.object({
     type: z.literal("Pause"),
@@ -93,6 +87,27 @@ export interface ParsedAdminMessage {
   action: AdminAction;
 }
 
+function requirePrefix(line: string | undefined, prefix: string): string {
+  if (line === undefined || !line.startsWith(prefix)) {
+    throw new Error(`Missing ${prefix.trim()}`);
+  }
+  return line.slice(prefix.length);
+}
+
+function parseExactUint(value: string, field: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Invalid ${field}`);
+  }
+  return Number(value);
+}
+
+function parseExactBigInt(value: string, field: string): bigint {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Invalid ${field}`);
+  }
+  return BigInt(value);
+}
+
 export function parseAdminMessage(msg: string): ParsedAdminMessage {
   const lines = msg.split("\n");
   if (lines.length !== 7) {
@@ -103,29 +118,19 @@ export function parseAdminMessage(msg: string): ParsedAdminMessage {
     throw new Error("Invalid message format: wrong header");
   }
 
-  const network = lines[1]?.replace("network: ", "");
+  const network = requirePrefix(lines[1], "network: ");
   if (!network) throw new Error("Missing network field");
 
-  const contract = lines[2]?.replace("contract: ", "");
+  const contract = requirePrefix(lines[2], "contract: ");
   if (!contract) throw new Error("Missing contract field");
 
-  const vaultLine = lines[3]?.replace("vault: ", "");
+  const vaultLine = requirePrefix(lines[3], "vault: ");
   if (!vaultLine) throw new Error("Missing vault field");
-  const vault = vaultLine === "null" ? null : parseInt(vaultLine, 10);
-  if (vault !== null && isNaN(vault)) {
-    throw new Error("Invalid vault field");
-  }
+  const vault = vaultLine === "null" ? null : parseExactUint(vaultLine, "vault");
 
-  const nonceLine = lines[4]?.replace("nonce: ", "");
-  if (!nonceLine) throw new Error("Missing nonce field");
-  const nonce = parseInt(nonceLine, 10);
-  if (isNaN(nonce)) throw new Error("Invalid nonce field");
-
-  const expiryLine = lines[5]?.replace("expires: ", "");
-  if (!expiryLine) throw new Error("Missing expires field");
-  const expiry = BigInt(expiryLine);
-
-  const actionLine = lines[6]?.replace("action: ", "");
+  const nonce = parseExactUint(requirePrefix(lines[4], "nonce: "), "nonce");
+  const expiry = parseExactBigInt(requirePrefix(lines[5], "expires: "), "expires");
+  const actionLine = requirePrefix(lines[6], "action: ");
   if (!actionLine) throw new Error("Missing action field");
 
   let actionData: unknown;

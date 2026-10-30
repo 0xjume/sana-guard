@@ -31,6 +31,8 @@ function testConfig(overrides: Partial<Config> = {}): Config {
     ownerAllowlist: undefined,
     corsOrigins: undefined,
     adminGateEnabled: true,
+    trustProxy: false,
+    trustProxyHops: 1,
     ...overrides,
   };
 }
@@ -60,7 +62,7 @@ function makeAdminMsg(opts: {
 }
 
 class MockNear implements NearClient {
-  balance = parseNearToYocto("5").toString();
+  balance = parseNearToYocto("5", "near").toString();
   nonce = 5;
   vault: VaultInfo | null = {
     owner: "",
@@ -102,6 +104,9 @@ class MockNear implements NearClient {
   ): Promise<NearTransaction> {
     this.submitted.push({ msg, sig, deposit: depositYocto, gas: gasAmount });
     return this.result;
+  }
+  async getTransactionStatus(_txHash: string): Promise<"success" | "failure" | "pending"> {
+    return "pending";
   }
 }
 
@@ -303,7 +308,7 @@ describe("POST /v1/admin", () => {
   });
 
   it("returns 503 when CreateVault would breach the balance floor", async () => {
-    near.balance = parseNearToYocto("0.66").toString();
+    near.balance = parseNearToYocto("0.66", "near").toString();
     const action = {
       type: "CreateVault",
       owner,
@@ -353,6 +358,57 @@ describe("POST /v1/admin", () => {
       body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
     });
     expect(res.status).toBe(403);
+  });
+
+  it("holds the reservation as unknown when submit times out with no hash", async () => {
+    near.submitOwnerAction = async () => {
+      throw new Error("Exceeded max retries for tx RPC timeout raw text");
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 6,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("Transaction status unknown; reservation held");
+    expect(JSON.stringify(body)).not.toContain("RPC timeout");
+    expect(db.checkNonceInFlight(owner, 6)).toBe(true);
+    expect(db.listUnknownReservations()).toHaveLength(1);
+  });
+
+  it("does not return raw RPC error text in a 500", async () => {
+    near.getVault = async () => {
+      throw new Error("SERVER_ERROR: raw rpc dump {\"code\":-32000}");
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 6,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Internal server error");
+    expect(JSON.stringify(body)).not.toContain("SERVER_ERROR");
+    expect(JSON.stringify(body)).not.toContain("raw rpc");
   });
 
   it("returns the tx hash and error on an on-chain failure", async () => {

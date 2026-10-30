@@ -1,36 +1,70 @@
 import { Context, Next } from "hono";
+import type { Config } from "../config.js";
+
+type ProxyConfig = Pick<Config, "trustProxy" | "trustProxyHops">;
 
 interface RateLimitEntry {
   count: number;
   resetAt: number;
 }
 
-const ipRateLimits = new Map<string, RateLimitEntry>();
 const ADMIN_LIMIT = 10;
 const READ_LIMIT = 60;
 const WINDOW_MS = 60 * 1000;
 
-function getClientIp(c: Context): string {
-  return (
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-    c.req.header("x-real-ip") ||
-    "unknown"
-  );
+const adminLimits = new Map<string, RateLimitEntry>();
+const readLimits = new Map<string, RateLimitEntry>();
+
+export function getClientIp(
+  c: Context,
+  opts: { trustProxy: boolean; trustProxyHops: number }
+): string {
+  if (opts.trustProxy) {
+    const xff = c.req.header("x-forwarded-for");
+    if (xff) {
+      const hops = xff.split(",").map((s) => s.trim()).filter(Boolean);
+      const index = Math.max(0, hops.length - opts.trustProxyHops);
+      const picked = hops[index];
+      if (picked) return picked;
+    }
+  }
+
+  const env = c.env as
+    | { incoming?: { socket?: { remoteAddress?: string } } }
+    | undefined;
+  return env?.incoming?.socket?.remoteAddress || "unknown";
 }
 
-export function rateLimit(limit: number) {
+function sweep(map: Map<string, RateLimitEntry>, now: number): void {
+  for (const [ip, entry] of map.entries()) {
+    if (now > entry.resetAt) {
+      map.delete(ip);
+    }
+  }
+}
+
+export function createRateLimit(
+  map: Map<string, RateLimitEntry>,
+  limit: number,
+  config: ProxyConfig
+) {
   return async (c: Context, next: Next) => {
-    if (process.env.NODE_ENV === "test") {
+    if (process.env.NODE_ENV === "test" && process.env.RELAY_TEST_RATE_LIMIT !== "1") {
       await next();
       return;
     }
-    const ip = getClientIp(c);
-    const now = Date.now();
 
-    let entry = ipRateLimits.get(ip);
+    const ip = getClientIp(c, {
+      trustProxy: config.trustProxy,
+      trustProxyHops: config.trustProxyHops,
+    });
+    const now = Date.now();
+    sweep(map, now);
+
+    let entry = map.get(ip);
     if (!entry || now > entry.resetAt) {
       entry = { count: 0, resetAt: now + WINDOW_MS };
-      ipRateLimits.set(ip, entry);
+      map.set(ip, entry);
     }
 
     if (entry.count >= limit) {
@@ -45,14 +79,12 @@ export function rateLimit(limit: number) {
   };
 }
 
-export const adminRateLimit = rateLimit(ADMIN_LIMIT);
-export const readRateLimit = rateLimit(READ_LIMIT);
+export function createAdminRateLimit(config: ProxyConfig) {
+  return createRateLimit(adminLimits, ADMIN_LIMIT, config);
+}
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of ipRateLimits.entries()) {
-    if (now > entry.resetAt) {
-      ipRateLimits.delete(ip);
-    }
-  }
-}, 60 * 1000);
+export function createReadRateLimit(config: ProxyConfig) {
+  return createRateLimit(readLimits, READ_LIMIT, config);
+}
+
+export { adminLimits, readLimits };

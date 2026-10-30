@@ -42,6 +42,8 @@ const testConfig: Config = {
   ownerAllowlist: undefined,
   corsOrigins: undefined,
   adminGateEnabled: true,
+  trustProxy: false,
+  trustProxyHops: 1,
 };
 
 describe("Gas constants", () => {
@@ -58,15 +60,19 @@ describe("Gas constants", () => {
 });
 
 describe("parseNearToYocto", () => {
-  it("parses decimal NEAR exactly", () => {
-    expect(parseNearToYocto("0.15")).toBe(MIN_AGENT_FUNDING);
-    expect(parseNearToYocto("0.5")).toBe(CREATE_VAULT_DEPOSIT);
-    expect(parseNearToYocto("1")).toBe(1_000_000_000_000_000_000_000_000n);
-    expect(parseNearToYocto("0.05")).toBe(AGENT_OVERHEAD);
+  it("parses unit=near decimals exactly", () => {
+    expect(parseNearToYocto("0.15", "near")).toBe(MIN_AGENT_FUNDING);
+    expect(parseNearToYocto("0.5", "near")).toBe(CREATE_VAULT_DEPOSIT);
+    expect(parseNearToYocto("1", "near")).toBe(1_000_000_000_000_000_000_000_000n);
+    expect(parseNearToYocto("0.05", "near")).toBe(AGENT_OVERHEAD);
   });
 
-  it("parses yocto integer strings as-is", () => {
-    expect(parseNearToYocto("150000000000000000000000")).toBe(MIN_AGENT_FUNDING);
+  it("parses unit=yocto integers as-is and rejects NEAR decimals", () => {
+    expect(parseNearToYocto("150000000000000000000000", "yocto")).toBe(
+      MIN_AGENT_FUNDING
+    );
+    expect(() => parseNearToYocto("0.15", "yocto")).toThrow("Invalid yocto");
+    expect(() => parseNearToYocto("150000000000000000000000", "near")).not.toThrow();
   });
 });
 
@@ -91,7 +97,7 @@ describe("calculateRequiredDeposit", () => {
   });
 
   it("returns exact BigInt(gas_funding) + overhead for AddAgent", () => {
-    const gasFunding = parseNearToYocto("0.15");
+    const gasFunding = parseNearToYocto("0.15", "near");
     const action = {
       type: "AddAgent" as const,
       vault_id: 0,
@@ -106,7 +112,7 @@ describe("calculateRequiredDeposit", () => {
   });
 
   it("quote and submit agree for 0.15 AddAgent funding", () => {
-    const funding = parseNearToYocto("0.15");
+    const funding = parseNearToYocto("0.15", "near");
     const fromAction = calculateRequiredDeposit({
       type: "AddAgent",
       vault_id: 0,
@@ -114,7 +120,7 @@ describe("calculateRequiredDeposit", () => {
       public_key: "ed25519:test",
       gas_funding: funding.toString(),
     });
-    const fromQuote = addAgentDeposit(parseNearToYocto("0.15"));
+    const fromQuote = addAgentDeposit(parseNearToYocto("0.15", "near"));
     expect(fromAction).toBe(fromQuote);
     expect(fromAction).toBe("200000000000000000000000");
   });
@@ -182,23 +188,23 @@ describe("calculateGas", () => {
 
 describe("wouldBreachFloor", () => {
   it("rejects CreateVault when remaining would fall below the floor", () => {
-    const balance = parseNearToYocto("0.66");
+    const balance = parseNearToYocto("0.66", "near");
     const deposit = CREATE_VAULT_DEPOSIT;
     const gas = maxGasCostYocto(GAS_100_TGAS);
-    const floor = parseNearToYocto("0.5");
+    const floor = parseNearToYocto("0.5", "near");
     expect(
       wouldBreachFloor(balance.toString(), deposit.toString(), gas.toString(), floor)
     ).toBe(true);
   });
 
   it("allows a send that leaves the floor intact", () => {
-    const balance = parseNearToYocto("1.2");
+    const balance = parseNearToYocto("1.2", "near");
     expect(
       wouldBreachFloor(
         balance.toString(),
         CREATE_VAULT_DEPOSIT.toString(),
         maxGasCostYocto(GAS_100_TGAS).toString(),
-        parseNearToYocto("0.5")
+        parseNearToYocto("0.5", "near")
       )
     ).toBe(false);
   });

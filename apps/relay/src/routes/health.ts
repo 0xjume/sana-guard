@@ -2,12 +2,12 @@ import { Hono } from "hono";
 import type { NearClient } from "../near/interface.js";
 import type { Config } from "../config.js";
 import { yoctoToNear } from "../budget.js";
-import { readRateLimit } from "../middleware/rateLimit.js";
+import { createReadRateLimit } from "../middleware/rateLimit.js";
 
 export function createHealthRouter(nearClient: NearClient, config: Config) {
   const app = new Hono();
 
-  app.get("/v1/health", readRateLimit, async (c) => {
+  app.get("/v1/health", createReadRateLimit(config), async (c) => {
     try {
       const balance = await nearClient.getBalance();
       const balanceNear = yoctoToNear(balance);
@@ -22,15 +22,8 @@ export function createHealthRouter(nearClient: NearClient, config: Config) {
       };
 
       return c.json(status, healthy ? 200 : 503);
-    } catch (error: unknown) {
-      return c.json(
-        {
-          status: "unhealthy",
-          error:
-            error instanceof Error ? error.message : "Health check failed",
-        },
-        503
-      );
+    } catch {
+      return c.json({ status: "unhealthy", error: "Health check failed" }, 503);
     }
   });
 

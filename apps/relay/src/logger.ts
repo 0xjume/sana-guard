@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import pino from "pino";
 
 function createLogger() {
@@ -30,6 +31,8 @@ function createLogger() {
 
 export const logger = createLogger();
 
-export function createRequestLogger(requestId: string) {
+export function createRequestLogger(
+  requestId: string = randomBytes(16).toString("hex")
+) {
   return logger.child({ requestId });
 }

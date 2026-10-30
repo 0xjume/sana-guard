@@ -17,27 +17,38 @@ export function yoctoToNear(yocto: string): number {
   return Number(BigInt(yocto)) / 1e24;
 }
 
-export function addAgentDeposit(gasFundingYocto: bigint): string {
+export function addAgentDeposit(
+  gasFundingYocto: bigint,
+  maxFundingYocto: bigint = MAX_AGENT_FUNDING
+): string {
   if (gasFundingYocto < MIN_AGENT_FUNDING) {
     throw new Error(
       `AddAgent gas_funding below minimum of ${yoctoToNearString(MIN_AGENT_FUNDING)} NEAR`
     );
   }
-  if (gasFundingYocto > MAX_AGENT_FUNDING) {
+  if (gasFundingYocto > maxFundingYocto) {
     throw new Error(
-      `AddAgent gas_funding exceeds maximum of ${yoctoToNearString(MAX_AGENT_FUNDING)} NEAR`
+      `AddAgent gas_funding exceeds maximum of ${yoctoToNearString(maxFundingYocto)} NEAR`
     );
   }
   return (gasFundingYocto + AGENT_OVERHEAD).toString();
 }
 
-export function calculateRequiredDeposit(action: AdminAction): string {
+export function maxAgentFundingYocto(config: Config): bigint {
+  return parseNearToYocto(String(config.maxAgentGasFundingNear), "near");
+}
+
+export function calculateRequiredDeposit(
+  action: AdminAction,
+  config?: Config
+): string {
   if (action.type === "CreateVault") {
     return CREATE_VAULT_DEPOSIT.toString();
   }
 
   if (action.type === "AddAgent") {
-    return addAgentDeposit(BigInt(action.gas_funding));
+    const max = config ? maxAgentFundingYocto(config) : MAX_AGENT_FUNDING;
+    return addAgentDeposit(BigInt(action.gas_funding), max);
   }
 
   return "0";
@@ -71,7 +82,7 @@ export function checkBudgets(
   const globalStats = db.getGlobalStats(nowMs);
 
   const totalCost = BigInt(depositYocto) + BigInt(gasCostYocto);
-  const maxDepositYocto = parseNearToYocto(String(config.maxDepositPerCallNear));
+  const maxDepositYocto = parseNearToYocto(String(config.maxDepositPerCallNear), "near");
 
   if (totalCost > maxDepositYocto) {
     return {
@@ -88,7 +99,7 @@ export function checkBudgets(
   }
 
   const ownerNewTotal = BigInt(ownerStats.spentToday) + totalCost;
-  const ownerBudgetYocto = parseNearToYocto(String(config.ownerDailyBudgetNear));
+  const ownerBudgetYocto = parseNearToYocto(String(config.ownerDailyBudgetNear), "near");
   if (ownerNewTotal > ownerBudgetYocto) {
     return {
       allowed: false,
@@ -97,7 +108,7 @@ export function checkBudgets(
   }
 
   const globalNewTotal = BigInt(globalStats.spentToday) + totalCost;
-  const globalBudgetYocto = parseNearToYocto(String(config.globalDailyBudgetNear));
+  const globalBudgetYocto = parseNearToYocto(String(config.globalDailyBudgetNear), "near");
   if (globalNewTotal > globalBudgetYocto) {
     return {
       allowed: false,
@@ -108,31 +119,24 @@ export function checkBudgets(
   return { allowed: true };
 }
 
+const DAILY_ACTION_LIMITS: Partial<
+  Record<AdminAction["type"], { limit: number; reason: string }>
+> = {
+  CreateVault: { limit: 3, reason: "CreateVault daily limit exceeded: 3 per day" },
+  AddAgent: { limit: 5, reason: "AddAgent daily limit exceeded: 5 per day" },
+};
+
 export function checkActionLimits(
   action: AdminAction,
   db: RelayDatabase,
   nowMs: number
 ): BudgetCheck {
-  if (action.type === "CreateVault") {
-    const count = db.getActionCountToday("CreateVault", nowMs);
-    if (count >= 3) {
-      return {
-        allowed: false,
-        reason: "CreateVault daily limit exceeded: 3 per day",
-      };
-    }
-  }
+  const rule = DAILY_ACTION_LIMITS[action.type];
+  if (!rule) return { allowed: true };
 
-  if (action.type === "AddAgent") {
-    const count = db.getActionCountToday("AddAgent", nowMs);
-    if (count >= 5) {
-      return {
-        allowed: false,
-        reason: "AddAgent daily limit exceeded: 5 per day",
-      };
-    }
+  if (db.getActionCountToday(action.type, nowMs) >= rule.limit) {
+    return { allowed: false, reason: rule.reason };
   }
-
   return { allowed: true };
 }
 

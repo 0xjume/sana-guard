@@ -79,6 +79,32 @@ describe("parseAdminMessage", () => {
     expect(parsed.action.type).toBe("BackfillRecipients");
   });
 
+  it("rejects nonce like 10abc", () => {
+    const msg = [
+      "SANA-GUARD-ADMIN-v1",
+      "network: near-testnet",
+      "contract: guard.djume.testnet",
+      "vault: 0",
+      "nonce: 10abc",
+      "expires: 1234567890000000000",
+      'action: {"type":"Pause","vault_id":0}',
+    ].join("\n");
+    expect(() => parseAdminMessage(msg)).toThrow("Invalid nonce");
+  });
+
+  it("rejects a line that only contains the field value without the prefix", () => {
+    const msg = [
+      "SANA-GUARD-ADMIN-v1",
+      "near-testnet",
+      "contract: guard.djume.testnet",
+      "vault: 0",
+      "nonce: 1",
+      "expires: 1234567890000000000",
+      'action: {"type":"Pause","vault_id":0}',
+    ].join("\n");
+    expect(() => parseAdminMessage(msg)).toThrow("Missing network:");
+  });
+
   it("rejects unknown action types", () => {
     const msg = [
       "SANA-GUARD-ADMIN-v1",

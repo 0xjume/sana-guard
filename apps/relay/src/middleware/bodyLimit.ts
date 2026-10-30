@@ -1,11 +1,9 @@
-import { Context, Next } from "hono";
+import { bodyLimit as honoBodyLimit } from "hono/body-limit";
 
-const MAX_BODY_SIZE = 16 * 1024; // 16 KB
+export const MAX_BODY_SIZE = 16 * 1024;
 
-export async function bodyLimit(c: Context, next: Next) {
-  const contentLength = c.req.header("content-length");
-  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_SIZE) {
-    return c.json({ error: "Request body too large" }, 413);
-  }
-  await next();
-}
+/** Caps the bytes actually read, including chunked bodies with no Content-Length. */
+export const bodyLimit = honoBodyLimit({
+  maxSize: MAX_BODY_SIZE,
+  onError: (c) => c.json({ error: "Request body too large" }, 413),
+});

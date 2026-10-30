@@ -40,6 +40,17 @@ async function main() {
     24 * 60 * 60 * 1000
   );
 
+  const resolveUnknowns = () => {
+    void db
+      .resolveUnknownReservations((txHash) =>
+        nearClient.getTransactionStatus(txHash)
+      )
+      .catch((error) => {
+        logger.error({ error }, "Failed to resolve unknown reservations");
+      });
+  };
+  const resolveInterval = setInterval(resolveUnknowns, 60 * 1000);
+
   const app = new Hono();
 
   app.use("*", createCorsMiddleware(config));
@@ -53,8 +64,8 @@ async function main() {
   });
 
   app.route("/", createAdminRouter(nearClient, db, config));
-  app.route("/", createVaultsRouter(nearClient));
-  app.route("/", createQuoteRouter());
+  app.route("/", createVaultsRouter(nearClient, config));
+  app.route("/", createQuoteRouter(config));
   app.route("/", createHealthRouter(nearClient, config));
 
   const server = serve(
@@ -70,6 +81,7 @@ async function main() {
   const shutdown = () => {
     logger.info("Shutting down gracefully");
     clearInterval(cleanupInterval);
+    clearInterval(resolveInterval);
     db.close();
     server.close(() => {
       logger.info("Server closed");

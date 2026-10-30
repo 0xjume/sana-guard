@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { createRequestLogger } from "../logger.js";
-import { randomBytes } from "crypto";
 import {
   CREATE_VAULT_DEPOSIT,
   GAS_100_TGAS,
@@ -9,10 +8,11 @@ import {
   yoctoToNearString,
   maxGasCostYocto,
 } from "../constants.js";
-import { addAgentDeposit } from "../budget.js";
-import { readRateLimit } from "../middleware/rateLimit.js";
+import { addAgentDeposit, maxAgentFundingYocto } from "../budget.js";
+import { createReadRateLimit } from "../middleware/rateLimit.js";
+import type { Config } from "../config.js";
 
-const ZERO_DEPOSIT_ACTIONS = [
+const ZERO_DEPOSIT_ACTIONS = new Set([
   "AddRecipient",
   "RemoveRecipient",
   "BackfillRecipients",
@@ -22,14 +22,16 @@ const ZERO_DEPOSIT_ACTIONS = [
   "Unpause",
   "RegisterTokenAccount",
   "Release",
-];
+]);
 
-export function createQuoteRouter() {
+export function createQuoteRouter(config?: Config) {
   const app = new Hono();
+  const limiter = createReadRateLimit(
+    config ?? { trustProxy: false, trustProxyHops: 1 }
+  );
 
-  app.get("/v1/quote/:action", readRateLimit, async (c) => {
-    const requestId = randomBytes(16).toString("hex");
-    const log = createRequestLogger(requestId);
+  app.get("/v1/quote/:action", limiter, async (c) => {
+    const log = createRequestLogger();
 
     try {
       const action = c.req.param("action")!;
@@ -38,45 +40,59 @@ export function createQuoteRouter() {
       let depositYocto = "0";
       let gasUnits = GAS_100_TGAS;
 
-      if (action === "CreateVault") {
-        depositYocto = CREATE_VAULT_DEPOSIT.toString();
-      } else if (action === "AddAgent") {
-        const gasFundingParam = c.req.query("gas_funding");
-        if (!gasFundingParam) {
-          return c.json(
-            { error: "gas_funding query parameter required for AddAgent" },
-            400
-          );
-        }
+      switch (action) {
+        case "CreateVault":
+          depositYocto = CREATE_VAULT_DEPOSIT.toString();
+          break;
+        case "AddAgent": {
+          const yoctoParam = c.req.query("gas_funding_yocto");
+          const nearParam = c.req.query("gas_funding");
+          if (!yoctoParam && !nearParam) {
+            return c.json(
+              {
+                error:
+                  "gas_funding (NEAR) or gas_funding_yocto query parameter required for AddAgent",
+              },
+              400
+            );
+          }
 
-        let gasFundingYocto: bigint;
-        try {
-          gasFundingYocto = parseNearToYocto(gasFundingParam);
-        } catch {
-          return c.json({ error: "Invalid gas_funding value" }, 400);
-        }
+          let gasFundingYocto: bigint;
+          try {
+            gasFundingYocto = yoctoParam
+              ? parseNearToYocto(yoctoParam, "yocto")
+              : parseNearToYocto(nearParam!, "near");
+          } catch {
+            return c.json({ error: "Invalid gas_funding value" }, 400);
+          }
 
-        try {
-          depositYocto = addAgentDeposit(gasFundingYocto);
-        } catch (error: unknown) {
-          return c.json(
-            {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Invalid gas_funding value",
-            },
-            400
-          );
+          try {
+            const max = config ? maxAgentFundingYocto(config) : undefined;
+            depositYocto = addAgentDeposit(gasFundingYocto, max);
+          } catch (error: unknown) {
+            return c.json(
+              {
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Invalid gas_funding value",
+              },
+              400
+            );
+          }
+          gasUnits = GAS_150_TGAS;
+          break;
         }
-        gasUnits = GAS_150_TGAS;
-      } else if (ZERO_DEPOSIT_ACTIONS.includes(action)) {
-        depositYocto = "0";
-      } else {
-        return c.json({ error: "Unknown action type" }, 400);
+        default:
+          if (!ZERO_DEPOSIT_ACTIONS.has(action)) {
+            return c.json({ error: "Unknown action type" }, 400);
+          }
       }
 
       const estimatedGasYocto = maxGasCostYocto(gasUnits).toString();
+      const totalYocto = (
+        BigInt(depositYocto) + BigInt(estimatedGasYocto)
+      ).toString();
 
       return c.json({
         action,
@@ -84,20 +100,12 @@ export function createQuoteRouter() {
         depositYocto,
         estimatedGasNear: yoctoToNearString(estimatedGasYocto),
         estimatedGasYocto,
-        totalYocto: (BigInt(depositYocto) + BigInt(estimatedGasYocto)).toString(),
-        totalNear: yoctoToNearString(
-          BigInt(depositYocto) + BigInt(estimatedGasYocto)
-        ),
+        totalYocto,
+        totalNear: yoctoToNearString(totalYocto),
       });
     } catch (error: unknown) {
       log.error({ error }, "Quote request failed");
-      return c.json(
-        {
-          error:
-            error instanceof Error ? error.message : "Internal server error",
-        },
-        500
-      );
+      return c.json({ error: "Internal server error" }, 500);
     }
   });
 

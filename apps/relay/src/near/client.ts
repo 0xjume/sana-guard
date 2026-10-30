@@ -74,6 +74,9 @@ export class NearClientImpl implements NearClient {
   ): Promise<NearTransaction> {
     return this.submitMutex.run(async () => {
       try {
+        // near-api-js retries on a stale access-key nonce by signing and
+        // broadcasting again. That can produce more than one on-chain tx
+        // for a single submitOwnerAction call.
         const outcome = await this.account.functionCall({
           contractId: this.contractId,
           methodName: "owner_action",
@@ -102,12 +105,14 @@ export class NearClientImpl implements NearClient {
           errorMessage = this.extractErrorMessage(status.Failure, logs);
         }
 
+        const tokensBurntYocto = sumTokensBurnt(outcome);
+
         logger.info(
-          { txHash, success, logs, depositYocto },
+          { txHash, success, logs, depositYocto, tokensBurntYocto },
           "NEAR transaction complete"
         );
 
-        return { txHash, success, errorMessage };
+        return { txHash, success, errorMessage, tokensBurntYocto };
       } catch (error: unknown) {
         logger.error({ error }, "NEAR transaction failed");
         if (
@@ -136,39 +141,19 @@ export class NearClientImpl implements NearClient {
 
   private extractErrorMessage(failure: unknown, logs: string[]): string {
     const sgError = logs.find((log) => log.includes("SG_E"));
-    if (sgError) {
-      return sgError;
+    if (sgError) return sgError;
+
+    const failureRecord = asRecord(failure);
+    if (!failureRecord || !("ActionError" in failureRecord)) {
+      return JSON.stringify(failure);
     }
 
-    if (failure && typeof failure === "object" && "ActionError" in failure) {
-      const actionError = (failure as { ActionError: unknown }).ActionError;
-      if (
-        actionError &&
-        typeof actionError === "object" &&
-        "kind" in actionError
-      ) {
-        const kind = (actionError as { kind: unknown }).kind;
-        if (
-          kind &&
-          typeof kind === "object" &&
-          "FunctionCallError" in kind
-        ) {
-          const fcError = (kind as { FunctionCallError: unknown })
-            .FunctionCallError;
-          if (
-            fcError &&
-            typeof fcError === "object" &&
-            "ExecutionError" in fcError
-          ) {
-            return String((fcError as { ExecutionError: unknown }).ExecutionError);
-          }
-        }
-        return JSON.stringify(kind);
-      }
-      return JSON.stringify(actionError);
-    }
-
-    return JSON.stringify(failure);
+    const actionError = failureRecord.ActionError;
+    const kind = asRecord(actionError)?.kind;
+    const execution = asRecord(asRecord(kind)?.FunctionCallError)?.ExecutionError;
+    if (execution !== undefined) return String(execution);
+    if (asRecord(kind)) return JSON.stringify(kind);
+    return JSON.stringify(actionError);
   }
 
   private extractErrorFromException(error: unknown): string {
@@ -180,5 +165,50 @@ export class NearClientImpl implements NearClient {
     }
     return String(error);
   }
+
+  async getTransactionStatus(
+    txHash: string
+  ): Promise<"success" | "failure" | "pending"> {
+    try {
+      const result = await this.connection.connection.provider.txStatus(
+        txHash,
+        this.accountId,
+        "FINAL"
+      );
+      const status = result.status as unknown;
+      if (status && typeof status === "object") {
+        if ("SuccessValue" in status || "SuccessReceiptId" in status) {
+          return "success";
+        }
+        if ("Failure" in status) {
+          return "failure";
+        }
+      }
+      return "pending";
+    } catch {
+      return "pending";
+    }
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === "object") {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function sumTokensBurnt(outcome: {
+  transaction_outcome?: { outcome?: { tokens_burnt?: string } };
+  receipts_outcome?: Array<{ outcome?: { tokens_burnt?: string } }>;
+}): string {
+  let total = 0n;
+  const txBurnt = outcome.transaction_outcome?.outcome?.tokens_burnt;
+  if (txBurnt) total += BigInt(txBurnt);
+  for (const receipt of outcome.receipts_outcome ?? []) {
+    const burnt = receipt.outcome?.tokens_burnt;
+    if (burnt) total += BigInt(burnt);
+  }
+  return total.toString();
 }
 
