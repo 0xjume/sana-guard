@@ -90,6 +90,14 @@ function parseOnChainError(error: unknown): string {
   return "Transaction failed";
 }
 
+function isOnChainExecutionError(error: unknown): boolean {
+  const msg =
+    error && typeof error === "object" && "message" in error
+      ? String(error.message)
+      : String(error);
+  return /FunctionCallError|ExecutionError|GuestPanic|SG_E\d+/.test(msg);
+}
+
 type ReserveOutcome =
   | { kind: "ok" }
   | { kind: "conflict" }
@@ -171,7 +179,10 @@ async function reserveAdminRequest(args: {
       }
 
       const relayBalance = await nearClient.getBalance();
-      if (wouldBreachFloor(relayBalance, depositYocto, gasCostYocto, floorYocto)) {
+      const available = (
+        BigInt(relayBalance) - BigInt(db.getOutstandingReservedYocto())
+      ).toString();
+      if (wouldBreachFloor(available, depositYocto, gasCostYocto, floorYocto)) {
         return {
           kind: "bad",
           status: 503,
@@ -419,7 +430,7 @@ export function createAdminRouter(
               {
                 success: false,
                 txHash: result.txHash,
-                error: result.errorMessage,
+                error: parseOnChainError({ message: result.errorMessage }),
               },
               400
             );
@@ -435,7 +446,7 @@ export function createAdminRouter(
         } catch (error: unknown) {
           log.error({ error }, "Submission failed");
           const broadcastHash = txHashFromUnknown(error);
-          if (broadcastHash) {
+          if (broadcastHash && isOnChainExecutionError(error)) {
             db.finalizeBudget(owner, parsedMsg.nonce, broadcastHash, false);
             return c.json(
               {
@@ -446,7 +457,9 @@ export function createAdminRouter(
               400
             );
           }
-          db.markUnknown(owner, parsedMsg.nonce);
+          // Timeout / unknown outcome: keep the reservation and
+          // resolve later via txStatus when a hash is known.
+          db.markUnknown(owner, parsedMsg.nonce, broadcastHash);
           return c.json(
             { error: "Transaction status unknown; reservation held" },
             503

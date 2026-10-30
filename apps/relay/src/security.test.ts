@@ -16,6 +16,7 @@ import { checkInviteGate } from "./routes/admin.js";
 import type { Config } from "./config.js";
 import { parseNearToYocto } from "./constants.js";
 import { defaultOwnerDailyBudget } from "./config.js";
+import { wouldBreachFloor } from "./budget.js";
 
 function cfg(overrides: Partial<Config> = {}): Config {
   return {
@@ -48,6 +49,17 @@ describe("1. CORS closed by default", () => {
   it("does not reflect an arbitrary Origin when CORS_ORIGINS is unset", async () => {
     const app = new Hono();
     app.use("*", createCorsMiddleware(cfg({ corsOrigins: undefined })));
+    app.get("/x", (c) => c.json({ ok: true }));
+
+    const res = await app.request("/x", {
+      headers: { origin: "https://evil.example" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("does not treat * as a wildcard", async () => {
+    const app = new Hono();
+    app.use("*", createCorsMiddleware(cfg({ corsOrigins: "*" })));
     app.get("/x", (c) => c.json({ ok: true }));
 
     const res = await app.request("/x", {
@@ -252,6 +264,57 @@ describe("5–7. Reservation reconcile, unknown, atomic reserve", () => {
     const oks = results.filter((r) => r.ok).length;
     expect(oks).toBe(1);
     expect(results.some((r) => !r.ok && "reason" in r)).toBe(true);
+  });
+
+  it("floor check-and-reserve subtracts outstanding reservations", async () => {
+    const now = Date.now();
+    const config = cfg({
+      globalDailyBudgetNear: 2,
+      ownerDailyBudgetNear: 2,
+      maxDepositPerCallNear: 2,
+      relayBalanceFloorNear: 0.5,
+    });
+    const gas = parseNearToYocto("0.1", "near").toString();
+    const balance = parseNearToYocto("0.65", "near").toString();
+    const floor = parseNearToYocto("0.5", "near");
+
+    const first = await db.withGlobalLock(async () => {
+      const outstanding = db.getOutstandingReservedYocto();
+      const available = (BigInt(balance) - BigInt(outstanding)).toString();
+      if (wouldBreachFloor(available, "0", gas, floor)) {
+        return { ok: false as const, reason: "floor" };
+      }
+      return db.tryReserveBudget({
+        owner: "floor1",
+        nonce: 1,
+        action: pause,
+        depositYocto: "0",
+        gasCostYocto: gas,
+        nowMs: now,
+        config,
+      });
+    });
+    expect(first.ok).toBe(true);
+
+    const second = await db.withGlobalLock(async () => {
+      const outstanding = db.getOutstandingReservedYocto();
+      const available = (BigInt(balance) - BigInt(outstanding)).toString();
+      if (wouldBreachFloor(available, "0", gas, floor)) {
+        return { ok: false as const, reason: "floor" };
+      }
+      return db.tryReserveBudget({
+        owner: "floor2",
+        nonce: 1,
+        action: pause,
+        depositYocto: "0",
+        gasCostYocto: gas,
+        nowMs: now,
+        config,
+      });
+    });
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.reason).toBe("floor");
+    expect(db.getOutstandingReservedYocto()).toBe(gas);
   });
 
   it("defaults the per-owner daily budget to 0.3 of the global budget", () => {

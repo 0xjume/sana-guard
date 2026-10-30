@@ -360,6 +360,42 @@ describe("POST /v1/admin", () => {
     expect(res.status).toBe(403);
   });
 
+  it("holds the reservation as unknown when submit times out with a hash", async () => {
+    near.submitOwnerAction = async () => {
+      const err = new Error("Exceeded the maximum number of retries") as Error & {
+        transaction: { hash: string };
+      };
+      err.transaction = { hash: "timeout-hash" };
+      throw err;
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 7,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(res.status).toBe(503);
+    const unknown = db.listUnknownReservations();
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0]?.txHash).toBe("timeout-hash");
+    expect(db.checkNonceInFlight(owner, 7)).toBe(true);
+
+    const resolved = await db.resolveUnknownReservations(async (hash) => {
+      expect(hash).toBe("timeout-hash");
+      return "failure";
+    });
+    expect(resolved).toBe(1);
+    expect(db.checkNonceInFlight(owner, 7)).toBe(false);
+  });
+
   it("holds the reservation as unknown when submit times out with no hash", async () => {
     near.submitOwnerAction = async () => {
       throw new Error("Exceeded max retries for tx RPC timeout raw text");

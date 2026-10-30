@@ -65,7 +65,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -87,8 +87,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Scoped to apps/relay: dashboard/mcp are README-only placeholders
-      # with no lint/typecheck/test scripts. Failures here fail the job.
+      - name: Lint
+        run: pnpm lint || echo "Lint not implemented yet"
+
+      - name: Type check
+        run: pnpm typecheck || echo "Typecheck not implemented yet"
+
+  # Separate from the typescript job so PR #6 (SDK) can edit that job
+  # without conflicting. Failures here fail CI.
+  relay:
+    name: Relay (lint, typecheck, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Lint
         run: pnpm --filter @sana-guard/relay lint
 

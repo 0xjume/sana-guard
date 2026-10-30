@@ -36,6 +36,7 @@ export class RelayDatabase {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.initTables();
+    this.migrate();
   }
 
   private initTables(): void {
@@ -68,6 +69,15 @@ export class RelayDatabase {
     `);
   }
 
+  private migrate(): void {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(owner_requests)`)
+      .all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "reserved_yocto")) {
+      this.db.exec(`ALTER TABLE owner_requests ADD COLUMN reserved_yocto TEXT`);
+    }
+  }
+
   withGlobalLock<T>(fn: () => Promise<T>): Promise<T> {
     return this.globalMutex.run(fn);
   }
@@ -94,6 +104,20 @@ export class RelayDatabase {
       }
       if (this.ownerMutexes.size < MAX_OWNER_LOCKS) return;
     }
+  }
+
+  /** Sum of pending + unknown reservations (not yet reconciled or released). */
+  getOutstandingReservedYocto(): string {
+    const rows = this.db
+      .prepare(
+        `SELECT spent_yocto FROM owner_requests WHERE status IN ('pending', 'unknown')`
+      )
+      .all() as Array<{ spent_yocto: string }>;
+    let total = 0n;
+    for (const row of rows) {
+      total += BigInt(row.spent_yocto);
+    }
+    return total.toString();
   }
 
   checkNonceInFlight(owner: string, nonce: number): boolean {

@@ -115,7 +115,15 @@ export class NearClientImpl implements NearClient {
         return { txHash, success, errorMessage, tokensBurntYocto };
       } catch (error: unknown) {
         logger.error({ error }, "NEAR transaction failed");
+        const msg =
+          error && typeof error === "object" && "message" in error
+            ? String(error.message)
+            : String(error);
+        const onChain = /FunctionCallError|ExecutionError|GuestPanic|SG_E\d+/.test(
+          msg
+        );
         if (
+          onChain &&
           error &&
           typeof error === "object" &&
           "transaction" in error &&
@@ -134,6 +142,9 @@ export class NearClientImpl implements NearClient {
             errorMessage: this.extractErrorFromException(error),
           };
         }
+        // Timeouts and other errors (even if a hash is present) are
+        // rethrown so the caller can mark the reservation unknown and
+        // resolve it later via txStatus.
         throw error;
       }
     });
