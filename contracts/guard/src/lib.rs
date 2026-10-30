@@ -29,6 +29,9 @@ mod tests_e2e_fixes;
 #[cfg(test)]
 mod tests_release_and_programs;
 
+#[cfg(test)]
+mod tests_followup_f1_f4;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -97,6 +100,7 @@ impl Guard {
             owner_nonce: LookupMap<[u8; 32], u64>,
             requests: LookupMap<[u8; 32], SignRequest>,
             next_vault_id: u32,
+            owner_vault_count: LookupMap<[u8; 32], u32>,
         }
 
         let old: OldGuard = env::state_read().expect("state not found");
@@ -112,7 +116,7 @@ impl Guard {
             owner_nonce: old.owner_nonce,
             requests: old.requests,
             next_vault_id: old.next_vault_id,
-            owner_vault_count: LookupMap::new(StorageKey::OwnerVaultCount),
+            owner_vault_count: old.owner_vault_count,
         }
     }
 
@@ -160,6 +164,7 @@ impl Guard {
             }
         }
     }
+
 
     pub fn apply_pending_policy(&mut self, vault_id: u32) {
         let vault = self.vaults.get_mut(&vault_id).expect("vault not found");

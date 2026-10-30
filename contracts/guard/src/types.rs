@@ -83,6 +83,9 @@ pub struct Policy {
     pub daily_cap: Vec<(Mint, U64)>,
     pub programs: Vec<String>,
     pub max_priority_fee_lamports: U64,
+    #[serde(default)]
+    #[borsh(skip)]
+    pub max_total_priority_fee_lamports: Option<U64>,
     pub max_memo_len: u16,
     pub expires_at_ns: U64,
     pub loosen_delay_ns: U64,
@@ -166,6 +169,9 @@ pub struct SignRequestView {
     pub signature: Option<String>,
     pub created_ns: U64,
 }
+
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
+#[borsh(crate = "near_sdk::borsh")]
 
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]

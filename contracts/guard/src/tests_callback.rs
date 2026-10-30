@@ -35,6 +35,7 @@ fn setup_contract_with_request() -> (Guard, [u8; 32]) {
             per_tx_limit: vec![(Mint::Sol, U64(1_000_000_000))],
             daily_cap: vec![(Mint::Sol, U64(10_000_000_000))],
             max_priority_fee_lamports: U64(1_000_000),
+            max_total_priority_fee_lamports: None,
             max_memo_len: 100,
             expires_at_ns: U64(u64::MAX),
             loosen_delay_ns: U64(3_600_000_000_000),

@@ -52,6 +52,7 @@ mod rolling_24h_cap_tests {
                 per_tx_limit: vec![(Mint::Sol, U64(10_000_000_000))],
                 daily_cap: vec![(Mint::Sol, U64(10_000_000_000))], // 10 SOL
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -120,6 +121,7 @@ mod rolling_24h_cap_tests {
                 per_tx_limit: vec![(Mint::Sol, U64(100_000_000))], // 0.1 SOL max per tx
                 daily_cap: vec![(Mint::Sol, U64(10_000_000_000))],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -162,6 +164,7 @@ mod allowlist_tests {
                 per_tx_limit: vec![],
                 daily_cap: vec![],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -191,6 +194,7 @@ mod allowlist_tests {
                 per_tx_limit: vec![],
                 daily_cap: vec![],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -219,6 +223,7 @@ mod allowlist_tests {
                 per_tx_limit: vec![(Mint::Spl(usdc_mint), U64(1_000_000_000))],
                 daily_cap: vec![(Mint::Spl(usdc_mint), U64(10_000_000_000))],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -256,6 +261,7 @@ mod expiry_and_killswitch_tests {
                 per_tx_limit: vec![],
                 daily_cap: vec![],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(expiry_time),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -303,6 +309,7 @@ mod expiry_and_killswitch_tests {
                 per_tx_limit: vec![],
                 daily_cap: vec![],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -364,6 +371,7 @@ mod idempotency_tests {
                 per_tx_limit: vec![],
                 daily_cap: vec![],
                 max_priority_fee_lamports: U64(1_000_000),
+                max_total_priority_fee_lamports: None,
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
                 loosen_delay_ns: U64(3_600_000_000_000),
@@ -395,6 +403,7 @@ mod policy_change_tests {
             per_tx_limit: vec![(Mint::Sol, U64(1_000_000_000))], // 1 SOL
             daily_cap: vec![(Mint::Sol, U64(10_000_000_000))],   // 10 SOL
             max_priority_fee_lamports: U64(1_000_000),
+            max_total_priority_fee_lamports: None,
             max_memo_len: 100,
             expires_at_ns: U64(u64::MAX),
             loosen_delay_ns: U64(3_600_000_000_000),
@@ -405,8 +414,9 @@ mod policy_change_tests {
             per_tx_limit: vec![(Mint::Sol, U64(500_000_000))], // 0.5 SOL (stricter)
             daily_cap: vec![(Mint::Sol, U64(5_000_000_000))],  // 5 SOL (stricter)
             max_priority_fee_lamports: U64(500_000),           // lower (stricter)
-            max_memo_len: 50,                                  // lower (stricter)
-            expires_at_ns: U64(1_000_000_000),                 // sooner (stricter)
+            max_total_priority_fee_lamports: None,
+            max_memo_len: 50,                  // lower (stricter)
+            expires_at_ns: U64(1_000_000_000), // sooner (stricter)
             loosen_delay_ns: U64(3_600_000_000_000),
             programs: vec![],
         };
@@ -433,6 +443,7 @@ mod policy_change_tests {
             per_tx_limit: vec![(Mint::Sol, U64(500_000_000))],
             daily_cap: vec![(Mint::Sol, U64(5_000_000_000))],
             max_priority_fee_lamports: U64(500_000),
+            max_total_priority_fee_lamports: None,
             max_memo_len: 50,
             expires_at_ns: U64(current_time + 1_000_000_000),
             loosen_delay_ns: U64(delay_ns),
@@ -443,8 +454,9 @@ mod policy_change_tests {
             per_tx_limit: vec![(Mint::Sol, U64(1_000_000_000))], // 1 SOL (looser)
             daily_cap: vec![(Mint::Sol, U64(10_000_000_000))],   // 10 SOL (looser)
             max_priority_fee_lamports: U64(1_000_000),           // higher (looser)
-            max_memo_len: 100,                                   // higher (looser)
-            expires_at_ns: U64(u64::MAX),                        // later (looser)
+            max_total_priority_fee_lamports: None,
+            max_memo_len: 100,            // higher (looser)
+            expires_at_ns: U64(u64::MAX), // later (looser)
             loosen_delay_ns: U64(delay_ns),
             programs: vec![],
         };

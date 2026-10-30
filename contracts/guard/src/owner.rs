@@ -6,7 +6,8 @@ use near_sdk::json_types::U128;
 use near_sdk::serde::Deserialize;
 use near_sdk::{env, AccountId, Allowance, Gas, NearToken, Promise};
 
-const MIN_AGENT_FUNDING: u128 = 2_500_000_000_000_000_000_000; // 0.0025 NEAR
+// Agent funding: minimum covers 90-100 Tgas request_sign calls (~0.095 NEAR/call)
+const MIN_AGENT_FUNDING: u128 = 150_000_000_000_000_000_000_000; // 0.15 NEAR
 const MAX_AGENT_FUNDING: u128 = 500_000_000_000_000_000_000_000; // 0.5 NEAR
 const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.25 NEAR
 
@@ -258,6 +259,8 @@ impl Guard {
 
                 let path = format!("vault/{}/{}", owner_b58, owner_index);
 
+                // TODO F3a: Add MPC vault address verification before creating vault
+                // For now, create vault immediately without verification
                 let vault = Vault::new(vault_id, owner, vault_address_bytes, path, policy);
                 self.vaults.insert(vault_id, vault);
 
@@ -295,6 +298,18 @@ impl Guard {
                 let agent_id: AccountId = format!("{}.{}", name, env::current_account_id())
                     .parse()
                     .expect("invalid agent name");
+
+                // F3d: Refund excess deposits
+                let required_deposit = funding + AGENT_STORAGE_OVERHEAD;
+                let attached = env::attached_deposit().as_yoctonear();
+                if attached < required_deposit {
+                    env::panic_str("insufficient attached deposit");
+                }
+                if attached > required_deposit {
+                    let refund = attached - required_deposit;
+                    let _ = Promise::new(env::predecessor_account_id())
+                        .transfer(NearToken::from_yoctonear(refund));
+                }
 
                 let _ = Promise::new(agent_id.clone())
                     .create_account()
