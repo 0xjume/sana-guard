@@ -151,7 +151,6 @@ mod contract_tests {
 
 #[cfg(test)]
 mod policy_tests {
-    
 
     // TODO: Add comprehensive policy tests for:
     // - per-tx limit enforcement

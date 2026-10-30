@@ -23,9 +23,7 @@ mod fuzz_tests {
             // Generate random message length (0-2000 bytes)
             let len = (count * 17) % 2000;
             // Fill with pseudo-random data
-            let msg: Vec<u8> = (0..len)
-                .map(|i| ((count + i) * 251) as u8)
-                .collect();
+            let msg: Vec<u8> = (0..len).map(|i| ((count + i) * 251) as u8).collect();
 
             // Should not panic
             let _ = parse_solana_message(&msg);

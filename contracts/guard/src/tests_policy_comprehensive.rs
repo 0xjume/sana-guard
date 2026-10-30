@@ -36,7 +36,6 @@ fn get_context_with_time(
 #[cfg(test)]
 mod rolling_24h_cap_tests {
     use super::*;
-    
 
     #[test]
     fn test_rolling_cap_across_hour_boundaries() {
@@ -148,7 +147,6 @@ mod rolling_24h_cap_tests {
 #[cfg(test)]
 mod allowlist_tests {
     use super::*;
-    
 
     #[test]
     fn test_recipient_allowlist() {
@@ -243,7 +241,6 @@ mod allowlist_tests {
 #[cfg(test)]
 mod expiry_and_killswitch_tests {
     use super::*;
-    
 
     #[test]
     fn test_vault_expiry() {
@@ -324,7 +321,6 @@ mod expiry_and_killswitch_tests {
 #[cfg(test)]
 mod idempotency_tests {
     use super::*;
-    
 
     #[test]
     fn test_req_id_idempotency() {
@@ -390,7 +386,6 @@ mod idempotency_tests {
 #[cfg(test)]
 mod policy_change_tests {
     use super::*;
-    
 
     #[test]
     fn test_stricter_policy_immediate() {
