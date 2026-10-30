@@ -8,6 +8,7 @@ import { createQuoteRouter } from "./routes/quote.js";
 import { RelayDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import type { NearClient, NearTransaction, SubmitHooks, TxStatusResult, VaultInfo } from "./near/interface.js";
+import { PreSignError } from "./near/errors.js";
 import { CREATE_VAULT_DEPOSIT, parseNearToYocto } from "./constants.js";
 
 function testConfig(overrides: Partial<Config> = {}): Config {
@@ -431,6 +432,65 @@ describe("POST /v1/admin", () => {
     const unknown = db.listUnknownReservations();
     expect(unknown).toHaveLength(1);
     expect(unknown[0]?.txHash).toBe("signed-before-send");
+  });
+
+  it("releases the reservation immediately on a PreSignError", async () => {
+    near.submitOwnerAction = async () => {
+      throw new PreSignError("Failed to fetch latest block");
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 9,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("PRE_SIGN_FAILED");
+    expect(db.checkNonceInFlight(owner, 9)).toBe(false);
+    expect(db.listUnknownReservations()).toHaveLength(0);
+    expect(db.getGlobalStats(Date.now()).spentToday).toBe("0");
+  });
+
+  it("re-reads relay balance inside the lock for the floor check", async () => {
+    const order: string[] = [];
+    near.getVault = async () => {
+      order.push("vault");
+      return near.vault;
+    };
+    near.getOwnerNonce = async () => {
+      order.push("nonce");
+      return near.nonce;
+    };
+    near.getBalance = async () => {
+      order.push("balance");
+      return parseNearToYocto("0.55", "near").toString();
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 10,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(order).toEqual(["vault", "nonce", "balance"]);
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("BALANCE_TOO_LOW");
+    expect(near.submitted).toHaveLength(0);
   });
 
   it("releases the reservation on InvalidNonce before acceptance", async () => {

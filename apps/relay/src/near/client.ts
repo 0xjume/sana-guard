@@ -12,7 +12,10 @@ import {
   errorMessage,
   isOnChainExecutionError,
   isPreAcceptanceRejection,
+  PreSignError,
 } from "./errors.js";
+import { forgetAccessKey, rememberSignedNonce } from "./nonceCache.js";
+import { parseTxStatusJson, sumTokensBurnt, type TxRpcResponse } from "./txStatus.js";
 
 const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
 
@@ -97,38 +100,57 @@ export class NearClientImpl implements NearClient {
         ),
       ];
 
-      const accessKeyInfo = await this.account.findAccessKey(
-        this.contractId,
-        actions
-      );
+      let accessKeyInfo: Awaited<ReturnType<typeof this.account.findAccessKey>>;
+      try {
+        accessKeyInfo = await this.account.findAccessKey(
+          this.contractId,
+          actions
+        );
+      } catch (error: unknown) {
+        throw new PreSignError("Failed to load access key", { cause: error });
+      }
       if (!accessKeyInfo) {
-        throw new Error("No matching access key for the relay account");
+        throw new PreSignError("No matching access key for the relay account");
       }
 
-      const block = await this.connection.connection.provider.block({
-        finality: "final",
-      });
-      const nonce = BigInt(accessKeyInfo.accessKey.nonce) + 1n;
+      let block: { header: { hash: string } };
+      try {
+        block = await this.connection.connection.provider.block({
+          finality: "final",
+        });
+      } catch (error: unknown) {
+        throw new PreSignError("Failed to fetch latest block", { cause: error });
+      }
 
-      // Sign locally so the hash exists before any broadcast. A later
-      // near-api-js nonce retry is NOT used here; a single signed tx is sent.
-      const [hashBytes, signedTx] = await transactions.signTransaction(
-        this.contractId,
-        nonce,
-        actions,
-        utils.serialize.base_decode(block.header.hash),
-        this.account.connection.signer,
-        this.accountId,
-        this.networkId
-      );
+      const nonce = BigInt(accessKeyInfo.accessKey.nonce) + 1n;
+      const publicKey = accessKeyInfo.publicKey.toString();
+
+      let hashBytes: Uint8Array;
+      let signedTx: nearAPI.transactions.SignedTransaction;
+      try {
+        // Sign locally so the hash exists before any broadcast.
+        [hashBytes, signedTx] = await transactions.signTransaction(
+          this.contractId,
+          nonce,
+          actions,
+          utils.serialize.base_decode(block.header.hash),
+          this.account.connection.signer,
+          this.accountId,
+          this.networkId
+        );
+      } catch (error: unknown) {
+        throw new PreSignError("Failed to sign transaction", { cause: error });
+      }
+
       const txHash = utils.serialize.base_encode(hashBytes);
       hooks?.onSigned?.(txHash);
 
-      this.account.accessKeyByPublicKeyCache[accessKeyInfo.publicKey.toString()] =
-        {
-          ...accessKeyInfo.accessKey,
-          nonce,
-        };
+      rememberSignedNonce(
+        this.account.accessKeyByPublicKeyCache,
+        publicKey,
+        accessKeyInfo.accessKey,
+        nonce
+      );
 
       try {
         const outcome = await this.connection.connection.provider.sendTransaction(
@@ -136,6 +158,7 @@ export class NearClientImpl implements NearClient {
         );
         return this.outcomeToResult(outcome, txHash, depositYocto);
       } catch (error: unknown) {
+        forgetAccessKey(this.account.accessKeyByPublicKeyCache, publicKey);
         logger.error({ error, txHash }, "NEAR transaction failed");
         if (isPreAcceptanceRejection(error)) {
           throw error;
@@ -212,10 +235,24 @@ export class NearClientImpl implements NearClient {
   }
 
   /**
-   * Raw JSON-RPC `tx` with a 10s abort. Avoids near-api-js retries that can
-   * hang >60s on UNKNOWN_TRANSACTION. That name is treated as still pending.
+   * Raw JSON-RPC with a 10s abort. Prefers EXPERIMENTAL_tx_status so
+   * receipts (and tokens_burnt) are present even with wait_until NONE.
    */
   async getTransactionStatus(txHash: string): Promise<TxStatusResult> {
+    const experimental = await this.rpcTxStatus(
+      "EXPERIMENTAL_tx_status",
+      txHash
+    );
+    if (experimental) return experimental;
+    return (
+      (await this.rpcTxStatus("tx", txHash)) ?? { status: "pending" }
+    );
+  }
+
+  private async rpcTxStatus(
+    method: "EXPERIMENTAL_tx_status" | "tx",
+    txHash: string
+  ): Promise<TxStatusResult | undefined> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TX_STATUS_TIMEOUT_MS);
     try {
@@ -225,7 +262,7 @@ export class NearClientImpl implements NearClient {
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: "relay-tx-status",
-          method: "tx",
+          method,
           params: {
             tx_hash: txHash,
             sender_account_id: this.accountId,
@@ -234,36 +271,10 @@ export class NearClientImpl implements NearClient {
         }),
         signal: controller.signal,
       });
-      const json = (await res.json()) as {
-        error?: { cause?: { name?: string }; name?: string; message?: string };
-        result?: {
-          status?: unknown;
-          transaction_outcome?: { outcome?: { tokens_burnt?: string } };
-          receipts_outcome?: Array<{ outcome?: { tokens_burnt?: string } }>;
-        };
-      };
-
-      if (json.error) {
-        const name = `${json.error.cause?.name ?? ""} ${json.error.name ?? ""} ${json.error.message ?? ""}`;
-        if (/UNKNOWN_TRANSACTION|UNKNOWN_TX|DoesNotExist/i.test(name)) {
-          return { status: "pending" };
-        }
-        return { status: "pending" };
-      }
-
-      const status = json.result?.status;
-      const burnt = json.result ? sumTokensBurnt(json.result) : undefined;
-      if (status && typeof status === "object") {
-        if ("SuccessValue" in status || "SuccessReceiptId" in status) {
-          return { status: "success", tokensBurntYocto: burnt };
-        }
-        if ("Failure" in status) {
-          return { status: "failure", tokensBurntYocto: burnt };
-        }
-      }
-      return { status: "pending" };
+      const json = (await res.json()) as TxRpcResponse;
+      return parseTxStatusJson(json);
     } catch {
-      return { status: "pending" };
+      return undefined;
     } finally {
       clearTimeout(timer);
     }
@@ -275,18 +286,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     return value as Record<string, unknown>;
   }
   return undefined;
-}
-
-function sumTokensBurnt(outcome: {
-  transaction_outcome?: { outcome?: { tokens_burnt?: string } };
-  receipts_outcome?: Array<{ outcome?: { tokens_burnt?: string } }>;
-}): string {
-  let total = 0n;
-  const txBurnt = outcome.transaction_outcome?.outcome?.tokens_burnt;
-  if (txBurnt) total += BigInt(txBurnt);
-  for (const receipt of outcome.receipts_outcome ?? []) {
-    const burnt = receipt.outcome?.tokens_burnt;
-    if (burnt) total += BigInt(burnt);
-  }
-  return total.toString();
 }

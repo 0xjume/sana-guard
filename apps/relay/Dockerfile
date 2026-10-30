@@ -27,7 +27,6 @@ WORKDIR /app
 COPY --from=builder /out ./
 
 ENV NODE_ENV=production
-ENV TRUST_PROXY=true
 
 EXPOSE 3000
 

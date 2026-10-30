@@ -1,3 +1,26 @@
+/** Thrown when we fail before a tx is signed. Safe to release the reservation. */
+export class PreSignError extends Error {
+  readonly name = "PreSignError";
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "PreSignError";
+    if (options && "cause" in options) {
+      Object.assign(this, { cause: options.cause });
+    }
+  }
+}
+
+export function isPreSignError(error: unknown): boolean {
+  return (
+    error instanceof PreSignError ||
+    (error !== null &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "PreSignError")
+  );
+}
+
 export function errorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String(error.message);

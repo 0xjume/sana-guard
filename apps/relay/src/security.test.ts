@@ -384,6 +384,59 @@ describe("5–7. Reservation reconcile, unknown, atomic reserve", () => {
     expect(db.listUnknownReservations()).toHaveLength(0);
   });
 
+  it("releases a hashed unknown still UNKNOWN after expiry + tx validity", async () => {
+    const now = Date.now();
+    const reserved = parseNearToYocto("0.1", "near").toString();
+    db.reserveBudget("ownerE", 5, "Pause", reserved, now, {
+      depositYocto: "0",
+      expiresAtMs: now,
+    });
+    db.attachTxHash("ownerE", 5, "never-lands");
+    db.markUnknown("ownerE", 5, "never-lands");
+
+    const windowMs = 5_000;
+    const stillHeld = await db.resolveUnknownReservations({
+      checkTx: async () => ({ status: "unknown" }),
+      checkOwnerNonce: async () => 0,
+      nowMs: now + 1000,
+      txValidityMs: windowMs,
+    });
+    expect(stillHeld).toBe(0);
+    expect(db.checkNonceInFlight("ownerE", 5)).toBe(true);
+
+    const settleAt = now + windowMs + 1;
+    const released = await db.resolveUnknownReservations({
+      checkTx: async () => ({ status: "unknown" }),
+      checkOwnerNonce: async () => 4,
+      nowMs: settleAt,
+      txValidityMs: windowMs,
+    });
+    expect(released).toBe(1);
+    expect(db.checkNonceInFlight("ownerE", 5)).toBe(false);
+    expect(db.getGlobalStats(settleAt).spentToday).toBe("0");
+  });
+
+  it("settled-by-nonce counts deposit only, not the prepaid gas ceiling", async () => {
+    const now = Date.now();
+    const deposit = parseNearToYocto("0.5", "near").toString();
+    const reserved = parseNearToYocto("0.6", "near").toString();
+    db.reserveBudget("ownerF", 6, "CreateVault", reserved, now, {
+      depositYocto: deposit,
+      expiresAtMs: now,
+    });
+    db.markUnknown("ownerF", 6);
+    const settleAt = now + 6_000;
+    const resolved = await db.resolveUnknownReservations({
+      checkTx: async () => ({ status: "unknown" }),
+      checkOwnerNonce: async () => 6,
+      nowMs: settleAt,
+      txValidityMs: 5_000,
+    });
+    expect(resolved).toBe(1);
+    expect(db.getGlobalStats(settleAt).spentToday).toBe(deposit);
+    expect(db.getOwnerStats("ownerF", settleAt).spentToday).toBe(deposit);
+  });
+
   it("leaves a no-hash unknown reserved until expiry + tx validity, then settles via nonce", async () => {
     const now = Date.now();
     const reserved = parseNearToYocto("0.1", "near").toString();

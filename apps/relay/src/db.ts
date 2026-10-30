@@ -346,12 +346,13 @@ export class RelayDatabase {
   /**
    * Resolve 'unknown' rows.
    * - With a hash: check txStatus. Record deposit+burnt on success, burnt only on failure.
-   * - Without a hash (legacy): after message expiry + tx validity window, settle
-   *   by comparing the on-chain owner nonce.
+   * - Still pending/UNKNOWN after expiry + tx validity: settle via nonce
+   *   (release if unused; if consumed, record deposit or a looked-up outcome).
+   * - Without a hash (legacy): same expiry + nonce path.
    */
   async resolveUnknownReservations(args: {
     checkTx: (txHash: string) => Promise<{
-      status: "success" | "failure" | "pending";
+      status: "success" | "failure" | "pending" | "unknown";
       tokensBurntYocto?: string;
     }>;
     checkOwnerNonce: (owner: string) => Promise<number>;
@@ -362,36 +363,87 @@ export class RelayDatabase {
     for (const row of this.listUnknownReservations()) {
       if (row.txHash) {
         const result = await args.checkTx(row.txHash);
-        if (result.status === "pending") continue;
-        const burnt = result.tokensBurntYocto ?? "0";
-        const actual =
-          result.status === "success"
-            ? (BigInt(row.depositYocto) + BigInt(burnt)).toString()
-            : burnt;
-        this.reconcileBudget(
-          row.owner,
-          row.nonce,
-          actual,
-          row.txHash,
-          result.status === "success",
-          args.nowMs
-        );
-        resolved++;
-        continue;
+        if (result.status === "success" || result.status === "failure") {
+          this.applyTxOutcome(
+            row,
+            { status: result.status, tokensBurntYocto: result.tokensBurntYocto },
+            args.nowMs
+          );
+          resolved++;
+          continue;
+        }
       }
 
       const settleAfter = (row.expiresAtMs ?? row.timestamp) + args.txValidityMs;
       if (args.nowMs < settleAfter) continue;
 
-      const onChainNonce = await args.checkOwnerNonce(row.owner);
-      if (onChainNonce >= row.nonce) {
-        this.finalizeBudget(row.owner, row.nonce, "settled-by-nonce", true);
-      } else {
-        this.releaseBudget(row.owner, row.nonce, args.nowMs);
-      }
+      await this.settleExpiredReservation(row, args);
       resolved++;
     }
     return resolved;
+  }
+
+  private applyTxOutcome(
+    row: UnknownReservation,
+    result: {
+      status: "success" | "failure";
+      tokensBurntYocto?: string;
+    },
+    nowMs: number
+  ): void {
+    const burnt = result.tokensBurntYocto ?? "0";
+    const actual =
+      result.status === "success"
+        ? (BigInt(row.depositYocto) + BigInt(burnt)).toString()
+        : burnt;
+    this.reconcileBudget(
+      row.owner,
+      row.nonce,
+      actual,
+      row.txHash ?? "settled-by-nonce",
+      result.status === "success",
+      nowMs
+    );
+  }
+
+  private async settleExpiredReservation(
+    row: UnknownReservation,
+    args: {
+      checkTx: (txHash: string) => Promise<{
+        status: "success" | "failure" | "pending" | "unknown";
+        tokensBurntYocto?: string;
+      }>;
+      checkOwnerNonce: (owner: string) => Promise<number>;
+      nowMs: number;
+    }
+  ): Promise<void> {
+    if (row.txHash) {
+      const again = await args.checkTx(row.txHash);
+      if (again.status === "success" || again.status === "failure") {
+        this.applyTxOutcome(
+          row,
+          { status: again.status, tokensBurntYocto: again.tokensBurntYocto },
+          args.nowMs
+        );
+        return;
+      }
+    }
+
+    const onChainNonce = await args.checkOwnerNonce(row.owner);
+    if (onChainNonce >= row.nonce) {
+      // Nonce was consumed but we never saw tokens_burnt. Count deposit
+      // only — not the prepaid 0.1 NEAR gas ceiling.
+      this.reconcileBudget(
+        row.owner,
+        row.nonce,
+        row.depositYocto,
+        row.txHash ?? "settled-by-nonce",
+        true,
+        args.nowMs
+      );
+    } else {
+      this.releaseBudget(row.owner, row.nonce, args.nowMs);
+    }
   }
 
   listUnknownReservations(): UnknownReservation[] {

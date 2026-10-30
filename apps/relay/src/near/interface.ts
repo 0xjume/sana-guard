@@ -6,7 +6,7 @@ export interface NearTransaction {
 }
 
 export interface TxStatusResult {
-  status: "success" | "failure" | "pending";
+  status: "success" | "failure" | "pending" | "unknown";
   tokensBurntYocto?: string;
 }
 

@@ -24,6 +24,7 @@ import { tokensEqual } from "../crypto.js";
 import {
   isOnChainExecutionError,
   isPreAcceptanceRejection,
+  isPreSignError,
   txHashFromUnknown,
 } from "../near/errors.js";
 import { spentAfterOutcome } from "../resolve.js";
@@ -109,12 +110,12 @@ function reserveFailCode(
 
 async function reserveAdminRequest(args: {
   db: RelayDatabase;
+  nearClient: NearClient;
   config: Config;
   owner: string;
   parsedMsg: ParsedAdminMessage;
   vault: VaultInfo | null;
   onChainNonce: number;
-  relayBalance: string;
   depositYocto: string;
   gasCostYocto: string;
   floorYocto: bigint;
@@ -122,19 +123,19 @@ async function reserveAdminRequest(args: {
 }): Promise<ReserveOutcome> {
   const {
     db,
+    nearClient,
     config,
     owner,
     parsedMsg,
     vault,
     onChainNonce,
-    relayBalance,
     depositYocto,
     gasCostYocto,
     floorYocto,
     nowMs,
   } = args;
 
-  // Global lock only wraps cheap re-validation + the SQLite reserve.
+  // Global lock wraps cheap re-validation + one view_account + the reserve.
   return db.withGlobalLock(async () =>
     db.withOwnerLock(owner, async () => {
       if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
@@ -159,6 +160,7 @@ async function reserveAdminRequest(args: {
         };
       }
 
+      const relayBalance = await nearClient.getBalance();
       const available = (
         BigInt(relayBalance) - BigInt(db.getOutstandingReservedYocto())
       ).toString();
@@ -364,16 +366,15 @@ export function createAdminRouter(
           400
         );
       }
-      const relayBalance = await nearClient.getBalance();
 
       const reserved = await reserveAdminRequest({
         db,
+        nearClient,
         config,
         owner,
         parsedMsg,
         vault,
         onChainNonce,
-        relayBalance,
         depositYocto,
         gasCostYocto,
         floorYocto,
@@ -453,6 +454,13 @@ export function createAdminRouter(
           });
         } catch (error: unknown) {
           log.error({ error }, "Submission failed");
+          if (isPreSignError(error)) {
+            db.releaseBudget(owner, parsedMsg.nonce, nowMs);
+            return c.json(
+              { error: "Transaction could not be signed", code: "PRE_SIGN_FAILED" },
+              503
+            );
+          }
           if (isPreAcceptanceRejection(error)) {
             db.releaseBudget(owner, parsedMsg.nonce, nowMs);
             return c.json(
