@@ -32,7 +32,7 @@ pub struct Vault {
     pub policy: Policy,
     pub pending_loosen: Option<(Policy, u64)>,
     pub recipients: LookupSet<[u8; 32]>,
-    pub recipients_list: Vec<[u8; 32]>,  // F4: For iteration/pagination
+    pub recipients_list: Vec<[u8; 32]>, // F4: For iteration/pagination
     pub programs: LookupSet<[u8; 32]>,
     pub token_accounts: LookupMap<[u8; 32], ([u8; 32], u8)>,
     pub bucket_hashes: LookupMap<u64, Vec<[u8; 32]>>,

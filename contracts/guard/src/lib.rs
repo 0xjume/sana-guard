@@ -134,10 +134,10 @@ impl Guard {
         // We need to reconstruct vaults with the new state field
         let mut old_vaults = old.vaults;
         let mut new_vaults = IterableMap::new(StorageKey::Vaults);
-        
+
         // Collect vault IDs first to avoid borrow issues
         let vault_ids: Vec<u32> = old_vaults.iter().map(|(id, _)| *id).collect();
-        
+
         for vault_id in vault_ids {
             if let Some(old_vault) = old_vaults.remove(&vault_id) {
                 let new_vault = Vault {
@@ -149,7 +149,7 @@ impl Guard {
                     policy: old_vault.policy,
                     pending_loosen: old_vault.pending_loosen,
                     recipients: old_vault.recipients,
-                    recipients_list: Vec::new(),  // F4: Empty for migrated vaults (will be populated on next add)
+                    recipients_list: Vec::new(), // F4: Empty for migrated vaults (will be populated on next add)
                     programs: old_vault.programs,
                     token_accounts: old_vault.token_accounts,
                     bucket_hashes: old_vault.bucket_hashes,

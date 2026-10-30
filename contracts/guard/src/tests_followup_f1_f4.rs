@@ -320,7 +320,7 @@ fn test_f3a_request_sign_on_pending_vault() {
 
     // Try to request sign - should panic with SG_E075_VAULT_NOT_ACTIVE
     let tx_bytes = hex::decode("0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010001031234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000102020000000c02000000e803000000000000").unwrap();
-    
+
     context.predecessor_account_id(agent_id);
     context.attached_deposit(NearToken::from_yoctonear(1));
     testing_env!(context.build());
@@ -380,7 +380,7 @@ fn test_f3a_vault_removed_on_mismatch() {
 
     let owner_key = [7u8; 32];
     let vault_key = [9u8; 32];
-    let wrong_key = [10u8; 32];  // Different key
+    let wrong_key = [10u8; 32]; // Different key
     let owner_b58 = bs58::encode(&owner_key).into_string();
     let vault_b58 = bs58::encode(&vault_key).into_string();
     let wrong_b58 = bs58::encode(&wrong_key).into_string();
@@ -429,7 +429,7 @@ fn test_f3c_max_total_priority_fee_persists() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
-        max_total_priority_fee_lamports: Some(near_sdk::json_types::U64(5_000_000)),  // Set cap
+        max_total_priority_fee_lamports: Some(near_sdk::json_types::U64(5_000_000)), // Set cap
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -448,7 +448,10 @@ fn test_f3c_max_total_priority_fee_persists() {
 
     // Read vault back and check the cap is preserved
     let vault_view = contract.get_vault(0).expect("vault should exist");
-    assert_eq!(vault_view.policy.max_total_priority_fee_lamports, Some(near_sdk::json_types::U64(5_000_000)));
+    assert_eq!(
+        vault_view.policy.max_total_priority_fee_lamports,
+        Some(near_sdk::json_types::U64(5_000_000))
+    );
 }
 
 // F4 Test: get_recipients with pagination
