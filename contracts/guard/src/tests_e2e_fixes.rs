@@ -1,5 +1,4 @@
 use crate::*;
-use ed25519_dalek::{Signer, SigningKey};
 use near_sdk::test_utils::{accounts, VMContextBuilder};
 use near_sdk::testing_env;
 use near_sdk::{NearToken, PublicKey};

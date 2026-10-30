@@ -282,7 +282,8 @@ fn base58_decode(s: &str) -> [u8; 32] {
     bytes.try_into().expect("wrong length")
 }
 
-fn base64_decode(s: &str) -> [u8; 32] {
+#[allow(dead_code)]
+pub fn base64_decode(s: &str) -> [u8; 32] {
     use near_sdk::base64::engine::general_purpose::STANDARD;
     use near_sdk::base64::Engine;
     let bytes = STANDARD.decode(s).expect("invalid base64");
