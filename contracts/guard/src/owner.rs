@@ -120,7 +120,7 @@ impl Guard {
             .ok_or("missing contract")?
             .parse()
             .map_err(|_| "invalid contract")?;
-        
+
         let vault_line = lines[3].strip_prefix("vault: ").ok_or("missing vault")?;
         let vault = if vault_line == "null" {
             None
@@ -140,9 +140,7 @@ impl Guard {
             .parse()
             .map_err(|_| "invalid expires")?;
 
-        let action_json = lines[6]
-            .strip_prefix("action: ")
-            .ok_or("missing action")?;
+        let action_json = lines[6].strip_prefix("action: ").ok_or("missing action")?;
 
         let action: OwnerAction =
             serde_json::from_str(action_json).map_err(|_| "invalid action json")?;
@@ -163,9 +161,7 @@ impl Guard {
 
     fn extract_owner_from_action(action: &OwnerAction, guard: &Guard) -> [u8; 32] {
         match action {
-            OwnerAction::CreateVault { vault_address, .. } => {
-                base58_decode(vault_address)
-            }
+            OwnerAction::CreateVault { vault_address, .. } => base58_decode(vault_address),
             _ => {
                 let vault_id = Self::vault_id_from_action(action);
                 let vault = guard.vaults.get(&vault_id).expect("vault not found");
@@ -322,7 +318,9 @@ impl Guard {
 
                 let ata_bytes = base58_decode(&ata);
                 let mint_bytes = base58_decode(&mint);
-                vault.token_accounts.insert(ata_bytes, (mint_bytes, decimals));
+                vault
+                    .token_accounts
+                    .insert(ata_bytes, (mint_bytes, decimals));
 
                 format!("token account {} registered", ata)
             }
@@ -363,10 +361,7 @@ impl Guard {
                 let mut req_id_arr = [0u8; 32];
                 req_id_arr.copy_from_slice(&req_id_bytes);
 
-                let request = self
-                    .requests
-                    .get(&req_id_arr)
-                    .expect("request not found");
+                let request = self.requests.get(&req_id_arr).expect("request not found");
                 let mut request = request.clone();
 
                 if request.vault_id != vault_id {

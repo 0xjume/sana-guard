@@ -206,10 +206,7 @@ impl Guard {
             req_id: req_id_b64.clone(),
             vault_id,
             agent: predecessor.to_string(),
-            spend: spend
-                .iter()
-                .map(|(m, a)| (mint_to_string(m), *a))
-                .collect(),
+            spend: spend.iter().map(|(m, a)| (mint_to_string(m), *a)).collect(),
             msg_hash: hex::encode(msg_hash_arr),
         });
 
@@ -295,12 +292,7 @@ impl Guard {
                 }
             }
             ParsedInstruction::ComputeBudgetSetLimit { limit } => {
-                if let Some(_price_ix) = vault
-                    .policy
-                    .programs
-                    .iter()
-                    .find(|_| *limit > 0)
-                {
+                if let Some(_price_ix) = vault.policy.programs.iter().find(|_| *limit > 0) {
                     // This will be fully validated in calculate_spend
                 }
             }
@@ -369,5 +361,4 @@ impl Guard {
             }
         }
     }
-
 }

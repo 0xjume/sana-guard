@@ -8,6 +8,9 @@ mod types;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_comprehensive;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -62,7 +65,12 @@ impl Guard {
         self.handle_owner_action(msg, sig)
     }
 
-    pub fn request_sign(&mut self, vault_id: u32, message_b64: String, req_id_b64: String) -> Promise {
+    pub fn request_sign(
+        &mut self,
+        vault_id: u32,
+        message_b64: String,
+        req_id_b64: String,
+    ) -> Promise {
         self.process_sign_request(vault_id, message_b64, req_id_b64)
     }
 
@@ -99,7 +107,7 @@ impl Guard {
 
     pub fn apply_pending_policy(&mut self, vault_id: u32) {
         let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
-        
+
         if let Some((pending_policy, effective_ns)) = vault.pending_loosen.take() {
             if env::block_timestamp() < effective_ns {
                 env::panic_str("delay not elapsed");
@@ -224,4 +232,3 @@ fn mint_to_string(mint: &Mint) -> String {
         Mint::Spl(bytes) => base58_encode(bytes),
     }
 }
-

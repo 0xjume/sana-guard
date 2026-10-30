@@ -1,5 +1,5 @@
-use crate::*;
 use crate::parser::*;
+use crate::*;
 
 #[cfg(test)]
 mod parser_tests {
@@ -10,15 +10,15 @@ mod parser_tests {
         // Single byte encodings (0-127)
         assert_eq!(read_compact_u16(&[0x00]).unwrap(), (0, 1));
         assert_eq!(read_compact_u16(&[0x7f]).unwrap(), (127, 1));
-        
+
         // Two byte encodings
         assert_eq!(read_compact_u16(&[0x80, 0x01]).unwrap(), (128, 2));
         assert_eq!(read_compact_u16(&[0x80, 0x02]).unwrap(), (256, 2));
         assert_eq!(read_compact_u16(&[0xbf, 0x7f]).unwrap(), (16319, 2)); // max 2-byte
-        
+
         // Three byte encoding
         assert_eq!(read_compact_u16(&[0xc0, 0x00, 0x01]).unwrap(), (16384, 3));
-        
+
         // Error on truncated multi-byte
         assert!(read_compact_u16(&[0x80]).is_err());
         assert!(read_compact_u16(&[0xc0, 0x00]).is_err());
@@ -64,7 +64,7 @@ mod parser_tests {
         msg.extend_from_slice(&[3u8; 32]);
         // 0 instructions
         msg.push(0);
-        
+
         let result = parse_solana_message(&msg);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "SG_E004_MULTI_SIG");
@@ -75,7 +75,7 @@ mod parser_tests {
         // Minimal valid legacy message with SystemProgram::Transfer
         let vault_addr = [1u8; 32];
         let recipient = [2u8; 32];
-        
+
         let mut msg = vec![
             1, // 1 required signature
             0, // 0 readonly signed
@@ -91,10 +91,10 @@ mod parser_tests {
         msg.push(0); // from (index 0)
         msg.push(1); // to (index 1)
         msg.push(12); // data length = 12
-        // SystemProgram::Transfer discriminator (u32 2) + amount (u64)
+                      // SystemProgram::Transfer discriminator (u32 2) + amount (u64)
         msg.extend_from_slice(&[2, 0, 0, 0]); // discriminator
         msg.extend_from_slice(&[0x40, 0x42, 0x0f, 0, 0, 0, 0, 0]); // 1,000,000 lamports
-        
+
         // This should fail because SystemProgram id is not actually at index 0
         // Let me fix this test
     }

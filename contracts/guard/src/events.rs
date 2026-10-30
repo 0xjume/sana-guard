@@ -1,5 +1,5 @@
-use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::log;
+use near_sdk::serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]

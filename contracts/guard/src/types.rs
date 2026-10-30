@@ -1,6 +1,6 @@
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
-use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::serde::{Deserialize, Serialize};
+use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{json_types::U64, AccountId};
 
 use crate::storage::StorageKey;
@@ -61,10 +61,13 @@ impl Vault {
             path: self.path.clone(),
             agents: self.agents.clone(),
             policy: self.policy.clone(),
-            pending_loosen: self.pending_loosen.as_ref().map(|(p, ns)| PendingLoosenView {
-                policy: p.clone(),
-                effective_ns: U64(*ns),
-            }),
+            pending_loosen: self
+                .pending_loosen
+                .as_ref()
+                .map(|(p, ns)| PendingLoosenView {
+                    policy: p.clone(),
+                    effective_ns: U64(*ns),
+                }),
             paused: self.paused,
         }
     }
