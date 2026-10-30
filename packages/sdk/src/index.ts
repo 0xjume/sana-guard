@@ -2,6 +2,7 @@
 export type {
   Mint,
   Policy,
+  VaultState,
   VaultView,
   SignRequestStatus,
   SignRequestView,
@@ -22,6 +23,7 @@ export {
   createSanaGuardError,
   getErrorMessage,
   isErrorCode,
+  knownErrorCodes,
 } from './errors';
 
 // Message building
@@ -31,12 +33,17 @@ export {
   ATA_PROGRAM,
   COMPUTE_BUDGET_PROGRAM,
   MEMO_PROGRAM,
+  U64_MAX,
+  encodeU64Le,
+  encodeComputeUnitPriceData,
+  setComputeUnitPriceInstruction,
   buildSolTransfer,
   buildTokenTransfer,
   buildMessageWithMemo,
   assertNotV1Message,
   verifyMessageSignature,
   assembleSignedTransaction,
+  extractRecentBlockhash,
 } from './messages';
 
 // Admin

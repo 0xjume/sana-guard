@@ -16,6 +16,52 @@ export const ATA_PROGRAM = ASSOCIATED_TOKEN_PROGRAM_ID;
 export const COMPUTE_BUDGET_PROGRAM = ComputeBudgetProgram.programId;
 export const MEMO_PROGRAM = new PublicKey('Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo');
 
+/** Maximum value that fits in a Solana u64 field. */
+export const U64_MAX = BigInt('18446744073709551615');
+
+/**
+ * Encode a bigint as little-endian u64. Rejects negatives and values above u64 max
+ * without going through Number(), which cannot represent every u64 exactly.
+ */
+export function encodeU64Le(value: bigint): Buffer {
+  if (value < BigInt(0) || value > U64_MAX) {
+    throw new SanaGuardError(`u64 out of range: ${value}`);
+  }
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(value);
+  return buf;
+}
+
+/**
+ * ComputeBudget SetComputeUnitPrice data: discriminator 3 + little-endian u64.
+ */
+export function encodeComputeUnitPriceData(microLamports: bigint): Buffer {
+  return Buffer.concat([Buffer.from([3]), encodeU64Le(microLamports)]);
+}
+
+/**
+ * ComputeBudget SetComputeUnitPrice instruction, encoded without Number().
+ */
+export function setComputeUnitPriceInstruction(microLamports: bigint): TransactionInstruction {
+  return new TransactionInstruction({
+    keys: [],
+    programId: COMPUTE_BUDGET_PROGRAM,
+    data: encodeComputeUnitPriceData(microLamports),
+  });
+}
+
+function memoInstruction(memo: string, maxMemoLen: number): TransactionInstruction {
+  const memoBytes = Buffer.from(memo, 'utf-8');
+  if (memoBytes.length > maxMemoLen) {
+    throw new SanaGuardError(`Memo too long (max ${maxMemoLen} bytes)`);
+  }
+  return new TransactionInstruction({
+    keys: [],
+    programId: MEMO_PROGRAM,
+    data: memoBytes,
+  });
+}
+
 /**
  * Compact-u16 encoding for Solana message format
  */
@@ -52,9 +98,11 @@ export function buildSolTransfer(
     version?: MessageVersion;
     computeUnitLimit?: number;
     computeUnitPrice?: bigint;
+    memo?: string;
+    maxMemoLen?: number;
   } = {}
 ): Uint8Array {
-  const { version = 'v0', computeUnitLimit, computeUnitPrice } = options;
+  const { version = 'v0', computeUnitLimit, computeUnitPrice, memo, maxMemoLen = 64 } = options;
 
   const instructions: TransactionInstruction[] = [];
 
@@ -66,9 +114,7 @@ export function buildSolTransfer(
   }
 
   if (computeUnitPrice !== undefined) {
-    instructions.push(
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Number(computeUnitPrice) })
-    );
+    instructions.push(setComputeUnitPriceInstruction(computeUnitPrice));
   }
 
   // Add transfer instruction
@@ -79,6 +125,10 @@ export function buildSolTransfer(
       lamports: Number(lamports),
     })
   );
+
+  if (memo !== undefined) {
+    instructions.push(memoInstruction(memo, maxMemoLen));
+  }
 
   if (version === 'v0') {
     const message = new TransactionMessage({
@@ -116,9 +166,11 @@ export function buildTokenTransfer(
     computeUnitLimit?: number;
     computeUnitPrice?: bigint;
     createAta?: boolean;
+    memo?: string;
+    maxMemoLen?: number;
   } = {}
 ): Uint8Array {
-  const { version = 'v0', computeUnitLimit, computeUnitPrice, createAta = false } = options;
+  const { version = 'v0', computeUnitLimit, computeUnitPrice, createAta = false, memo, maxMemoLen = 64 } = options;
 
   const instructions: TransactionInstruction[] = [];
 
@@ -130,9 +182,7 @@ export function buildTokenTransfer(
   }
 
   if (computeUnitPrice !== undefined) {
-    instructions.push(
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Number(computeUnitPrice) })
-    );
+    instructions.push(setComputeUnitPriceInstruction(computeUnitPrice));
   }
 
   // Optionally create ATA idempotently
@@ -158,6 +208,10 @@ export function buildTokenTransfer(
       decimals
     )
   );
+
+  if (memo !== undefined) {
+    instructions.push(memoInstruction(memo, maxMemoLen));
+  }
 
   if (version === 'v0') {
     const message = new TransactionMessage({
@@ -358,4 +412,68 @@ export function assembleSignedTransaction(
   // Compact-u16 encoding of number of signatures (always 1)
   const numSignatures = encodeCompactU16(1);
   return Buffer.concat([numSignatures, Buffer.from(signature), Buffer.from(message)]);
+}
+
+function decodeCompactU16(bytes: Uint8Array, offset: number): { value: number; size: number } {
+  if (offset >= bytes.length) {
+    throw new SanaGuardError('Compact-u16 buffer empty');
+  }
+  const first = bytes[offset];
+  if ((first & 0x80) === 0) {
+    return { value: first, size: 1 };
+  }
+  if (offset + 1 >= bytes.length) {
+    throw new SanaGuardError('Compact-u16 truncated');
+  }
+  const second = bytes[offset + 1];
+  if ((first & 0x40) === 0) {
+    return { value: (first & 0x7f) | (second << 7), size: 2 };
+  }
+  if (offset + 2 >= bytes.length) {
+    throw new SanaGuardError('Compact-u16 truncated');
+  }
+  const third = bytes[offset + 2];
+  return {
+    value: (first & 0x3f) | (second << 6) | (third << 14),
+    size: 3,
+  };
+}
+
+function decodeBs58(data: Uint8Array): string {
+  const bs58 = require('bs58');
+  const decode = bs58.default?.encode ?? bs58.encode;
+  return decode(Buffer.from(data));
+}
+
+/**
+ * Read the recent blockhash that was compiled into a legacy or v0 message.
+ * Used so confirmation talks about the signed message, not a freshly fetched hash.
+ */
+export function extractRecentBlockhash(message: Uint8Array): string {
+  if (message.length < 36) {
+    throw new SanaGuardError('Message too short to contain a blockhash');
+  }
+
+  let cursor = 0;
+  const version = message[0];
+  if ((version & 0x80) !== 0) {
+    if (version !== 0x80) {
+      throw new SanaGuardError('Unsupported message version');
+    }
+    cursor = 1;
+  }
+
+  if (cursor + 3 > message.length) {
+    throw new SanaGuardError('Message header is truncated');
+  }
+  cursor += 3;
+
+  const keys = decodeCompactU16(message, cursor);
+  cursor += keys.size + keys.value * 32;
+
+  if (cursor + 32 > message.length) {
+    throw new SanaGuardError('Message blockhash is truncated');
+  }
+
+  return decodeBs58(message.slice(cursor, cursor + 32));
 }

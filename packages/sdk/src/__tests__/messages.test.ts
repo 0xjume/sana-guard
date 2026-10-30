@@ -1,5 +1,13 @@
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { buildSolTransfer, assertNotV1Message, SYSTEM_PROGRAM } from '../messages';
+import {
+  buildSolTransfer,
+  assertNotV1Message,
+  SYSTEM_PROGRAM,
+  encodeU64Le,
+  encodeComputeUnitPriceData,
+  extractRecentBlockhash,
+  U64_MAX,
+} from '../messages';
 import { SanaGuardError } from '../errors';
 
 describe('Messages', () => {
@@ -101,6 +109,45 @@ describe('Messages', () => {
   describe('SYSTEM_PROGRAM constant', () => {
     it('should match Solana SystemProgram.programId', () => {
       expect(SYSTEM_PROGRAM.toBase58()).toBe(SystemProgram.programId.toBase58());
+    });
+  });
+
+  describe('computeUnitPrice u64 encoding', () => {
+    it('encodes values above Number.MAX_SAFE_INTEGER without rounding', () => {
+      const value = BigInt('9007199254740993');
+      expect(Number(value)).toBe(9007199254740992);
+
+      const encoded = encodeU64Le(value);
+      expect(encoded.readBigUInt64LE(0)).toBe(value);
+
+      const data = encodeComputeUnitPriceData(value);
+      expect(data[0]).toBe(3);
+      expect(data.subarray(1).readBigUInt64LE(0)).toBe(value);
+    });
+
+    it('encodes u64 max and rejects anything larger', () => {
+      const max = encodeU64Le(U64_MAX);
+      expect(max.readBigUInt64LE(0)).toBe(U64_MAX);
+      expect(() => encodeU64Le(U64_MAX + BigInt(1))).toThrow('u64 out of range');
+      expect(() => encodeU64Le(BigInt(-1))).toThrow('u64 out of range');
+      expect(() => encodeComputeUnitPriceData(U64_MAX + BigInt(1))).toThrow('u64 out of range');
+    });
+
+    it('embeds the exact u64 price bytes in a transfer message', () => {
+      const price = BigInt('9007199254740993');
+      const message = buildSolTransfer(from, to, BigInt(1000), blockhash, {
+        version: 'v0',
+        computeUnitPrice: price,
+      });
+      const data = encodeComputeUnitPriceData(price);
+      expect(Buffer.from(message).includes(data)).toBe(true);
+    });
+  });
+
+  describe('extractRecentBlockhash', () => {
+    it('reads the blockhash compiled into the message', () => {
+      const message = buildSolTransfer(from, to, BigInt(1000), blockhash, { version: 'v0' });
+      expect(extractRecentBlockhash(message)).toBe(blockhash);
     });
   });
 });

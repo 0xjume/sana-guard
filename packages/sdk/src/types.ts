@@ -177,6 +177,11 @@ export interface RequestSignParams {
   vaultId: number;
   message: Uint8Array;
   idempotencyKey?: string;
+  /**
+   * lastValidBlockHeight from the same getLatestBlockhash() that produced
+   * the message's recent blockhash. Required for broadcast/confirm.
+   */
+  lastValidBlockHeight?: number;
 }
 
 /**

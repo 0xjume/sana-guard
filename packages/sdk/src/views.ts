@@ -1,7 +1,16 @@
 import { PublicKey } from '@solana/web3.js';
 import { Contract, Account as NearAccount } from 'near-api-js';
-import { VaultView, SignRequestView, Policy } from './types';
+import { VaultView, SignRequestView, Policy, VaultState } from './types';
 import { SanaGuardError } from './errors';
+
+const VAULT_STATES: readonly VaultState[] = ['PendingVerification', 'Active'];
+
+function parseVaultState(state: unknown): VaultState {
+  if (typeof state === 'string' && (VAULT_STATES as readonly string[]).includes(state)) {
+    return state as VaultState;
+  }
+  throw new SanaGuardError(`Invalid or missing vault state: ${String(state)}`);
+}
 
 /**
  * Parse a policy from the contract JSON format
@@ -88,7 +97,7 @@ export class Views {
           }
         : undefined,
       paused: result.paused,
-      state: result.state || 'Active',
+      state: parseVaultState(result.state),
     };
   }
 
@@ -170,7 +179,7 @@ export class Views {
             }
           : undefined,
         paused: item[1].paused,
-        state: item[1].state || 'Active',
+        state: parseVaultState(item[1].state),
       },
     }));
   }
@@ -228,3 +237,5 @@ export class Views {
     return new PublicKey(keyBytes);
   }
 }
+
+export { parseVaultState };

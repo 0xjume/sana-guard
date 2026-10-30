@@ -51,11 +51,15 @@ const client = new AgentClient(
   vaultAddress
 );
 
-// 3. Transfer 0.01 SOL
-const result = await client.transfer({
-  to: new PublicKey('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB'),
-  lamports: BigInt(10_000_000),
-});
+// 3. Transfer 0.01 SOL from vault 0 (optional memo)
+const result = await client.transfer(
+  0,
+  {
+    to: new PublicKey('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB'),
+    lamports: BigInt(10_000_000),
+  },
+  { memo: 'agent payout' }
+);
 
 console.log('Transaction:', result.explorer);
 // => https://explorer.solana.com/tx/...?cluster=devnet
@@ -161,7 +165,11 @@ class AgentClient {
   ): Promise<BroadcastResult>;
 
   // High-level transfer helper (SOL or SPL token)
-  transfer(params: TransferParams, options?: { computeUnitLimit?: number; computeUnitPrice?: bigint; version?: 'legacy' | 'v0' }): Promise<BroadcastResult>;
+  transfer(
+    vaultId: number,
+    params: TransferParams,
+    options?: { computeUnitLimit?: number; computeUnitPrice?: bigint; version?: 'legacy' | 'v0'; memo?: string; maxMemoLen?: number }
+  ): Promise<BroadcastResult>;
 }
 ```
 
@@ -210,6 +218,7 @@ addAgentAction(network, contract, nonce, params, signer, ttlSeconds?): Promise<S
 pauseAction(network, contract, vaultId, nonce, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 unpauseAction(network, contract, vaultId, nonce, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 releaseAction(network, contract, vaultId, nonce, reqId, signer, ttlSeconds?): Promise<SignedAdminMessage>;
+backfillRecipientsAction(network, contract, vaultId, nonce, recipients, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 
 // Calculate required deposit
 calculateRequiredDeposit(action: OwnerAction): bigint;
@@ -237,7 +246,7 @@ Every `SG_E###` error code from the contract is mapped to a readable message:
 
 ```typescript
 try {
-  await client.transfer({ to, lamports });
+  await client.transfer(vaultId, { to, lamports });
 } catch (error) {
   if (isErrorCode(error, 'SG_E062_PER_TX_LIMIT_EXCEEDED')) {
     console.error('Transfer exceeds per-transaction limit');

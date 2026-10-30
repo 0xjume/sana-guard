@@ -128,3 +128,10 @@ export function getErrorMessage(code: string): string {
 export function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof SanaGuardError && error.code === code;
 }
+
+/**
+ * Every SG_E### code this SDK maps. Used by the contract-drift test.
+ */
+export function knownErrorCodes(): string[] {
+  return Object.keys(ERROR_MESSAGES);
+}

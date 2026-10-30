@@ -1,12 +1,40 @@
-import { parseErrorCode, getErrorMessage, isErrorCode, SanaGuardError, createSanaGuardError } from '../errors';
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import {
+  parseErrorCode,
+  getErrorMessage,
+  isErrorCode,
+  SanaGuardError,
+  createSanaGuardError,
+  knownErrorCodes,
+} from '../errors';
+
+function findRepoRoot(startDir: string): string {
+  const { existsSync } = require('fs') as typeof import('fs');
+  const { resolve } = require('path') as typeof import('path');
+  let dir = startDir;
+  for (;;) {
+    if (
+      existsSync(join(dir, 'contracts/guard/src')) &&
+      existsSync(join(dir, 'pnpm-workspace.yaml'))
+    ) {
+      return dir;
+    }
+    const parent = resolve(dir, '..');
+    if (parent === dir) {
+      throw new Error(`Could not find repo root from ${startDir}`);
+    }
+    dir = parent;
+  }
+}
 
 describe('Errors', () => {
   describe('parseErrorCode', () => {
     it('should extract error code from panic message', () => {
       expect(parseErrorCode('Smart contract panicked: SG_E001_SIZE')).toBe('SG_E001_SIZE');
-      expect(parseErrorCode('SG_E062_PER_TX_LIMIT_EXCEEDED with context')).toBe('SG_E062_PER_TX_LIMIT_EXCEEDED');
+      expect(parseErrorCode('SG_E062_PER_TX_LIMIT_EXCEEDED with context')).toBe(
+        'SG_E062_PER_TX_LIMIT_EXCEEDED'
+      );
       expect(parseErrorCode('No error code here')).toBeNull();
     });
 
@@ -49,39 +77,26 @@ describe('Errors', () => {
   });
 
   describe('error code completeness', () => {
-    it('should have mappings for all contract error codes', () => {
-      // Read contract source files
-      const contractPath = join(__dirname, '../../../contracts/guard/src');
-      
-      try {
-        const parserContent = readFileSync(join(contractPath, 'parser.rs'), 'utf-8');
-        const policyContent = readFileSync(join(contractPath, 'policy.rs'), 'utf-8');
-        
-        // Extract all SG_E### error codes from contract
-        const errorCodeRegex = /SG_E\d{3}_[A-Z0-9_]+/g;
-        const parserCodes = parserContent.match(errorCodeRegex) || [];
-        const policyCodes = policyContent.match(errorCodeRegex) || [];
-        const allContractCodes = new Set([...parserCodes, ...policyCodes]);
-        
-        // Check that we have a message for each code
-        const missingCodes: string[] = [];
-        allContractCodes.forEach(code => {
-          const message = getErrorMessage(code);
-          if (message.startsWith('Unknown error:')) {
-            missingCodes.push(code);
-          }
-        });
-        
-        if (missingCodes.length > 0) {
-          console.warn('Missing error mappings:', missingCodes);
+    it('should have mappings for every SG_E### in contracts/guard/src', () => {
+      const contractSrc = join(findRepoRoot(__dirname), 'contracts/guard/src');
+      const rustFiles = readdirSync(contractSrc).filter((name) => name.endsWith('.rs'));
+      expect(rustFiles.length).toBeGreaterThan(0);
+
+      const errorCodeRegex = /SG_E\d{3}_[A-Z0-9_]+/g;
+      const contractCodes = new Set<string>();
+      for (const file of rustFiles) {
+        const content = readFileSync(join(contractSrc, file), 'utf-8');
+        const matches = content.match(errorCodeRegex) || [];
+        for (const code of matches) {
+          contractCodes.add(code);
         }
-        
-        // We should have at least 50 error codes mapped (001-076)
-        expect(allContractCodes.size).toBeGreaterThanOrEqual(50);
-      } catch (error) {
-        // If we can't read contract files (e.g. in CI), skip this test
-        console.warn('Could not read contract files, skipping completeness check');
       }
+
+      expect(contractCodes.size).toBeGreaterThan(0);
+
+      const mapped = new Set(knownErrorCodes());
+      const missing = [...contractCodes].filter((code) => !mapped.has(code)).sort();
+      expect(missing).toEqual([]);
     });
   });
 });

@@ -1,13 +1,46 @@
 import { PublicKey, Connection, SendOptions } from '@solana/web3.js';
-import { Contract, Account as NearAccount } from 'near-api-js';
+import { Account as NearAccount } from 'near-api-js';
 import { RequestSignParams, BroadcastResult, TransferParams } from './types';
 import { SanaGuardError, createSanaGuardError } from './errors';
-import { buildSolTransfer, buildTokenTransfer, verifyMessageSignature, assembleSignedTransaction, assertNotV1Message } from './messages';
+import {
+  buildSolTransfer,
+  buildTokenTransfer,
+  verifyMessageSignature,
+  assembleSignedTransaction,
+  assertNotV1Message,
+  extractRecentBlockhash,
+} from './messages';
 import crypto from 'crypto';
+
+interface FunctionCallAccount {
+  functionCall(opts: {
+    contractId: string;
+    methodName: string;
+    args: Record<string, unknown>;
+    gas: bigint;
+    attachedDeposit: bigint;
+  }): Promise<unknown>;
+}
+
+function parseSignResult(outcome: unknown): number[] {
+  const status = (outcome as { status?: unknown } | null)?.status;
+  if (status && typeof status === 'object' && 'SuccessValue' in status) {
+    const raw = (status as { SuccessValue: string }).SuccessValue;
+    const json = Buffer.from(raw, 'base64').toString('utf8');
+    if (!json) {
+      throw new SanaGuardError('Empty request_sign result');
+    }
+    return JSON.parse(json) as number[];
+  }
+  if (Array.isArray(outcome) && outcome.length === 64) {
+    return outcome as number[];
+  }
+  throw createSanaGuardError(JSON.stringify(status ?? outcome));
+}
 
 /**
  * Sana Guard Agent Client
- * 
+ *
  * Handles request_sign calls with agent function-call key,
  * signature verification, and transaction broadcast.
  */
@@ -21,7 +54,7 @@ export class AgentClient {
 
   /**
    * Request MPC signature for a Solana message
-   * 
+   *
    * @param params - Request parameters
    * @param gasAttached - Gas to attach (default 95 Tgas)
    * @returns Ed25519 signature (64 bytes)
@@ -32,47 +65,39 @@ export class AgentClient {
   ): Promise<Uint8Array> {
     const { vaultId, message, idempotencyKey } = params;
 
-    // Enforce no v1 (0x81) messages
     assertNotV1Message(message);
 
-    // Generate idempotency key if not provided
     const reqId = idempotencyKey || crypto.randomBytes(32).toString('hex');
-
-    // Base64-encode the message
     const messageB64 = Buffer.from(message).toString('base64');
 
-    // Call request_sign
-    const contract = new Contract(this.nearAccount, this.guardContract, {
-      viewMethods: [],
-      changeMethods: ['request_sign'],
-      useLocalViewExecution: false,
-    }) as any;
+    const account = this.nearAccount as unknown as FunctionCallAccount;
 
     let result: number[];
     try {
-      result = await contract.request_sign(
-        {
+      const outcome = await account.functionCall({
+        contractId: this.guardContract,
+        methodName: 'request_sign',
+        args: {
           vault_id: vaultId,
           message_b64: messageB64,
           req_id_hex: reqId,
         },
-        gasAttached,
-        '0' // 0 deposit
-      );
-    } catch (error: any) {
-      // Parse error from NEAR contract
-      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+        gas: BigInt(gasAttached),
+        attachedDeposit: BigInt(0),
+      });
+      result = parseSignResult(outcome);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : error != null ? String(error) : 'Unknown error';
       throw createSanaGuardError(errorMessage);
     }
 
-    // Extract signature from result (it's a 64-byte array)
     if (!result || !Array.isArray(result) || result.length !== 64) {
       throw new SanaGuardError('Invalid MPC signature format');
     }
 
     const signature = new Uint8Array(result);
 
-    // Verify signature locally before broadcasting
     const isValid = await verifyMessageSignature(signature, message, this.vaultAddress);
     if (!isValid) {
       throw new SanaGuardError('Signature verification failed');
@@ -82,14 +107,10 @@ export class AgentClient {
   }
 
   /**
-   * Request signature and broadcast immediately
-   * 
-   * Uses a CONFIRMED blockhash to avoid expiry during MPC signing.
-   * 
-   * @param params - Request parameters
-   * @param gasAttached - Gas to attach (default 95 Tgas)
-   * @param sendOptions - Solana send options
-   * @returns Broadcast result with signature and explorer link
+   * Request signature and broadcast immediately.
+   *
+   * Confirms against the signed message's own recent blockhash and the
+   * lastValidBlockHeight captured when that blockhash was fetched.
    */
   async requestSignAndBroadcast(
     params: RequestSignParams,
@@ -97,31 +118,32 @@ export class AgentClient {
     sendOptions: SendOptions = { skipPreflight: false, preflightCommitment: 'confirmed' },
     finalityLevel: 'confirmed' | 'finalized' = 'confirmed'
   ): Promise<BroadcastResult> {
+    if (params.lastValidBlockHeight === undefined) {
+      throw new SanaGuardError(
+        'lastValidBlockHeight is required so confirmation uses the signed message blockhash'
+      );
+    }
+
     const signature = await this.requestSign(params, gasAttached);
-
-    // Assemble signed transaction
     const signedTx = assembleSignedTransaction(signature, params.message);
+    const blockhash = extractRecentBlockhash(params.message);
 
-    // Get blockhash info for confirmation
-    const { blockhash, lastValidBlockHeight } = await this.solanaConnection.getLatestBlockhash('confirmed');
+    const txSignature = await this.solanaConnection.sendRawTransaction(signedTx, sendOptions);
 
-    // Broadcast
-    const txSignature = await this.solanaConnection.sendRawTransaction(
-      signedTx,
-      sendOptions
-    );
-
-    // Wait for confirmation
     const confirmation = await this.solanaConnection.confirmTransaction(
-      { signature: txSignature, blockhash, lastValidBlockHeight },
+      {
+        signature: txSignature,
+        blockhash,
+        lastValidBlockHeight: params.lastValidBlockHeight,
+      },
       finalityLevel
     );
 
     const network = this.solanaConnection.rpcEndpoint.includes('devnet')
       ? 'devnet'
       : this.solanaConnection.rpcEndpoint.includes('testnet')
-      ? 'testnet'
-      : 'mainnet-beta';
+        ? 'testnet'
+        : 'mainnet-beta';
 
     return {
       signature: txSignature,
@@ -133,13 +155,8 @@ export class AgentClient {
 
   /**
    * High-level transfer helper
-   * 
+   *
    * Builds the message, fetches a CONFIRMED blockhash, requests signature, and broadcasts.
-   * 
-   * @param vaultId - Vault ID
-   * @param params - Transfer parameters (lamports OR token)
-   * @param options - Optional compute budget and version
-   * @returns Broadcast result
    */
   async transfer(
     vaultId: number,
@@ -148,36 +165,32 @@ export class AgentClient {
       computeUnitLimit?: number;
       computeUnitPrice?: bigint;
       version?: 'legacy' | 'v0';
+      memo?: string;
+      maxMemoLen?: number;
     } = {}
   ): Promise<BroadcastResult> {
-    const { version = 'v0', computeUnitLimit, computeUnitPrice } = options;
+    const { version = 'v0', computeUnitLimit, computeUnitPrice, memo, maxMemoLen } = options;
 
-    // Get CONFIRMED blockhash
-    const { blockhash } = await this.solanaConnection.getLatestBlockhash('confirmed');
+    const { blockhash, lastValidBlockHeight } =
+      await this.solanaConnection.getLatestBlockhash('confirmed');
 
     let message: Uint8Array;
 
     if (params.lamports !== undefined) {
-      // SOL transfer
-      message = buildSolTransfer(
-        this.vaultAddress,
-        params.to,
-        params.lamports,
-        blockhash,
-        { version, computeUnitLimit, computeUnitPrice }
-      );
+      message = buildSolTransfer(this.vaultAddress, params.to, params.lamports, blockhash, {
+        version,
+        computeUnitLimit,
+        computeUnitPrice,
+        memo,
+        maxMemoLen,
+      });
     } else if (params.token) {
-      // SPL token transfer
-      // Derive token accounts (simple derivation; caller should provide if custom)
       const { getAssociatedTokenAddress } = await import('@solana/spl-token');
       const fromTokenAccount = await getAssociatedTokenAddress(
         params.token.mint,
         this.vaultAddress
       );
-      const toTokenAccount = await getAssociatedTokenAddress(
-        params.token.mint,
-        params.to
-      );
+      const toTokenAccount = await getAssociatedTokenAddress(params.token.mint, params.to);
 
       message = buildTokenTransfer(
         this.vaultAddress,
@@ -188,12 +201,19 @@ export class AgentClient {
         fromTokenAccount,
         toTokenAccount,
         blockhash,
-        { version, computeUnitLimit, computeUnitPrice, createAta: false }
+        {
+          version,
+          computeUnitLimit,
+          computeUnitPrice,
+          createAta: false,
+          memo,
+          maxMemoLen,
+        }
       );
     } else {
       throw new SanaGuardError('Either lamports or token must be provided');
     }
 
-    return this.requestSignAndBroadcast({ vaultId, message });
+    return this.requestSignAndBroadcast({ vaultId, message, lastValidBlockHeight });
   }
 }
