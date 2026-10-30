@@ -105,58 +105,61 @@ impl Guard {
         let mut old_vaults = old.vaults;
         let mut new_vaults = IterableMap::new(StorageKey::Vaults);
 
-        // Collect vault IDs first to avoid borrow issues
-        let vault_ids: Vec<u32> = old_vaults.iter().map(|(id, _)| *id).collect();
+        // Old and new maps share StorageKey::Vaults. Drain the old entries into memory and
+        // flush the deletions to storage BEFORE inserting: IterableMap::insert reads the
+        // existing value at that key (to return it) and would try to decode OldVault bytes
+        // as the new Vault -> "Cannot deserialize element".
+        let old_entries: Vec<(u32, crate::legacy::OldVault)> = old_vaults.drain().collect();
+        old_vaults.flush();
+        drop(old_vaults);
 
-        for vault_id in vault_ids {
-            if let Some(old_vault) = old_vaults.remove(&vault_id) {
-                // Convert old policy to new policy
-                let new_policy = Policy {
-                    per_tx_limit: old_vault.policy.per_tx_limit,
-                    daily_cap: old_vault.policy.daily_cap,
-                    programs: old_vault.policy.programs,
-                    max_priority_fee_lamports: old_vault.policy.max_priority_fee_lamports,
-                    max_total_priority_fee_lamports: None, // New field, default to None
-                    max_memo_len: old_vault.policy.max_memo_len,
-                    expires_at_ns: old_vault.policy.expires_at_ns,
-                    loosen_delay_ns: old_vault.policy.loosen_delay_ns,
+        for (vault_id, old_vault) in old_entries {
+            // Convert old policy to new policy
+            let new_policy = Policy {
+                per_tx_limit: old_vault.policy.per_tx_limit,
+                daily_cap: old_vault.policy.daily_cap,
+                programs: old_vault.policy.programs,
+                max_priority_fee_lamports: old_vault.policy.max_priority_fee_lamports,
+                max_total_priority_fee_lamports: None, // New field, default to None
+                max_memo_len: old_vault.policy.max_memo_len,
+                expires_at_ns: old_vault.policy.expires_at_ns,
+                loosen_delay_ns: old_vault.policy.loosen_delay_ns,
+            };
+
+            // Convert pending_loosen if it exists
+            let pending_loosen = old_vault.pending_loosen.map(|(old_pol, ts)| {
+                let new_pol = Policy {
+                    per_tx_limit: old_pol.per_tx_limit,
+                    daily_cap: old_pol.daily_cap,
+                    programs: old_pol.programs,
+                    max_priority_fee_lamports: old_pol.max_priority_fee_lamports,
+                    max_total_priority_fee_lamports: None,
+                    max_memo_len: old_pol.max_memo_len,
+                    expires_at_ns: old_pol.expires_at_ns,
+                    loosen_delay_ns: old_pol.loosen_delay_ns,
                 };
+                (new_pol, ts)
+            });
 
-                // Convert pending_loosen if it exists
-                let pending_loosen = old_vault.pending_loosen.map(|(old_pol, ts)| {
-                    let new_pol = Policy {
-                        per_tx_limit: old_pol.per_tx_limit,
-                        daily_cap: old_pol.daily_cap,
-                        programs: old_pol.programs,
-                        max_priority_fee_lamports: old_pol.max_priority_fee_lamports,
-                        max_total_priority_fee_lamports: None,
-                        max_memo_len: old_pol.max_memo_len,
-                        expires_at_ns: old_pol.expires_at_ns,
-                        loosen_delay_ns: old_pol.loosen_delay_ns,
-                    };
-                    (new_pol, ts)
-                });
+            let new_vault = Vault {
+                owner: old_vault.owner,
+                vault_address: old_vault.vault_address,
+                path: old_vault.path,
+                state: VaultState::Active, // All existing vaults are active
+                agents: old_vault.agents,
+                policy: new_policy,
+                pending_loosen,
+                recipients: old_vault.recipients,
+                recipients_list: Vec::new(), // Empty, needs backfill_recipients call
+                programs: old_vault.programs,
+                token_accounts: old_vault.token_accounts,
+                bucket_hashes: old_vault.bucket_hashes,
+                bucket_spend: old_vault.bucket_spend,
+                spent_cursor: old_vault.spent_cursor,
+                paused: old_vault.paused,
+            };
 
-                let new_vault = Vault {
-                    owner: old_vault.owner,
-                    vault_address: old_vault.vault_address,
-                    path: old_vault.path,
-                    state: VaultState::Active, // All existing vaults are active
-                    agents: old_vault.agents,
-                    policy: new_policy,
-                    pending_loosen,
-                    recipients: old_vault.recipients,
-                    recipients_list: Vec::new(), // Empty, needs backfill_recipients call
-                    programs: old_vault.programs,
-                    token_accounts: old_vault.token_accounts,
-                    bucket_hashes: old_vault.bucket_hashes,
-                    bucket_spend: old_vault.bucket_spend,
-                    spent_cursor: old_vault.spent_cursor,
-                    paused: old_vault.paused,
-                };
-
-                new_vaults.insert(vault_id, new_vault);
-            }
+            new_vaults.insert(vault_id, new_vault);
         }
 
         Self {
@@ -364,39 +367,6 @@ impl Guard {
             .collect()
     }
 
-    /// Backfill recipients_list from recipients LookupSet for migrated vaults.
-    /// Can only add recipients that are already in the LookupSet (no new recipients).
-    /// Owner-signed action.
-    pub fn backfill_recipients(&mut self, vault_id: u32, recipients_b58: Vec<String>) -> String {
-        let mut vault = self.vaults.remove(&vault_id).expect("vault not found");
-
-        // Verify caller is the owner (via predecessor check from execute_owner_action)
-        // This function should only be called via owner_action, not directly
-
-        let mut added = 0;
-        let mut skipped = 0;
-
-        for recipient_b58 in recipients_b58 {
-            let recipient = base58_decode(&recipient_b58);
-
-            // Only add if it's in the LookupSet (existing recipient)
-            if vault.recipients.contains(&recipient) {
-                // Check if not already in list
-                if !vault.recipients_list.contains(&recipient) {
-                    vault.recipients_list.push(recipient);
-                    added += 1;
-                } else {
-                    skipped += 1;
-                }
-            } else {
-                skipped += 1;
-            }
-        }
-
-        self.vaults.insert(vault_id, vault);
-        format!("backfilled {} recipients, skipped {}", added, skipped)
-    }
-
     pub fn list_vaults(&self, from: Option<u32>, limit: Option<u32>) -> Vec<(u32, VaultView)> {
         let from = from.unwrap_or(0);
         let limit = limit.unwrap_or(50).min(100) as usize;
@@ -484,6 +454,43 @@ pub fn base64_decode(s: &str) -> [u8; 32] {
     use near_sdk::base64::Engine;
     let bytes = STANDARD.decode(s).expect("invalid base64");
     bytes.try_into().expect("wrong length")
+}
+
+// Private helper methods (not exported via NEAR ABI)
+impl Guard {
+    /// Backfill recipients_list from recipients LookupSet for migrated vaults.
+    /// Can only add recipients that are already in the LookupSet (no new recipients).
+    /// PRIVATE: Only callable via owner-signed BackfillRecipients action.
+    pub(crate) fn backfill_recipients(
+        &mut self,
+        vault_id: u32,
+        recipients_b58: Vec<String>,
+    ) -> String {
+        let mut vault = self.vaults.remove(&vault_id).expect("vault not found");
+
+        let mut added = 0;
+        let mut skipped = 0;
+
+        for recipient_b58 in recipients_b58 {
+            let recipient = base58_decode(&recipient_b58);
+
+            // Only add if it's in the LookupSet (existing recipient)
+            if vault.recipients.contains(&recipient) {
+                // Check if not already in list
+                if !vault.recipients_list.contains(&recipient) {
+                    vault.recipients_list.push(recipient);
+                    added += 1;
+                } else {
+                    skipped += 1;
+                }
+            } else {
+                skipped += 1;
+            }
+        }
+
+        self.vaults.insert(vault_id, vault);
+        format!("backfilled {} recipients, skipped {}", added, skipped)
+    }
 }
 
 fn base64_decode_vec(s: &str) -> Vec<u8> {
