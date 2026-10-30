@@ -28,7 +28,8 @@ export function createCorsMiddleware(config: Config) {
     }
 
     if (c.req.method === "OPTIONS") {
-      return new Response("", { status: 204 });
+      // Must go through Hono so c.header() values are kept on the 204.
+      return c.body(null, 204);
     }
 
     await next();

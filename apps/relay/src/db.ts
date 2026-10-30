@@ -15,6 +15,16 @@ export interface GlobalStats {
   spentToday: string;
 }
 
+export interface UnknownReservation {
+  owner: string;
+  nonce: number;
+  txHash: string | null;
+  spentYocto: string;
+  depositYocto: string;
+  expiresAtMs: number | null;
+  timestamp: number;
+}
+
 const MAX_OWNER_LOCKS = 256;
 
 function utcDate(nowMs: number): string {
@@ -48,6 +58,8 @@ export class RelayDatabase {
         action_type TEXT NOT NULL,
         spent_yocto TEXT NOT NULL,
         reserved_yocto TEXT,
+        deposit_yocto TEXT,
+        expires_at_ms INTEGER,
         tx_hash TEXT,
         success INTEGER,
         status TEXT NOT NULL
@@ -75,6 +87,12 @@ export class RelayDatabase {
       .all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === "reserved_yocto")) {
       this.db.exec(`ALTER TABLE owner_requests ADD COLUMN reserved_yocto TEXT`);
+    }
+    if (!cols.some((c) => c.name === "deposit_yocto")) {
+      this.db.exec(`ALTER TABLE owner_requests ADD COLUMN deposit_yocto TEXT`);
+    }
+    if (!cols.some((c) => c.name === "expires_at_ms")) {
+      this.db.exec(`ALTER TABLE owner_requests ADD COLUMN expires_at_ms INTEGER`);
     }
   }
 
@@ -138,6 +156,7 @@ export class RelayDatabase {
     depositYocto: string;
     gasCostYocto: string;
     nowMs: number;
+    expiresAtMs?: number;
     config: Config;
   }): { ok: true } | { ok: false; reason: string } {
     const spentYocto = (
@@ -166,13 +185,15 @@ export class RelayDatabase {
         return { ok: false as const, reason: budgetCheck.reason ?? "budget" };
       }
 
-      this.insertReservation(
-        args.owner,
-        args.nonce,
-        args.action.type,
+      this.insertReservation({
+        owner: args.owner,
+        nonce: args.nonce,
+        actionType: args.action.type,
         spentYocto,
-        args.nowMs
-      );
+        depositYocto: args.depositYocto,
+        nowMs: args.nowMs,
+        expiresAtMs: args.expiresAtMs,
+      });
       return { ok: true as const };
     })();
   }
@@ -182,44 +203,73 @@ export class RelayDatabase {
     nonce: number,
     actionType: string,
     spentYocto: string,
-    nowMs: number
+    nowMs: number,
+    extras: { depositYocto?: string; expiresAtMs?: number } = {}
   ): void {
     const txn = this.db.transaction(() => {
-      this.insertReservation(owner, nonce, actionType, spentYocto, nowMs);
+      this.insertReservation({
+        owner,
+        nonce,
+        actionType,
+        spentYocto,
+        depositYocto: extras.depositYocto ?? "0",
+        nowMs,
+        expiresAtMs: extras.expiresAtMs,
+      });
     });
     txn();
   }
 
-  private insertReservation(
-    owner: string,
-    nonce: number,
-    actionType: string,
-    spentYocto: string,
-    nowMs: number
-  ): void {
-    const today = utcDate(nowMs);
+  private insertReservation(args: {
+    owner: string;
+    nonce: number;
+    actionType: string;
+    spentYocto: string;
+    depositYocto: string;
+    nowMs: number;
+    expiresAtMs?: number;
+  }): void {
+    const today = utcDate(args.nowMs);
 
     this.db
       .prepare(
-        `INSERT INTO owner_requests (owner, timestamp, nonce, action_type, spent_yocto, reserved_yocto, tx_hash, success, status)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 'pending')`
+        `INSERT INTO owner_requests (owner, timestamp, nonce, action_type, spent_yocto, reserved_yocto, deposit_yocto, expires_at_ms, tx_hash, success, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending')`
       )
-      .run(owner, nowMs, nonce, actionType, spentYocto, spentYocto);
+      .run(
+        args.owner,
+        args.nowMs,
+        args.nonce,
+        args.actionType,
+        args.spentYocto,
+        args.spentYocto,
+        args.depositYocto,
+        args.expiresAtMs ?? null
+      );
 
     const existing = this.db
       .prepare(`SELECT spent_yocto FROM global_stats WHERE date = ?`)
       .get(today) as { spent_yocto: string } | undefined;
 
     if (existing) {
-      const newTotal = (BigInt(existing.spent_yocto) + BigInt(spentYocto)).toString();
+      const newTotal = (BigInt(existing.spent_yocto) + BigInt(args.spentYocto)).toString();
       this.db
         .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
         .run(newTotal, today);
     } else {
       this.db
         .prepare(`INSERT INTO global_stats (date, spent_yocto) VALUES (?, ?)`)
-        .run(today, spentYocto);
+        .run(today, args.spentYocto);
     }
+  }
+
+  attachTxHash(owner: string, nonce: number, txHash: string): void {
+    this.db
+      .prepare(
+        `UPDATE owner_requests SET tx_hash = ?
+         WHERE owner = ? AND nonce = ? AND status IN ('pending', 'unknown')`
+      )
+      .run(txHash, owner, nonce);
   }
 
   finalizeBudget(
@@ -294,45 +344,65 @@ export class RelayDatabase {
   }
 
   /**
-   * Resolve 'unknown' rows that have a tx hash by checking on-chain status.
-   * Success keeps the reservation (conservative). Failure releases it.
-   * Rows with no hash stay reserved until they can be checked.
+   * Resolve 'unknown' rows.
+   * - With a hash: check txStatus. Record deposit+burnt on success, burnt only on failure.
+   * - Without a hash (legacy): after message expiry + tx validity window, settle
+   *   by comparing the on-chain owner nonce.
    */
-  async resolveUnknownReservations(
-    check: (txHash: string) => Promise<"success" | "failure" | "pending">
-  ): Promise<number> {
+  async resolveUnknownReservations(args: {
+    checkTx: (txHash: string) => Promise<{
+      status: "success" | "failure" | "pending";
+      tokensBurntYocto?: string;
+    }>;
+    checkOwnerNonce: (owner: string) => Promise<number>;
+    nowMs: number;
+    txValidityMs: number;
+  }): Promise<number> {
     let resolved = 0;
     for (const row of this.listUnknownReservations()) {
-      if (!row.txHash) continue;
-      const status = await check(row.txHash);
-      if (status === "pending") continue;
-      if (status === "success") {
-        this.finalizeBudget(row.owner, row.nonce, row.txHash, true);
+      if (row.txHash) {
+        const result = await args.checkTx(row.txHash);
+        if (result.status === "pending") continue;
+        const burnt = result.tokensBurntYocto ?? "0";
+        const actual =
+          result.status === "success"
+            ? (BigInt(row.depositYocto) + BigInt(burnt)).toString()
+            : burnt;
+        this.reconcileBudget(
+          row.owner,
+          row.nonce,
+          actual,
+          row.txHash,
+          result.status === "success",
+          args.nowMs
+        );
+        resolved++;
+        continue;
+      }
+
+      const settleAfter = (row.expiresAtMs ?? row.timestamp) + args.txValidityMs;
+      if (args.nowMs < settleAfter) continue;
+
+      const onChainNonce = await args.checkOwnerNonce(row.owner);
+      if (onChainNonce >= row.nonce) {
+        this.finalizeBudget(row.owner, row.nonce, "settled-by-nonce", true);
       } else {
-        this.releaseBudget(row.owner, row.nonce, Date.now());
+        this.releaseBudget(row.owner, row.nonce, args.nowMs);
       }
       resolved++;
     }
     return resolved;
   }
 
-  listUnknownReservations(): Array<{
-    owner: string;
-    nonce: number;
-    txHash: string | null;
-    spentYocto: string;
-  }> {
+  listUnknownReservations(): UnknownReservation[] {
     return this.db
       .prepare(
-        `SELECT owner, nonce, tx_hash as txHash, spent_yocto as spentYocto
+        `SELECT owner, nonce, tx_hash as txHash, spent_yocto as spentYocto,
+                COALESCE(deposit_yocto, '0') as depositYocto,
+                expires_at_ms as expiresAtMs, timestamp
          FROM owner_requests WHERE status = 'unknown'`
       )
-      .all() as Array<{
-      owner: string;
-      nonce: number;
-      txHash: string | null;
-      spentYocto: string;
-    }>;
+      .all() as UnknownReservation[];
   }
 
   releaseBudget(owner: string, nonce: number, nowMs: number): void {

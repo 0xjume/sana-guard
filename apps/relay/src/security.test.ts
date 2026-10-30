@@ -15,7 +15,7 @@ import { RelayDatabase } from "./db.js";
 import { checkInviteGate } from "./routes/admin.js";
 import type { Config } from "./config.js";
 import { parseNearToYocto } from "./constants.js";
-import { defaultOwnerDailyBudget } from "./config.js";
+import { defaultOwnerDailyBudgetYocto } from "./config.js";
 import { wouldBreachFloor } from "./budget.js";
 
 function cfg(overrides: Partial<Config> = {}): Config {
@@ -26,12 +26,12 @@ function cfg(overrides: Partial<Config> = {}): Config {
     nearRpcUrl: "http://localhost",
     guardContractId: "guard.test.near",
     databaseUrl: "sqlite:./test-sec.db",
-    relayBalanceFloorNear: 0.5,
-    maxAgentGasFundingNear: 0.5,
-    globalDailyBudgetNear: 1.0,
-    maxDepositPerCallNear: 2.0,
+    relayBalanceFloorYocto: parseNearToYocto("0.5", "near"),
+    maxAgentGasFundingYocto: parseNearToYocto("0.5", "near"),
+    globalDailyBudgetYocto: parseNearToYocto("1.0", "near"),
+    maxDepositPerCallYocto: parseNearToYocto("2.0", "near"),
     ownerRateLimitPerHour: 30,
-    ownerDailyBudgetNear: 0.3,
+    ownerDailyBudgetYocto: parseNearToYocto("0.3", "near"),
     port: 3000,
     nodeEnv: "test",
     logLevel: "error",
@@ -87,6 +87,40 @@ describe("1. CORS closed by default", () => {
       headers: { origin: "https://evil.example" },
     });
     expect(bad.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("returns CORS headers on OPTIONS for an allowed origin, none for a disallowed one", async () => {
+    const app = new Hono();
+    app.use(
+      "*",
+      createCorsMiddleware(cfg({ corsOrigins: "https://dash.example" }))
+    );
+    app.post("/v1/admin", (c) => c.json({ ok: true }));
+
+    const ok = await app.request("/v1/admin", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://dash.example",
+        "access-control-request-method": "POST",
+      },
+    });
+    expect(ok.status).toBe(204);
+    expect(ok.headers.get("access-control-allow-origin")).toBe(
+      "https://dash.example"
+    );
+    expect(ok.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(ok.headers.get("access-control-allow-headers")).toContain(
+      "X-Invite-Token"
+    );
+
+    const bad = await app.request("/v1/admin", {
+      method: "OPTIONS",
+      headers: { origin: "https://evil.example" },
+    });
+    expect(bad.status).toBe(204);
+    expect(bad.headers.get("access-control-allow-origin")).toBeNull();
+    expect(bad.headers.get("access-control-allow-methods")).toBeNull();
+    expect(bad.headers.get("access-control-allow-headers")).toBeNull();
   });
 });
 
@@ -229,9 +263,9 @@ describe("5–7. Reservation reconcile, unknown, atomic reserve", () => {
   it("check-and-reserves the global budget atomically across owners", async () => {
     const now = Date.now();
     const config = cfg({
-      globalDailyBudgetNear: 0.15,
-      ownerDailyBudgetNear: 0.15,
-      maxDepositPerCallNear: 2,
+      globalDailyBudgetYocto: parseNearToYocto("0.15", "near"),
+      ownerDailyBudgetYocto: parseNearToYocto("0.15", "near"),
+      maxDepositPerCallYocto: parseNearToYocto("2", "near"),
     });
     const deposit = "0";
     const gas = parseNearToYocto("0.1", "near").toString();
@@ -269,10 +303,10 @@ describe("5–7. Reservation reconcile, unknown, atomic reserve", () => {
   it("floor check-and-reserve subtracts outstanding reservations", async () => {
     const now = Date.now();
     const config = cfg({
-      globalDailyBudgetNear: 2,
-      ownerDailyBudgetNear: 2,
-      maxDepositPerCallNear: 2,
-      relayBalanceFloorNear: 0.5,
+      globalDailyBudgetYocto: parseNearToYocto("2", "near"),
+      ownerDailyBudgetYocto: parseNearToYocto("2", "near"),
+      maxDepositPerCallYocto: parseNearToYocto("2", "near"),
+      relayBalanceFloorYocto: parseNearToYocto("0.5", "near"),
     });
     const gas = parseNearToYocto("0.1", "near").toString();
     const balance = parseNearToYocto("0.65", "near").toString();
@@ -318,38 +352,65 @@ describe("5–7. Reservation reconcile, unknown, atomic reserve", () => {
   });
 
   it("defaults the per-owner daily budget to 0.3 of the global budget", () => {
-    expect(defaultOwnerDailyBudget("1.0")).toBe("0.3");
-    expect(defaultOwnerDailyBudget("2")).toBe("0.6");
-    expect(parseNearToYocto(defaultOwnerDailyBudget("1"), "near")).toBe(
-      (parseNearToYocto("1", "near") * 3n) / 10n
+    expect(defaultOwnerDailyBudgetYocto("1.0")).toBe(
+      parseNearToYocto("0.3", "near")
+    );
+    expect(defaultOwnerDailyBudgetYocto("2")).toBe(
+      parseNearToYocto("0.6", "near")
     );
   });
 
-  it("resolves an unknown reservation later via tx status", async () => {
+  it("resolves an unknown reservation later and records burnt, including on failure", async () => {
     const now = Date.now();
     const reserved = parseNearToYocto("0.1", "near").toString();
-    db.reserveBudget("ownerC", 3, "Pause", reserved, now);
+    const burnt = "300000000000000";
+    db.reserveBudget("ownerC", 3, "Pause", reserved, now, {
+      depositYocto: "0",
+    });
     db.markUnknown("ownerC", 3, "tx-later");
 
-    const resolved = await db.resolveUnknownReservations(async (hash) => {
-      expect(hash).toBe("tx-later");
-      return "failure";
+    const resolved = await db.resolveUnknownReservations({
+      checkTx: async (hash) => {
+        expect(hash).toBe("tx-later");
+        return { status: "failure", tokensBurntYocto: burnt };
+      },
+      checkOwnerNonce: async () => 0,
+      nowMs: now,
+      txValidityMs: 24 * 60 * 60 * 1000,
     });
     expect(resolved).toBe(1);
     expect(db.checkNonceInFlight("ownerC", 3)).toBe(false);
-    expect(db.getGlobalStats(now).spentToday).toBe("0");
+    expect(db.getGlobalStats(now).spentToday).toBe(burnt);
     expect(db.listUnknownReservations()).toHaveLength(0);
   });
 
-  it("leaves an unknown reservation without a hash reserved", async () => {
+  it("leaves a no-hash unknown reserved until expiry + tx validity, then settles via nonce", async () => {
     const now = Date.now();
     const reserved = parseNearToYocto("0.1", "near").toString();
-    db.reserveBudget("ownerD", 4, "Pause", reserved, now);
+    db.reserveBudget("ownerD", 4, "Pause", reserved, now, {
+      expiresAtMs: now,
+    });
     db.markUnknown("ownerD", 4);
 
-    const resolved = await db.resolveUnknownReservations(async () => "success");
-    expect(resolved).toBe(0);
+    const windowMs = 5_000;
+    const stillHeld = await db.resolveUnknownReservations({
+      checkTx: async () => ({ status: "success" }),
+      checkOwnerNonce: async () => 0,
+      nowMs: now + 1000,
+      txValidityMs: windowMs,
+    });
+    expect(stillHeld).toBe(0);
     expect(db.checkNonceInFlight("ownerD", 4)).toBe(true);
-    expect(db.getGlobalStats(now).spentToday).toBe(reserved);
+
+    const settleAt = now + windowMs + 1;
+    const released = await db.resolveUnknownReservations({
+      checkTx: async () => ({ status: "success" }),
+      checkOwnerNonce: async () => 3,
+      nowMs: settleAt,
+      txValidityMs: windowMs,
+    });
+    expect(released).toBe(1);
+    expect(db.checkNonceInFlight("ownerD", 4)).toBe(false);
+    expect(db.getGlobalStats(settleAt).spentToday).toBe("0");
   });
 });

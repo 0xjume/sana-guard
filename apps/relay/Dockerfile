@@ -2,9 +2,10 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+RUN apk add --no-cache python3 make g++
 RUN corepack enable && corepack prepare pnpm@9.15.1 --activate
 
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/relay/package.json ./apps/relay/
 COPY packages ./packages
 
@@ -12,20 +13,21 @@ RUN pnpm install --frozen-lockfile
 
 COPY apps/relay ./apps/relay
 
-WORKDIR /app/apps/relay
-RUN pnpm build
+RUN pnpm --filter @sana-guard/relay build
+# Standalone prod tree (resolves the .pnpm symlink layout). dist is
+# gitignored, so copy it into the deploy output explicitly.
+RUN pnpm --filter @sana-guard/relay deploy --prod /out \
+  && rm -rf /out/dist \
+  && cp -a /app/apps/relay/dist /out/dist
 
 FROM node:22-alpine AS runner
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9.15.1 --activate
-
-COPY --from=builder /app/apps/relay/package.json ./
-COPY --from=builder /app/apps/relay/dist ./dist
-COPY --from=builder /app/apps/relay/node_modules ./node_modules
+COPY --from=builder /out ./
 
 ENV NODE_ENV=production
+ENV TRUST_PROXY=true
 
 EXPOSE 3000
 

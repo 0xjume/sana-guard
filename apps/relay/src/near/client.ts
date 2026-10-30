@@ -1,26 +1,41 @@
 import * as nearAPI from "near-api-js";
 import { logger } from "../logger.js";
 import { Mutex } from "../mutex.js";
-import type { NearClient, NearTransaction, VaultInfo } from "./interface.js";
+import type {
+  NearClient,
+  NearTransaction,
+  SubmitHooks,
+  TxStatusResult,
+  VaultInfo,
+} from "./interface.js";
+import {
+  errorMessage,
+  isOnChainExecutionError,
+  isPreAcceptanceRejection,
+} from "./errors.js";
 
-const { connect, keyStores, KeyPair } = nearAPI;
+const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
+
+const TX_STATUS_TIMEOUT_MS = 10_000;
 
 export class NearClientImpl implements NearClient {
   private connection!: nearAPI.Near;
   private account!: nearAPI.Account;
   private readonly contractId: string;
   private readonly accountId: string;
+  private readonly rpcUrl: string;
   private readonly submitMutex = new Mutex();
 
   constructor(
     private readonly networkId: string,
-    private readonly rpcUrl: string,
+    rpcUrl: string,
     accountId: string,
     privateKey: string,
     contractId: string
   ) {
     this.contractId = contractId;
     this.accountId = accountId;
+    this.rpcUrl = rpcUrl;
     this.initConnection(privateKey).catch((err) => {
       logger.error({ err }, "Failed to initialize NEAR connection");
       throw err;
@@ -29,8 +44,7 @@ export class NearClientImpl implements NearClient {
 
   private async initConnection(privateKey: string): Promise<void> {
     const keyStore = new keyStores.InMemoryKeyStore();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const keyPair = KeyPair.fromString(privateKey as any);
+    const keyPair = KeyPair.fromString(privateKey as `ed25519:${string}`);
     await keyStore.setKey(this.networkId, this.accountId, keyPair);
 
     this.connection = await connect({
@@ -70,84 +84,114 @@ export class NearClientImpl implements NearClient {
     msg: string,
     sig: number[],
     depositYocto: string,
-    gasAmount: string
+    gasAmount: string,
+    hooks?: SubmitHooks
   ): Promise<NearTransaction> {
     return this.submitMutex.run(async () => {
+      const actions = [
+        transactions.functionCall(
+          "owner_action",
+          { msg, sig },
+          BigInt(gasAmount),
+          BigInt(depositYocto)
+        ),
+      ];
+
+      const accessKeyInfo = await this.account.findAccessKey(
+        this.contractId,
+        actions
+      );
+      if (!accessKeyInfo) {
+        throw new Error("No matching access key for the relay account");
+      }
+
+      const block = await this.connection.connection.provider.block({
+        finality: "final",
+      });
+      const nonce = BigInt(accessKeyInfo.accessKey.nonce) + 1n;
+
+      // Sign locally so the hash exists before any broadcast. A later
+      // near-api-js nonce retry is NOT used here; a single signed tx is sent.
+      const [hashBytes, signedTx] = await transactions.signTransaction(
+        this.contractId,
+        nonce,
+        actions,
+        utils.serialize.base_decode(block.header.hash),
+        this.account.connection.signer,
+        this.accountId,
+        this.networkId
+      );
+      const txHash = utils.serialize.base_encode(hashBytes);
+      hooks?.onSigned?.(txHash);
+
+      this.account.accessKeyByPublicKeyCache[accessKeyInfo.publicKey.toString()] =
+        {
+          ...accessKeyInfo.accessKey,
+          nonce,
+        };
+
       try {
-        // near-api-js retries on a stale access-key nonce by signing and
-        // broadcasting again. That can produce more than one on-chain tx
-        // for a single submitOwnerAction call.
-        const outcome = await this.account.functionCall({
-          contractId: this.contractId,
-          methodName: "owner_action",
-          args: { msg, sig },
-          gas: BigInt(gasAmount),
-          attachedDeposit: BigInt(depositYocto),
-        });
-
-        const txHash =
-          typeof outcome.transaction.hash === "string"
-            ? outcome.transaction.hash
-            : nearAPI.utils.serialize.base_encode(outcome.transaction.hash);
-
-        const logs: string[] = [];
-        if (outcome.receipts_outcome) {
-          for (const receipt of outcome.receipts_outcome) {
-            logs.push(...receipt.outcome.logs);
-          }
-        }
-
-        const status = outcome.status as Record<string, unknown>;
-        const success = "SuccessValue" in status || "SuccessReceiptId" in status;
-
-        let errorMessage: string | undefined;
-        if (!success && "Failure" in status) {
-          errorMessage = this.extractErrorMessage(status.Failure, logs);
-        }
-
-        const tokensBurntYocto = sumTokensBurnt(outcome);
-
-        logger.info(
-          { txHash, success, logs, depositYocto, tokensBurntYocto },
-          "NEAR transaction complete"
+        const outcome = await this.connection.connection.provider.sendTransaction(
+          signedTx
         );
-
-        return { txHash, success, errorMessage, tokensBurntYocto };
+        return this.outcomeToResult(outcome, txHash, depositYocto);
       } catch (error: unknown) {
-        logger.error({ error }, "NEAR transaction failed");
-        const msg =
-          error && typeof error === "object" && "message" in error
-            ? String(error.message)
-            : String(error);
-        const onChain = /FunctionCallError|ExecutionError|GuestPanic|SG_E\d+/.test(
-          msg
-        );
-        if (
-          onChain &&
-          error &&
-          typeof error === "object" &&
-          "transaction" in error &&
-          error.transaction &&
-          typeof error.transaction === "object" &&
-          "hash" in error.transaction
-        ) {
-          const hash = (error.transaction as { hash: unknown }).hash;
-          const txHash =
-            typeof hash === "string"
-              ? hash
-              : nearAPI.utils.serialize.base_encode(hash as Uint8Array);
+        logger.error({ error, txHash }, "NEAR transaction failed");
+        if (isPreAcceptanceRejection(error)) {
+          throw error;
+        }
+        if (isOnChainExecutionError(error)) {
           return {
             txHash,
             success: false,
-            errorMessage: this.extractErrorFromException(error),
+            errorMessage: errorMessage(error),
           };
         }
-        // Timeouts and other errors (even if a hash is present) are
-        // rethrown so the caller can mark the reservation unknown and
-        // resolve it later via txStatus.
-        throw error;
+        const wrapped = error instanceof Error ? error : new Error(String(error));
+        Object.assign(wrapped, { transaction: { hash: txHash } });
+        throw wrapped;
       }
     });
+  }
+
+  private outcomeToResult(
+    outcome: {
+      transaction: { hash: string | Uint8Array };
+      receipts_outcome?: Array<{ outcome?: { logs?: string[]; tokens_burnt?: string } }>;
+      transaction_outcome?: { outcome?: { tokens_burnt?: string } };
+      status: unknown;
+    },
+    fallbackHash: string,
+    depositYocto: string
+  ): NearTransaction {
+    const txHash =
+      typeof outcome.transaction.hash === "string"
+        ? outcome.transaction.hash
+        : utils.serialize.base_encode(outcome.transaction.hash) || fallbackHash;
+
+    const logs: string[] = [];
+    if (outcome.receipts_outcome) {
+      for (const receipt of outcome.receipts_outcome) {
+        logs.push(...(receipt.outcome?.logs ?? []));
+      }
+    }
+
+    const status = asRecord(outcome.status) ?? {};
+    const success = "SuccessValue" in status || "SuccessReceiptId" in status;
+
+    let errorMessageText: string | undefined;
+    if (!success && "Failure" in status) {
+      errorMessageText = this.extractErrorMessage(status.Failure, logs);
+    }
+
+    const tokensBurntYocto = sumTokensBurnt(outcome);
+
+    logger.info(
+      { txHash, success, logs, depositYocto, tokensBurntYocto },
+      "NEAR transaction complete"
+    );
+
+    return { txHash, success, errorMessage: errorMessageText, tokensBurntYocto };
   }
 
   private extractErrorMessage(failure: unknown, logs: string[]): string {
@@ -167,37 +211,61 @@ export class NearClientImpl implements NearClient {
     return JSON.stringify(actionError);
   }
 
-  private extractErrorFromException(error: unknown): string {
-    if (error && typeof error === "object") {
-      if ("message" in error && typeof error.message === "string") {
-        return error.message;
-      }
-      return JSON.stringify(error);
-    }
-    return String(error);
-  }
-
-  async getTransactionStatus(
-    txHash: string
-  ): Promise<"success" | "failure" | "pending"> {
+  /**
+   * Raw JSON-RPC `tx` with a 10s abort. Avoids near-api-js retries that can
+   * hang >60s on UNKNOWN_TRANSACTION. That name is treated as still pending.
+   */
+  async getTransactionStatus(txHash: string): Promise<TxStatusResult> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TX_STATUS_TIMEOUT_MS);
     try {
-      const result = await this.connection.connection.provider.txStatus(
-        txHash,
-        this.accountId,
-        "FINAL"
-      );
-      const status = result.status as unknown;
+      const res = await fetch(this.rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "relay-tx-status",
+          method: "tx",
+          params: {
+            tx_hash: txHash,
+            sender_account_id: this.accountId,
+            wait_until: "NONE",
+          },
+        }),
+        signal: controller.signal,
+      });
+      const json = (await res.json()) as {
+        error?: { cause?: { name?: string }; name?: string; message?: string };
+        result?: {
+          status?: unknown;
+          transaction_outcome?: { outcome?: { tokens_burnt?: string } };
+          receipts_outcome?: Array<{ outcome?: { tokens_burnt?: string } }>;
+        };
+      };
+
+      if (json.error) {
+        const name = `${json.error.cause?.name ?? ""} ${json.error.name ?? ""} ${json.error.message ?? ""}`;
+        if (/UNKNOWN_TRANSACTION|UNKNOWN_TX|DoesNotExist/i.test(name)) {
+          return { status: "pending" };
+        }
+        return { status: "pending" };
+      }
+
+      const status = json.result?.status;
+      const burnt = json.result ? sumTokensBurnt(json.result) : undefined;
       if (status && typeof status === "object") {
         if ("SuccessValue" in status || "SuccessReceiptId" in status) {
-          return "success";
+          return { status: "success", tokensBurntYocto: burnt };
         }
         if ("Failure" in status) {
-          return "failure";
+          return { status: "failure", tokensBurntYocto: burnt };
         }
       }
-      return "pending";
+      return { status: "pending" };
     } catch {
-      return "pending";
+      return { status: "pending" };
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
@@ -222,4 +290,3 @@ function sumTokensBurnt(outcome: {
   }
   return total.toString();
 }
-

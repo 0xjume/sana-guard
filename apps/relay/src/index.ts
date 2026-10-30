@@ -9,6 +9,7 @@ import { createVaultsRouter } from "./routes/vaults.js";
 import { createQuoteRouter } from "./routes/quote.js";
 import { createHealthRouter } from "./routes/health.js";
 import { createCorsMiddleware } from "./middleware/cors.js";
+import { createUnknownResolver } from "./resolve.js";
 
 async function main() {
   const config = loadConfig();
@@ -40,16 +41,10 @@ async function main() {
     24 * 60 * 60 * 1000
   );
 
-  const resolveUnknowns = () => {
-    void db
-      .resolveUnknownReservations((txHash) =>
-        nearClient.getTransactionStatus(txHash)
-      )
-      .catch((error) => {
-        logger.error({ error }, "Failed to resolve unknown reservations");
-      });
-  };
-  const resolveInterval = setInterval(resolveUnknowns, 60 * 1000);
+  const resolveUnknowns = createUnknownResolver(db, nearClient);
+  const resolveInterval = setInterval(() => {
+    void resolveUnknowns();
+  }, 60 * 1000);
 
   const app = new Hono();
 

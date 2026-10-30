@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import type { NearClient } from "../near/interface.js";
+import type { NearClient, VaultInfo } from "../near/interface.js";
 import type { RelayDatabase } from "../db.js";
 import type { Config } from "../config.js";
 import {
@@ -16,11 +16,17 @@ import {
   estimateGasCostYocto,
   wouldBreachFloor,
 } from "../budget.js";
-import { parseNearToYocto, yoctoToNearString } from "../constants.js";
+import { yoctoToNearString } from "../constants.js";
 import { createRequestLogger } from "../logger.js";
 import { createAdminRateLimit } from "../middleware/rateLimit.js";
 import { bodyLimit } from "../middleware/bodyLimit.js";
 import { tokensEqual } from "../crypto.js";
+import {
+  isOnChainExecutionError,
+  isPreAcceptanceRejection,
+  txHashFromUnknown,
+} from "../near/errors.js";
+import { spentAfterOutcome } from "../resolve.js";
 
 const adminRequestSchema = z.object({
   msg: z.string(),
@@ -67,35 +73,12 @@ export function checkInviteGate(
   return { allowed: true };
 }
 
-function txHashFromUnknown(error: unknown): string | undefined {
-  if (
-    error &&
-    typeof error === "object" &&
-    "transaction" in error &&
-    error.transaction &&
-    typeof error.transaction === "object" &&
-    "hash" in error.transaction
-  ) {
-    const hash = (error.transaction as { hash: unknown }).hash;
-    return typeof hash === "string" ? hash : undefined;
-  }
-  return undefined;
-}
-
 function parseOnChainError(error: unknown): string {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
     const sgMatch = error.message.match(/SG_E\d+_[A-Z_]+/);
     if (sgMatch) return sgMatch[0]!;
   }
   return "Transaction failed";
-}
-
-function isOnChainExecutionError(error: unknown): boolean {
-  const msg =
-    error && typeof error === "object" && "message" in error
-      ? String(error.message)
-      : String(error);
-  return /FunctionCallError|ExecutionError|GuestPanic|SG_E\d+/.test(msg);
 }
 
 type ReserveOutcome =
@@ -126,11 +109,12 @@ function reserveFailCode(
 
 async function reserveAdminRequest(args: {
   db: RelayDatabase;
-  nearClient: NearClient;
   config: Config;
   owner: string;
   parsedMsg: ParsedAdminMessage;
-  vaultIdFromAction: number | null;
+  vault: VaultInfo | null;
+  onChainNonce: number;
+  relayBalance: string;
   depositYocto: string;
   gasCostYocto: string;
   floorYocto: bigint;
@@ -138,17 +122,19 @@ async function reserveAdminRequest(args: {
 }): Promise<ReserveOutcome> {
   const {
     db,
-    nearClient,
     config,
     owner,
     parsedMsg,
-    vaultIdFromAction,
+    vault,
+    onChainNonce,
+    relayBalance,
     depositYocto,
     gasCostYocto,
     floorYocto,
     nowMs,
   } = args;
 
+  // Global lock only wraps cheap re-validation + the SQLite reserve.
   return db.withGlobalLock(async () =>
     db.withOwnerLock(owner, async () => {
       if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
@@ -156,10 +142,6 @@ async function reserveAdminRequest(args: {
       }
 
       if (parsedMsg.action.type !== "CreateVault") {
-        if (vaultIdFromAction === null) {
-          return { kind: "bad", status: 400, error: "Vault ID is required" };
-        }
-        const vault = await nearClient.getVault(vaultIdFromAction);
         if (!vault) {
           return { kind: "bad", status: 404, error: "Vault not found" };
         }
@@ -168,7 +150,6 @@ async function reserveAdminRequest(args: {
         }
       }
 
-      const onChainNonce = await nearClient.getOwnerNonce(owner);
       if (parsedMsg.nonce <= onChainNonce) {
         return {
           kind: "bad",
@@ -178,7 +159,6 @@ async function reserveAdminRequest(args: {
         };
       }
 
-      const relayBalance = await nearClient.getBalance();
       const available = (
         BigInt(relayBalance) - BigInt(db.getOutstandingReservedYocto())
       ).toString();
@@ -192,6 +172,7 @@ async function reserveAdminRequest(args: {
         };
       }
 
+      const expiresAtMs = Number(parsedMsg.expiry / 1_000_000n);
       const result = db.tryReserveBudget({
         owner,
         nonce: parsedMsg.nonce,
@@ -199,6 +180,7 @@ async function reserveAdminRequest(args: {
         depositYocto,
         gasCostYocto,
         nowMs,
+        expiresAtMs,
         config,
       });
       if (!result.ok) {
@@ -354,23 +336,44 @@ export function createAdminRouter(
 
       const gasAmount = calculateGas(parsedMsg.action);
       const gasCostYocto = estimateGasCostYocto(parsedMsg.action);
-      const floorYocto = parseNearToYocto(
-        String(config.relayBalanceFloorNear),
-        "near"
-      );
+      const floorYocto = config.relayBalanceFloorYocto;
 
       if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
         log.warn({ owner, nonce: parsedMsg.nonce }, "Nonce already in flight");
         return c.json(nonceConflictBody(), 409);
       }
 
+      // Slow RPC views happen before the global lock.
+      let vault: VaultInfo | null = null;
+      if (parsedMsg.action.type !== "CreateVault") {
+        if (vaultIdFromAction === null) {
+          return c.json({ error: "Vault ID is required" }, 400);
+        }
+        vault = await nearClient.getVault(vaultIdFromAction);
+        if (!vault) {
+          return c.json({ error: "Vault not found" }, 404);
+        }
+        if (vault.owner !== owner) {
+          return c.json({ error: "Owner does not match vault" }, 401);
+        }
+      }
+      const onChainNonce = await nearClient.getOwnerNonce(owner);
+      if (parsedMsg.nonce <= onChainNonce) {
+        return c.json(
+          { error: "Nonce too old", provided: parsedMsg.nonce, onChainNonce },
+          400
+        );
+      }
+      const relayBalance = await nearClient.getBalance();
+
       const reserved = await reserveAdminRequest({
         db,
-        nearClient,
         config,
         owner,
         parsedMsg,
-        vaultIdFromAction,
+        vault,
+        onChainNonce,
+        relayBalance,
         depositYocto,
         gasCostYocto,
         floorYocto,
@@ -405,12 +408,17 @@ export function createAdminRouter(
             msg,
             parsed.signature,
             depositYocto,
-            gasAmount
+            gasAmount,
+            {
+              onSigned: (txHash) => db.attachTxHash(owner, parsedMsg.nonce, txHash),
+            }
           );
 
-          const actualSpent = result.tokensBurntYocto
-            ? (BigInt(depositYocto) + BigInt(result.tokensBurntYocto)).toString()
-            : (BigInt(depositYocto) + BigInt(gasCostYocto)).toString();
+          const actualSpent = spentAfterOutcome({
+            depositYocto,
+            tokensBurntYocto: result.tokensBurntYocto,
+            success: result.success,
+          });
 
           db.reconcileBudget(
             owner,
@@ -445,6 +453,13 @@ export function createAdminRouter(
           });
         } catch (error: unknown) {
           log.error({ error }, "Submission failed");
+          if (isPreAcceptanceRejection(error)) {
+            db.releaseBudget(owner, parsedMsg.nonce, nowMs);
+            return c.json(
+              { error: "Transaction rejected before acceptance", code: "TX_REJECTED" },
+              400
+            );
+          }
           const broadcastHash = txHashFromUnknown(error);
           if (broadcastHash && isOnChainExecutionError(error)) {
             db.finalizeBudget(owner, parsedMsg.nonce, broadcastHash, false);
@@ -457,8 +472,6 @@ export function createAdminRouter(
               400
             );
           }
-          // Timeout / unknown outcome: keep the reservation and
-          // resolve later via txStatus when a hash is known.
           db.markUnknown(owner, parsedMsg.nonce, broadcastHash);
           return c.json(
             { error: "Transaction status unknown; reservation held" },

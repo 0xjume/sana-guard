@@ -6,7 +6,6 @@ import {
   checkBudgets,
   estimateGasCostYocto,
   wouldBreachFloor,
-  yoctoToNear,
 } from "./budget.js";
 import {
   GAS_100_TGAS,
@@ -14,7 +13,6 @@ import {
   CREATE_VAULT_DEPOSIT,
   AGENT_OVERHEAD,
   MIN_AGENT_FUNDING,
-  MAX_AGENT_FUNDING,
   parseNearToYocto,
   maxGasCostYocto,
 } from "./constants.js";
@@ -29,12 +27,12 @@ const testConfig: Config = {
   nearRpcUrl: "http://localhost",
   guardContractId: "guard.test.near",
   databaseUrl: "sqlite:./test-budget.db",
-  relayBalanceFloorNear: 0.5,
-  maxAgentGasFundingNear: 0.5,
-  globalDailyBudgetNear: 1.0,
-  maxDepositPerCallNear: 2.0,
+  relayBalanceFloorYocto: parseNearToYocto("0.5", "near"),
+  maxAgentGasFundingYocto: parseNearToYocto("0.5", "near"),
+  globalDailyBudgetYocto: parseNearToYocto("1.0", "near"),
+  maxDepositPerCallYocto: parseNearToYocto("2.0", "near"),
   ownerRateLimitPerHour: 30,
-  ownerDailyBudgetNear: 5.0,
+  ownerDailyBudgetYocto: parseNearToYocto("5.0", "near"),
   port: 3000,
   nodeEnv: "test",
   logLevel: "error",
@@ -73,13 +71,6 @@ describe("parseNearToYocto", () => {
     );
     expect(() => parseNearToYocto("0.15", "yocto")).toThrow("Invalid yocto");
     expect(() => parseNearToYocto("150000000000000000000000", "near")).not.toThrow();
-  });
-});
-
-describe("yoctoToNear", () => {
-  it("converts yocto to NEAR correctly", () => {
-    expect(yoctoToNear("1000000000000000000000000")).toBe(1.0);
-    expect(yoctoToNear("500000000000000000000000")).toBe(0.5);
   });
 });
 

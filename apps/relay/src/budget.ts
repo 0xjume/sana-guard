@@ -9,13 +9,8 @@ import {
   GAS_100_TGAS,
   GAS_150_TGAS,
   maxGasCostYocto,
-  parseNearToYocto,
   yoctoToNearString,
 } from "./constants.js";
-
-export function yoctoToNear(yocto: string): number {
-  return Number(BigInt(yocto)) / 1e24;
-}
 
 export function addAgentDeposit(
   gasFundingYocto: bigint,
@@ -35,7 +30,7 @@ export function addAgentDeposit(
 }
 
 export function maxAgentFundingYocto(config: Config): bigint {
-  return parseNearToYocto(String(config.maxAgentGasFundingNear), "near");
+  return config.maxAgentGasFundingYocto;
 }
 
 export function calculateRequiredDeposit(
@@ -82,12 +77,12 @@ export function checkBudgets(
   const globalStats = db.getGlobalStats(nowMs);
 
   const totalCost = BigInt(depositYocto) + BigInt(gasCostYocto);
-  const maxDepositYocto = parseNearToYocto(String(config.maxDepositPerCallNear), "near");
+  const maxDepositYocto = config.maxDepositPerCallYocto;
 
   if (totalCost > maxDepositYocto) {
     return {
       allowed: false,
-      reason: `Total cost exceeds hard cap of ${config.maxDepositPerCallNear} NEAR`,
+      reason: `Total cost exceeds hard cap of ${yoctoToNearString(maxDepositYocto)} NEAR`,
     };
   }
 
@@ -99,20 +94,20 @@ export function checkBudgets(
   }
 
   const ownerNewTotal = BigInt(ownerStats.spentToday) + totalCost;
-  const ownerBudgetYocto = parseNearToYocto(String(config.ownerDailyBudgetNear), "near");
+  const ownerBudgetYocto = config.ownerDailyBudgetYocto;
   if (ownerNewTotal > ownerBudgetYocto) {
     return {
       allowed: false,
-      reason: `Owner daily budget exceeded: ${config.ownerDailyBudgetNear} NEAR`,
+      reason: `Owner daily budget exceeded: ${yoctoToNearString(ownerBudgetYocto)} NEAR`,
     };
   }
 
   const globalNewTotal = BigInt(globalStats.spentToday) + totalCost;
-  const globalBudgetYocto = parseNearToYocto(String(config.globalDailyBudgetNear), "near");
+  const globalBudgetYocto = config.globalDailyBudgetYocto;
   if (globalNewTotal > globalBudgetYocto) {
     return {
       allowed: false,
-      reason: `Global daily budget exceeded: ${config.globalDailyBudgetNear} NEAR`,
+      reason: `Global daily budget exceeded: ${yoctoToNearString(globalBudgetYocto)} NEAR`,
     };
   }
 

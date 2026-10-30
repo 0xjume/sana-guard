@@ -5,6 +5,11 @@ export interface NearTransaction {
   tokensBurntYocto?: string;
 }
 
+export interface TxStatusResult {
+  status: "success" | "failure" | "pending";
+  tokensBurntYocto?: string;
+}
+
 export interface VaultInfo {
   owner: string;
   vault_address: string;
@@ -23,6 +28,11 @@ export interface VaultInfo {
   paused: boolean;
 }
 
+export interface SubmitHooks {
+  /** Called after the tx is signed and hashed, before broadcast. */
+  onSigned?: (txHash: string) => void;
+}
+
 export interface NearClient {
   getBalance(): Promise<string>;
 
@@ -34,8 +44,9 @@ export interface NearClient {
     msg: string,
     sig: number[],
     depositYocto: string,
-    gasAmount: string
+    gasAmount: string,
+    hooks?: SubmitHooks
   ): Promise<NearTransaction>;
 
-  getTransactionStatus(txHash: string): Promise<"success" | "failure" | "pending">;
+  getTransactionStatus(txHash: string): Promise<TxStatusResult>;
 }

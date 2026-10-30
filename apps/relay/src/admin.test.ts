@@ -7,7 +7,7 @@ import { createAdminRouter, checkInviteGate } from "./routes/admin.js";
 import { createQuoteRouter } from "./routes/quote.js";
 import { RelayDatabase } from "./db.js";
 import type { Config } from "./config.js";
-import type { NearClient, NearTransaction, VaultInfo } from "./near/interface.js";
+import type { NearClient, NearTransaction, SubmitHooks, TxStatusResult, VaultInfo } from "./near/interface.js";
 import { CREATE_VAULT_DEPOSIT, parseNearToYocto } from "./constants.js";
 
 function testConfig(overrides: Partial<Config> = {}): Config {
@@ -18,12 +18,12 @@ function testConfig(overrides: Partial<Config> = {}): Config {
     nearRpcUrl: "http://localhost",
     guardContractId: "guard.djume.testnet",
     databaseUrl: "sqlite:./test-admin.db",
-    relayBalanceFloorNear: 0.5,
-    maxAgentGasFundingNear: 0.5,
-    globalDailyBudgetNear: 1.0,
-    maxDepositPerCallNear: 2.0,
+    relayBalanceFloorYocto: parseNearToYocto("0.5", "near"),
+    maxAgentGasFundingYocto: parseNearToYocto("0.5", "near"),
+    globalDailyBudgetYocto: parseNearToYocto("1.0", "near"),
+    maxDepositPerCallYocto: parseNearToYocto("2.0", "near"),
     ownerRateLimitPerHour: 30,
-    ownerDailyBudgetNear: 5.0,
+    ownerDailyBudgetYocto: parseNearToYocto("5.0", "near"),
     port: 3000,
     nodeEnv: "test",
     logLevel: "error",
@@ -100,13 +100,15 @@ class MockNear implements NearClient {
     msg: string,
     sig: number[],
     depositYocto: string,
-    gasAmount: string
+    gasAmount: string,
+    hooks?: SubmitHooks
   ): Promise<NearTransaction> {
+    hooks?.onSigned?.(this.result.txHash);
     this.submitted.push({ msg, sig, deposit: depositYocto, gas: gasAmount });
     return this.result;
   }
-  async getTransactionStatus(_txHash: string): Promise<"success" | "failure" | "pending"> {
-    return "pending";
+  async getTransactionStatus(_txHash: string): Promise<TxStatusResult> {
+    return { status: "pending" };
   }
 }
 
@@ -361,7 +363,8 @@ describe("POST /v1/admin", () => {
   });
 
   it("holds the reservation as unknown when submit times out with a hash", async () => {
-    near.submitOwnerAction = async () => {
+    near.submitOwnerAction = async (_m, _s, _d, _g, hooks) => {
+      hooks?.onSigned?.("timeout-hash");
       const err = new Error("Exceeded the maximum number of retries") as Error & {
         transaction: { hash: string };
       };
@@ -388,16 +391,22 @@ describe("POST /v1/admin", () => {
     expect(unknown[0]?.txHash).toBe("timeout-hash");
     expect(db.checkNonceInFlight(owner, 7)).toBe(true);
 
-    const resolved = await db.resolveUnknownReservations(async (hash) => {
-      expect(hash).toBe("timeout-hash");
-      return "failure";
+    const resolved = await db.resolveUnknownReservations({
+      checkTx: async (hash) => {
+        expect(hash).toBe("timeout-hash");
+        return { status: "failure", tokensBurntYocto: "0" };
+      },
+      checkOwnerNonce: async () => 0,
+      nowMs: Date.now(),
+      txValidityMs: 24 * 60 * 60 * 1000,
     });
     expect(resolved).toBe(1);
     expect(db.checkNonceInFlight(owner, 7)).toBe(false);
   });
 
-  it("holds the reservation as unknown when submit times out with no hash", async () => {
-    near.submitOwnerAction = async () => {
+  it("persists the signed hash before broadcast even when send throws without one", async () => {
+    near.submitOwnerAction = async (_m, _s, _d, _g, hooks) => {
+      hooks?.onSigned?.("signed-before-send");
       throw new Error("Exceeded max retries for tx RPC timeout raw text");
     };
     const msg = makeAdminMsg({
@@ -419,7 +428,36 @@ describe("POST /v1/admin", () => {
     expect(body.error).toBe("Transaction status unknown; reservation held");
     expect(JSON.stringify(body)).not.toContain("RPC timeout");
     expect(db.checkNonceInFlight(owner, 6)).toBe(true);
-    expect(db.listUnknownReservations()).toHaveLength(1);
+    const unknown = db.listUnknownReservations();
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0]?.txHash).toBe("signed-before-send");
+  });
+
+  it("releases the reservation on InvalidNonce before acceptance", async () => {
+    near.submitOwnerAction = async (_m, _s, _d, _g, hooks) => {
+      hooks?.onSigned?.("rejected-hash");
+      const err = new Error("InvalidNonce: expired") as Error & { type: string };
+      err.type = "InvalidNonce";
+      throw err;
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 8,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("TX_REJECTED");
+    expect(db.checkNonceInFlight(owner, 8)).toBe(false);
+    expect(db.getGlobalStats(Date.now()).spentToday).toBe("0");
   });
 
   it("does not return raw RPC error text in a 500", async () => {

@@ -118,8 +118,8 @@ Anti-drain gates (on by default for CreateVault / AddAgent):
 - `ADMIN_GATE_ENABLED` — default `true`. If true and neither token nor allowlist is set, CreateVault/AddAgent return 403
 - `INVITE_TOKEN` — require this token in `X-Invite-Token` for CreateVault/AddAgent (compared in constant time)
 - `OWNER_ALLOWLIST` — comma-separated allowed owner pubkeys (base58)
-- `CORS_ORIGINS` — comma-separated allow-list. **Closed by default** (unset = empty list, no `*`)
-- `TRUST_PROXY` — `true` only when behind a known proxy that sets `X-Forwarded-For`. Otherwise the limiter uses the socket address. **Railway: set `TRUST_PROXY=true`** (and optionally `TRUST_PROXY_HOPS=1`). Leave `false` locally so a forged `X-Forwarded-For` cannot bypass the per-IP limit. Admin and read paths use separate limiter maps.
+- `CORS_ORIGINS` — comma-separated allow-list. **Closed by default** (unset = empty list, no `*`). Preflight `OPTIONS` keeps `Access-Control-*` headers for allowed origins.
+- `TRUST_PROXY` — `true` only when behind a known proxy that sets `X-Forwarded-For`. Otherwise the limiter uses the socket address. **Railway: `TRUST_PROXY=true` is set in `railway.json` and the Dockerfile** (optionally `TRUST_PROXY_HOPS=1`). Leave `false` locally so a forged `X-Forwarded-For` cannot bypass the per-IP limit. Admin and read paths use separate limiter maps.
 
 ## Development
 

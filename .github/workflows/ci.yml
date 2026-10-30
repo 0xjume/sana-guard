@@ -120,3 +120,13 @@ jobs:
 
       - name: Test
         run: LOG_LEVEL=error pnpm --filter @sana-guard/relay test
+
+  # Isolated from the typescript job (PR #6) and from the relay unit job.
+  relay-docker:
+    name: Relay (docker build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build relay image
+        run: docker build -f apps/relay/Dockerfile -t sana-guard-relay .
