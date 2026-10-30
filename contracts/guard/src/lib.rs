@@ -32,6 +32,9 @@ mod tests_release_and_programs;
 #[cfg(test)]
 mod tests_followup_f1_f4;
 
+#[cfg(test)]
+mod test_helpers;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -88,7 +91,9 @@ impl Guard {
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        #[derive(near_sdk::borsh::BorshDeserialize)]
+        use near_sdk::store::LookupSet;
+
+        #[derive(near_sdk::borsh::BorshDeserialize, near_sdk::borsh::BorshSerialize)]
         #[borsh(crate = "near_sdk::borsh")]
         struct OldVault {
             owner: [u8; 32],
@@ -135,11 +140,11 @@ impl Guard {
                 agents: old_vault.agents.clone(),
                 policy: old_vault.policy.clone(),
                 pending_loosen: old_vault.pending_loosen.clone(),
-                recipients: old_vault.recipients.clone(),
-                programs: old_vault.programs.clone(),
-                token_accounts: old_vault.token_accounts.clone(),
-                bucket_hashes: old_vault.bucket_hashes.clone(),
-                bucket_spend: old_vault.bucket_spend.clone(),
+                recipients: old_vault.recipients,
+                programs: old_vault.programs,
+                token_accounts: old_vault.token_accounts,
+                bucket_hashes: old_vault.bucket_hashes,
+                bucket_spend: old_vault.bucket_spend,
                 spent_cursor: old_vault.spent_cursor,
                 paused: old_vault.paused,
             };
