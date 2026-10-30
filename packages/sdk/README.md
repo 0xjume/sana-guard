@@ -2,6 +2,8 @@
 
 TypeScript SDK for [Sana Guard](https://github.com/0xjume/sana-guard) – policy-enforced AI agent wallets on Solana via NEAR Chain Signatures.
 
+**Status**: Under active development. Tested against `guard.djume.testnet` (main@1648579).
+
 ## Features
 
 - **Solana Message Building**: SystemProgram transfer, SPL Token transfer/transferChecked, ATA create-idempotent, ComputeBudget, Memo

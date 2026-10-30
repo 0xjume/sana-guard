@@ -15,10 +15,16 @@ export interface Policy {
   dailyCap: Array<{ mint: Mint; amount: bigint }>;
   programs: string[];
   maxPriorityFeeLamports: bigint;
+  maxTotalPriorityFeeLamports?: bigint;
   maxMemoLen: number;
   expiresAtNs: bigint;
   loosenDelayNs: bigint;
 }
+
+/**
+ * Vault state
+ */
+export type VaultState = 'PendingVerification' | 'Active';
 
 /**
  * Vault view returned by get_vault
@@ -34,6 +40,7 @@ export interface VaultView {
     effectiveNs: bigint;
   };
   paused: boolean;
+  state: VaultState;
 }
 
 /**
@@ -115,6 +122,11 @@ export type OwnerAction =
       type: 'Release';
       vaultId: number;
       reqId: string;
+    }
+  | {
+      type: 'BackfillRecipients';
+      vaultId: number;
+      recipients: string[];
     };
 
 /**

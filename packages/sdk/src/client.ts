@@ -1,6 +1,6 @@
 import { PublicKey, Connection, SendOptions } from '@solana/web3.js';
 import { Contract, Account as NearAccount } from 'near-api-js';
-import { RequestSignParams, BroadcastResult, TransferParams, MpcSignResult } from './types';
+import { RequestSignParams, BroadcastResult, TransferParams } from './types';
 import { SanaGuardError, createSanaGuardError } from './errors';
 import { buildSolTransfer, buildTokenTransfer, verifyMessageSignature, assembleSignedTransaction, assertNotV1Message } from './messages';
 import crypto from 'crypto';
@@ -48,7 +48,7 @@ export class AgentClient {
       useLocalViewExecution: false,
     }) as any;
 
-    let result: MpcSignResult;
+    let result: number[];
     try {
       result = await contract.request_sign(
         {
@@ -65,7 +65,7 @@ export class AgentClient {
       throw createSanaGuardError(errorMessage);
     }
 
-    // Extract signature from result
+    // Extract signature from result (it's a 64-byte array)
     if (!result || !Array.isArray(result) || result.length !== 64) {
       throw new SanaGuardError('Invalid MPC signature format');
     }
@@ -94,12 +94,16 @@ export class AgentClient {
   async requestSignAndBroadcast(
     params: RequestSignParams,
     gasAttached: string = '95000000000000',
-    sendOptions: SendOptions = { skipPreflight: false, preflightCommitment: 'confirmed' }
+    sendOptions: SendOptions = { skipPreflight: false, preflightCommitment: 'confirmed' },
+    finalityLevel: 'confirmed' | 'finalized' = 'confirmed'
   ): Promise<BroadcastResult> {
     const signature = await this.requestSign(params, gasAttached);
 
     // Assemble signed transaction
     const signedTx = assembleSignedTransaction(signature, params.message);
+
+    // Get blockhash info for confirmation
+    const { blockhash, lastValidBlockHeight } = await this.solanaConnection.getLatestBlockhash('confirmed');
 
     // Broadcast
     const txSignature = await this.solanaConnection.sendRawTransaction(
@@ -109,8 +113,8 @@ export class AgentClient {
 
     // Wait for confirmation
     const confirmation = await this.solanaConnection.confirmTransaction(
-      txSignature,
-      'confirmed'
+      { signature: txSignature, blockhash, lastValidBlockHeight },
+      finalityLevel
     );
 
     const network = this.solanaConnection.rpcEndpoint.includes('devnet')
@@ -122,7 +126,7 @@ export class AgentClient {
     return {
       signature: txSignature,
       explorer: `https://explorer.solana.com/tx/${txSignature}?cluster=${network}`,
-      status: confirmation.value.err ? 'failed' : 'confirmed',
+      status: confirmation.value.err ? 'failed' : finalityLevel,
       err: confirmation.value.err || undefined,
     };
   }
@@ -132,11 +136,13 @@ export class AgentClient {
    * 
    * Builds the message, fetches a CONFIRMED blockhash, requests signature, and broadcasts.
    * 
+   * @param vaultId - Vault ID
    * @param params - Transfer parameters (lamports OR token)
    * @param options - Optional compute budget and version
    * @returns Broadcast result
    */
   async transfer(
+    vaultId: number,
     params: TransferParams,
     options: {
       computeUnitLimit?: number;
@@ -188,6 +194,6 @@ export class AgentClient {
       throw new SanaGuardError('Either lamports or token must be provided');
     }
 
-    return this.requestSignAndBroadcast({ vaultId: 0, message });
+    return this.requestSignAndBroadcast({ vaultId, message });
   }
 }

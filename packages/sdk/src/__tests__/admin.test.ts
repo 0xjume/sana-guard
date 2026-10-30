@@ -22,6 +22,7 @@ describe('Admin', () => {
     dailyCap: [{ mint: { type: 'sol' }, amount: BigInt(100000000) }],
     programs: ['11111111111111111111111111111111'],
     maxPriorityFeeLamports: BigInt(100000),
+    maxTotalPriorityFeeLamports: undefined,
     maxMemoLen: 64,
     expiresAtNs: BigInt('999999999999999999'),
     loosenDelayNs: BigInt('3600000000000'),
@@ -95,6 +96,7 @@ describe('Admin', () => {
         dailyCap: [{ mint: { type: 'sol' }, amount: BigInt(100000000) }],
         programs: ['11111111111111111111111111111111'],
         maxPriorityFeeLamports: BigInt(100000),
+        maxTotalPriorityFeeLamports: undefined,
         maxMemoLen: 64,
         expiresAtNs: BigInt('999999999999999999'),
         loosenDelayNs: BigInt('3600000000000'),
@@ -112,8 +114,9 @@ describe('Admin', () => {
 
       expect(signed.message).toContain('"type":"SetPolicy"');
       expect(signed.message).toContain('"per_tx_limit"');
-      expect(signed.message).toContain('SOL'); // SOL mint format
+      expect(signed.message).toContain('Sol'); // SOL mint format (not "SOL")
       expect(signed.message).toContain('Spl'); // SPL mint format
+      expect(signed.message).not.toContain('"SOL"'); // Should not use "SOL" string
     });
   });
 
@@ -168,11 +171,12 @@ describe('Admin', () => {
         owner: 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB',
         vaultAddress: 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB',
         policy: {
-          perTxLimit: [],
-          dailyCap: [],
-          programs: [],
-          maxPriorityFeeLamports: BigInt(1000000),
-          maxMemoLen: 100,
+            perTxLimit: [],
+            dailyCap: [],
+            programs: [],
+            maxPriorityFeeLamports: BigInt(1000000),
+            maxTotalPriorityFeeLamports: undefined,
+            maxMemoLen: 100,
           expiresAtNs: BigInt('999999999999999999'),
           loosenDelayNs: BigInt('3600000000000'),
         },
@@ -198,6 +202,9 @@ describe('Admin', () => {
       const parsedAction = JSON.parse(actionLine);
       expect(parsedAction.type).toBe('CreateVault');
       expect(parsedAction.owner).toBe('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB');
+      
+      // Check that mints are formatted as 'Sol' not 'SOL'
+      expect(actionLine).not.toContain('"SOL"');
     });
   });
 });

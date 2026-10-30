@@ -11,7 +11,7 @@ function parsePolicy(policy: any): Policy {
     perTxLimit: policy.per_tx_limit.map((item: any) => {
       const [mint, amount] = item;
       return {
-        mint: typeof mint === 'string' && mint === 'SOL'
+        mint: typeof mint === 'string' && mint === 'Sol'
           ? { type: 'sol' as const }
           : { type: 'spl' as const, address: new PublicKey(Buffer.from(mint.Spl)) },
         amount: BigInt(amount),
@@ -20,7 +20,7 @@ function parsePolicy(policy: any): Policy {
     dailyCap: policy.daily_cap.map((item: any) => {
       const [mint, amount] = item;
       return {
-        mint: typeof mint === 'string' && mint === 'SOL'
+        mint: typeof mint === 'string' && mint === 'Sol'
           ? { type: 'sol' as const }
           : { type: 'spl' as const, address: new PublicKey(Buffer.from(mint.Spl)) },
         amount: BigInt(amount),
@@ -28,6 +28,9 @@ function parsePolicy(policy: any): Policy {
     }),
     programs: policy.programs,
     maxPriorityFeeLamports: BigInt(policy.max_priority_fee_lamports),
+    maxTotalPriorityFeeLamports: policy.max_total_priority_fee_lamports !== undefined && policy.max_total_priority_fee_lamports !== null
+      ? BigInt(policy.max_total_priority_fee_lamports)
+      : undefined,
     maxMemoLen: policy.max_memo_len,
     expiresAtNs: BigInt(policy.expires_at_ns),
     loosenDelayNs: BigInt(policy.loosen_delay_ns),
@@ -52,6 +55,7 @@ export class Views {
         'get_policy',
         'get_request',
         'get_spend_24h',
+        'get_recipients',
         'list_vaults',
         'supported_programs',
         'owner_nonce',
@@ -84,6 +88,7 @@ export class Views {
           }
         : undefined,
       paused: result.paused,
+      state: result.state || 'Active',
     };
   }
 
@@ -133,6 +138,18 @@ export class Views {
   }
 
   /**
+   * Get recipients for a vault
+   */
+  async getRecipients(vaultId: number, fromIndex?: number, limit?: number): Promise<string[]> {
+    const result: any = await (this.contract as any).get_recipients({
+      vault_id: vaultId,
+      from_index: fromIndex,
+      limit,
+    });
+    return result || [];
+  }
+
+  /**
    * List vaults with pagination
    */
   async listVaults(from?: number, limit?: number): Promise<Array<{ id: number; vault: VaultView }>> {
@@ -153,6 +170,7 @@ export class Views {
             }
           : undefined,
         paused: item[1].paused,
+        state: item[1].state || 'Active',
       },
     }));
   }
@@ -208,16 +226,5 @@ export class Views {
     }
 
     return new PublicKey(keyBytes);
-  }
-
-  /**
-   * Get recipients for a vault (backfilled list)
-   * 
-   * Note: The contract does not expose a direct get_recipients view.
-   * This would require adding a view method or iterating the LookupSet.
-   * For now, callers must track recipients client-side or via AddRecipient events.
-   */
-  async getRecipients(_vaultId: number): Promise<string[]> {
-    throw new SanaGuardError('get_recipients not implemented in contract (F4 from E2E notes)');
   }
 }

@@ -30,7 +30,7 @@ export {
   TOKEN_PROGRAM,
   ATA_PROGRAM,
   COMPUTE_BUDGET_PROGRAM,
-  MEMO_V2_PROGRAM,
+  MEMO_PROGRAM,
   buildSolTransfer,
   buildTokenTransfer,
   buildMessageWithMemo,
@@ -54,6 +54,7 @@ export {
   pauseAction,
   unpauseAction,
   releaseAction,
+  backfillRecipientsAction,
 } from './admin';
 
 export type { CreateVaultParams, AddAgentParams } from './admin';

@@ -40,12 +40,18 @@ const LIVE = process.env.SANA_GUARD_LIVE === '1';
       expect(vault.path).toBeTruthy();
       expect(vault.policy).toBeTruthy();
       expect(typeof vault.paused).toBe('boolean');
+      expect(vault.state).toBe('Active');
+
+      // Assert that SOL mint is properly parsed as 'sol' type
+      expect(vault.policy.perTxLimit.length).toBeGreaterThan(0);
+      expect(vault.policy.perTxLimit[0].mint.type).toBe('sol');
 
       console.log('Vault 0:', {
         owner: vault.owner,
         vaultAddress: vault.vaultAddress,
         path: vault.path,
         paused: vault.paused,
+        state: vault.state,
       });
     }
   }, 30000);
@@ -59,6 +65,16 @@ const LIVE = process.env.SANA_GUARD_LIVE === '1';
     expect(nonce).toBeGreaterThanOrEqual(0);
 
     console.log(`Owner ${ownerB58} nonce: ${nonce}`);
+  }, 30000);
+
+  it('should get recipients for vault 0', async () => {
+    const recipients = await views.getRecipients(0);
+
+    expect(Array.isArray(recipients)).toBe(true);
+    // DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB should be in the list from E2E
+    expect(recipients).toContain('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB');
+
+    console.log('Recipients for vault 0:', recipients);
   }, 30000);
 
   it('should get 24h spend for vault 0', async () => {
@@ -84,9 +100,10 @@ const LIVE = process.env.SANA_GUARD_LIVE === '1';
     expect(Array.isArray(programs)).toBe(true);
     expect(programs.length).toBeGreaterThan(0);
 
-    // Should include System, Token, ATA, ComputeBudget, MemoV2
+    // Should include System, Token, ATA, ComputeBudget, Memo
     expect(programs).toContain('11111111111111111111111111111111'); // System
     expect(programs).toContain('ComputeBudget111111111111111111111111111111'); // ComputeBudget
+    expect(programs).toContain('Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo'); // Memo
 
     console.log('Supported programs:', programs);
   }, 30000);

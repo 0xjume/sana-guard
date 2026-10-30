@@ -14,7 +14,7 @@ export const SYSTEM_PROGRAM = SystemProgram.programId;
 export const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
 export const ATA_PROGRAM = ASSOCIATED_TOKEN_PROGRAM_ID;
 export const COMPUTE_BUDGET_PROGRAM = ComputeBudgetProgram.programId;
-export const MEMO_V2_PROGRAM = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+export const MEMO_PROGRAM = new PublicKey('Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo');
 
 /**
  * Compact-u16 encoding for Solana message format
@@ -186,16 +186,18 @@ export function buildMessageWithMemo(
   recentBlockhash: string,
   memo: string,
   instructions: TransactionInstruction[],
+  maxMemoLen: number,
   version: MessageVersion = 'v0'
 ): Uint8Array {
-  if (Buffer.from(memo, 'utf-8').length > 566) {
-    throw new SanaGuardError('Memo too long (max 566 bytes)');
+  const memoBytes = Buffer.from(memo, 'utf-8');
+  if (memoBytes.length > maxMemoLen) {
+    throw new SanaGuardError(`Memo too long (max ${maxMemoLen} bytes)`);
   }
 
   const memoInstruction = new TransactionInstruction({
     keys: [],
-    programId: MEMO_V2_PROGRAM,
-    data: Buffer.from(memo, 'utf-8'),
+    programId: MEMO_PROGRAM,
+    data: memoBytes,
   });
 
   const allInstructions = [...instructions, memoInstruction];

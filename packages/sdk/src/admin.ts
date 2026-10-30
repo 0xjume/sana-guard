@@ -11,7 +11,7 @@ const ADMIN_DOMAIN_TAG = 'SANA-GUARD-ADMIN-v1';
  */
 export const VAULT_STORAGE_COST = BigInt('500000000000000000000000'); // 0.5 NEAR
 export const AGENT_STORAGE_OVERHEAD = BigInt('50000000000000000000000'); // 0.05 NEAR
-export const MIN_AGENT_FUNDING = BigInt('2500000000000000000000'); // 0.0025 NEAR
+export const MIN_AGENT_FUNDING = BigInt('150000000000000000000000'); // 0.15 NEAR
 export const MAX_AGENT_FUNDING = BigInt('500000000000000000000000'); // 0.5 NEAR
 
 /**
@@ -20,15 +20,16 @@ export const MAX_AGENT_FUNDING = BigInt('500000000000000000000000'); // 0.5 NEAR
 function formatPolicyForJson(policy: Policy): object {
   return {
     per_tx_limit: policy.perTxLimit.map((p) => [
-      p.mint.type === 'sol' ? 'SOL' : { Spl: Array.from(p.mint.address.toBytes()) },
+      p.mint.type === 'sol' ? 'Sol' : { Spl: Array.from(p.mint.address.toBytes()) },
       p.amount.toString(),
     ]),
     daily_cap: policy.dailyCap.map((p) => [
-      p.mint.type === 'sol' ? 'SOL' : { Spl: Array.from(p.mint.address.toBytes()) },
+      p.mint.type === 'sol' ? 'Sol' : { Spl: Array.from(p.mint.address.toBytes()) },
       p.amount.toString(),
     ]),
     programs: policy.programs,
     max_priority_fee_lamports: policy.maxPriorityFeeLamports.toString(),
+    max_total_priority_fee_lamports: policy.maxTotalPriorityFeeLamports?.toString(),
     max_memo_len: policy.maxMemoLen,
     expires_at_ns: policy.expiresAtNs.toString(),
     loosen_delay_ns: policy.loosenDelayNs.toString(),
@@ -132,6 +133,14 @@ function buildAdminMessage(
         type: action.type,
         vault_id: action.vaultId,
         req_id: action.reqId,
+      });
+      break;
+
+    case 'BackfillRecipients':
+      actionJson = JSON.stringify({
+        type: action.type,
+        vault_id: action.vaultId,
+        recipients: action.recipients,
       });
       break;
   }
@@ -364,6 +373,24 @@ export async function releaseAction(
 }
 
 /**
- * Helper: BackfillRecipients is not exposed as a public action;
- * it was used during migration and is now owner_action-only via the contract.
+ * Helper: BackfillRecipients payload
  */
+export async function backfillRecipientsAction(
+  network: string,
+  contract: string,
+  vaultId: number,
+  nonce: number,
+  recipients: string[],
+  signer: Ed25519Signer,
+  ttlSeconds: number = 600
+): Promise<SignedAdminMessage> {
+  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+
+  const action: OwnerAction = {
+    type: 'BackfillRecipients',
+    vaultId,
+    recipients,
+  };
+
+  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+}

@@ -93,13 +93,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   SG_E073_MEMO_TOO_LONG: 'Memo text exceeds max length',
   SG_E074_PROGRAM_NOT_ALLOWED: 'Program not in policy allowlist',
   SG_E075_INVALID_POLICY_PROGRAM: 'Policy program not in supported list or invalid format',
+  SG_E076_VAULT_NOT_ACTIVE: 'Vault is not in Active state',
 };
 
 /**
  * Parse error code from contract panic message
  */
 export function parseErrorCode(message: string): string | null {
-  const match = message.match(/SG_E\d{3}_[A-Z_]+/);
+  const match = message.match(/SG_E\d{3}_[A-Z0-9_]+/);
   return match ? match[0] : null;
 }
 
