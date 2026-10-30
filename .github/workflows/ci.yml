@@ -51,10 +51,10 @@ jobs:
       - name: Build WASM
         run: |
           cargo near build non-reproducible-wasm --no-abi
-          WASM_FILE="target/near/sana_guard_contract.wasm"
-          WASM_SIZE=$(stat -c%s "$WASM_FILE" 2>/dev/null || stat -f%z "$WASM_FILE")
+          WASM_FILE="target/near/sana_guard_contract/sana_guard_contract.wasm"
+          WASM_SIZE=$(stat -c%s "$WASM_FILE")
           echo "WASM size: $((WASM_SIZE / 1024)) KB ($WASM_SIZE bytes)"
-          ls -lh target/near/*.wasm
+          ls -lh target/near/sana_guard_contract/*.wasm
 
   typescript:
     name: TypeScript (lint, typecheck)
