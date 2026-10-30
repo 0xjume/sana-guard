@@ -34,6 +34,11 @@ const ACTION_SCHEMAS = {
     vault_id: z.number(),
     recipient: z.string(),
   }),
+  BackfillRecipients: z.object({
+    type: z.literal("BackfillRecipients"),
+    vault_id: z.number(),
+    recipients: z.array(z.string()),
+  }),
   SetPolicy: z.object({
     type: z.literal("SetPolicy"),
     vault_id: z.number(),

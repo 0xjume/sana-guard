@@ -2,7 +2,7 @@ import * as nearAPI from "near-api-js";
 import { logger } from "../logger.js";
 import type { NearClient, NearTransaction, VaultInfo } from "./interface.js";
 
-const { connect, keyStores, KeyPair, utils } = nearAPI;
+const { connect, keyStores, KeyPair } = nearAPI;
 
 export class NearClientImpl implements NearClient {
   private connection!: nearAPI.Near;
@@ -68,7 +68,8 @@ export class NearClientImpl implements NearClient {
   async submitOwnerAction(
     msg: string,
     sig: number[],
-    depositYocto: string
+    depositYocto: string,
+    gasAmount: string
   ): Promise<NearTransaction> {
     return this.submitMutex.run(async () => {
       try {
@@ -76,7 +77,7 @@ export class NearClientImpl implements NearClient {
           contractId: this.contractId,
           methodName: "owner_action",
           args: { msg, sig },
-          gas: BigInt(utils.format.parseNearAmount("0.1")!),
+          gas: BigInt(gasAmount),
           attachedDeposit: BigInt(depositYocto),
         });
 

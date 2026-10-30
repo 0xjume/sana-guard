@@ -1,24 +1,31 @@
 import { Hono } from "hono";
-import type { Config } from "../config.js";
-import { nearToYocto, yoctoToNear } from "../budget.js";
 import { createRequestLogger } from "../logger.js";
 import { randomBytes } from "crypto";
+import {
+  CREATE_VAULT_DEPOSIT,
+  AGENT_OVERHEAD,
+  MIN_AGENT_FUNDING,
+  MAX_AGENT_FUNDING,
+  ESTIMATED_GAS_COST,
+} from "../constants.js";
+import { yoctoToNear } from "../budget.js";
+import { readRateLimit } from "../middleware/rateLimit.js";
 
-export function createQuoteRouter(config: Config) {
+export function createQuoteRouter() {
   const app = new Hono();
 
-  app.get("/v1/quote/:action", async (c) => {
+  app.get("/v1/quote/:action", readRateLimit, async (c) => {
     const requestId = randomBytes(16).toString("hex");
     const log = createRequestLogger(requestId);
 
     try {
-      const action = c.req.param("action");
+      const action = c.req.param("action")!;
       log.info({ action }, "Quote request");
 
       let depositYocto = "0";
 
       if (action === "CreateVault") {
-        depositYocto = nearToYocto(0.5);
+        depositYocto = CREATE_VAULT_DEPOSIT.toString();
       } else if (action === "AddAgent") {
         const gasFundingParam = c.req.query("gas_funding");
         if (!gasFundingParam) {
@@ -28,27 +35,37 @@ export function createQuoteRouter(config: Config) {
           );
         }
 
-        const gasFunding = parseFloat(gasFundingParam);
-        if (isNaN(gasFunding) || gasFunding < 0) {
+        const gasFundingNear = parseFloat(gasFundingParam);
+        if (isNaN(gasFundingNear) || gasFundingNear < 0) {
           return c.json({ error: "Invalid gas_funding value" }, 400);
         }
 
-        if (gasFunding > config.maxAgentGasFundingNear) {
+        const gasFundingYocto = BigInt(Math.floor(gasFundingNear * 1e24));
+
+        if (gasFundingYocto < MIN_AGENT_FUNDING) {
           return c.json(
             {
-              error: `gas_funding exceeds maximum of ${config.maxAgentGasFundingNear} NEAR`,
+              error: `gas_funding below minimum of ${yoctoToNear(MIN_AGENT_FUNDING.toString())} NEAR`,
             },
             400
           );
         }
 
-        const gasFundingYocto = nearToYocto(gasFunding);
-        const overhead = nearToYocto(0.05);
-        depositYocto = (BigInt(gasFundingYocto) + BigInt(overhead)).toString();
+        if (gasFundingYocto > MAX_AGENT_FUNDING) {
+          return c.json(
+            {
+              error: `gas_funding exceeds maximum of ${yoctoToNear(MAX_AGENT_FUNDING.toString())} NEAR`,
+            },
+            400
+          );
+        }
+
+        depositYocto = (gasFundingYocto + AGENT_OVERHEAD).toString();
       } else if (
         [
           "AddRecipient",
           "RemoveRecipient",
+          "BackfillRecipients",
           "RemoveAgent",
           "SetPolicy",
           "Pause",
@@ -62,16 +79,14 @@ export function createQuoteRouter(config: Config) {
         return c.json({ error: "Unknown action type" }, 400);
       }
 
-      const estimatedGas = nearToYocto(0.1);
-
       return c.json({
         action,
         depositNear: yoctoToNear(depositYocto),
         depositYocto,
-        estimatedGasNear: yoctoToNear(estimatedGas),
-        estimatedGasYocto: estimatedGas,
+        estimatedGasNear: yoctoToNear(ESTIMATED_GAS_COST.toString()),
+        estimatedGasYocto: ESTIMATED_GAS_COST.toString(),
         totalNear:
-          yoctoToNear(depositYocto) + yoctoToNear(estimatedGas),
+          yoctoToNear(depositYocto) + yoctoToNear(ESTIMATED_GAS_COST.toString()),
       });
     } catch (error: unknown) {
       log.error({ error }, "Quote request failed");

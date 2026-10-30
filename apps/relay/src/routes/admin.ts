@@ -11,20 +11,45 @@ import {
 } from "../validation.js";
 import {
   calculateRequiredDeposit,
-  estimateGasCost,
+  calculateGas,
   checkBudgets,
+  checkActionLimits,
   yoctoToNear,
 } from "../budget.js";
+import { ESTIMATED_GAS_COST } from "../constants.js";
 import { createRequestLogger } from "../logger.js";
 import { randomBytes } from "crypto";
+import { adminRateLimit } from "../middleware/rateLimit.js";
+import { bodyLimit } from "../middleware/bodyLimit.js";
 
 const adminRequestSchema = z.object({
-  action: z.record(z.unknown()),
-  vault: z.number().nullable(),
-  nonce: z.number(),
-  expiry: z.string(),
+  msg: z.string(),
   signature: z.array(z.number()).length(64),
 });
+
+function checkInviteGate(
+  actionType: string,
+  owner: string,
+  inviteHeader: string | undefined,
+  config: Config
+): { allowed: boolean; reason?: string } {
+  if (actionType !== "CreateVault" && actionType !== "AddAgent") {
+    return { allowed: true };
+  }
+
+  if (config.inviteToken && inviteHeader !== config.inviteToken) {
+    return { allowed: false, reason: "Invalid or missing invite token" };
+  }
+
+  if (config.ownerAllowlist) {
+    const allowed = config.ownerAllowlist.split(",").map((o) => o.trim());
+    if (!allowed.includes(owner)) {
+      return { allowed: false, reason: "Owner not in allowlist" };
+    }
+  }
+
+  return { allowed: true };
+}
 
 export function createAdminRouter(
   nearClient: NearClient,
@@ -33,7 +58,7 @@ export function createAdminRouter(
 ) {
   const app = new Hono();
 
-  app.post("/v1/admin", async (c) => {
+  app.post("/v1/admin", bodyLimit, adminRateLimit, async (c) => {
     const requestId = randomBytes(16).toString("hex");
     const log = createRequestLogger(requestId);
     const nowMs = Date.now();
@@ -41,33 +66,24 @@ export function createAdminRouter(
     try {
       const body = await c.req.json();
       const parsed = adminRequestSchema.parse(body);
-      log.info({ action: parsed.action.type }, "Received admin request");
+      const msg = parsed.msg;
+      const signature = new Uint8Array(parsed.signature);
 
-      const relayBalance = await nearClient.getBalance();
-      const relayBalanceNear = yoctoToNear(relayBalance);
-      if (relayBalanceNear < config.relayBalanceFloorNear) {
-        log.warn(
-          { relayBalanceNear, floor: config.relayBalanceFloorNear },
-          "Relay balance below floor"
-        );
+      log.info("Received admin request");
+
+      let parsedMsg;
+      try {
+        parsedMsg = parseAdminMessage(msg);
+      } catch (error: unknown) {
+        log.warn({ error }, "Message parsing failed");
         return c.json(
           {
-            error: "Service temporarily unavailable: insufficient relay balance",
-            code: "BALANCE_TOO_LOW",
+            error:
+              error instanceof Error ? error.message : "Invalid message format",
           },
-          503
+          400
         );
       }
-
-      const msg = buildAdminMessage(
-        parsed.action,
-        parsed.vault,
-        parsed.nonce,
-        parsed.expiry,
-        config
-      );
-
-      const parsedMsg = parseAdminMessage(msg);
 
       if (parsedMsg.network !== `near-${config.nearNetwork}`) {
         log.warn(
@@ -105,11 +121,27 @@ export function createAdminRouter(
         return c.json({ error: "Message expired" }, 400);
       }
 
+      const vaultIdFromAction = getVaultId(parsedMsg.action);
+      if (vaultIdFromAction !== null && parsedMsg.vault !== vaultIdFromAction) {
+        log.warn(
+          { header: parsedMsg.vault, action: vaultIdFromAction },
+          "Vault header mismatch"
+        );
+        return c.json(
+          {
+            error: "Vault header mismatch",
+            expected: vaultIdFromAction,
+            got: parsedMsg.vault,
+          },
+          400
+        );
+      }
+
       let owner: string;
       if (parsedMsg.action.type === "CreateVault") {
         owner = extractOwner(parsedMsg.action);
       } else {
-        const vaultId = getVaultId(parsedMsg.action);
+        const vaultId = vaultIdFromAction;
         if (vaultId === null) {
           return c.json({ error: "Vault ID is required" }, 400);
         }
@@ -121,84 +153,217 @@ export function createAdminRouter(
         owner = vault.owner;
       }
 
-      const signatureBytes = new Uint8Array(parsed.signature);
-      if (!verifySignature(msg, signatureBytes, owner)) {
+      if (!verifySignature(msg, signature, owner)) {
         log.warn({ owner }, "Invalid signature");
         return c.json({ error: "Invalid signature" }, 401);
       }
 
-      const onChainNonce = await nearClient.getOwnerNonce(owner);
-      if (parsedMsg.nonce <= onChainNonce) {
+      const inviteCheck = checkInviteGate(
+        parsedMsg.action.type,
+        owner,
+        c.req.header("x-invite-token"),
+        config
+      );
+      if (!inviteCheck.allowed) {
+        log.warn({ reason: inviteCheck.reason }, "Invite gate failed");
+        return c.json({ error: inviteCheck.reason, code: "ACCESS_DENIED" }, 403);
+      }
+
+      const relayBalance = await nearClient.getBalance();
+      const relayBalanceNear = yoctoToNear(relayBalance);
+      if (relayBalanceNear < config.relayBalanceFloorNear) {
         log.warn(
-          { provided: parsedMsg.nonce, onChain: onChainNonce },
-          "Nonce too old"
+          { relayBalanceNear, floor: config.relayBalanceFloorNear },
+          "Relay balance below floor"
         );
         return c.json(
           {
-            error: "Nonce too old",
-            provided: parsedMsg.nonce,
-            onChainNonce,
+            error: "Service temporarily unavailable: insufficient relay balance",
+            code: "BALANCE_TOO_LOW",
+          },
+          503
+        );
+      }
+
+      let depositYocto: string;
+      try {
+        depositYocto = calculateRequiredDeposit(parsedMsg.action);
+      } catch (error: unknown) {
+        log.warn({ error }, "Deposit calculation failed");
+        return c.json(
+          {
+            error:
+              error instanceof Error ? error.message : "Invalid action parameters",
           },
           400
         );
       }
 
-      const depositYocto = calculateRequiredDeposit(parsedMsg.action, config);
-      const gasCostYocto = estimateGasCost();
+      const gasAmount = calculateGas(parsedMsg.action);
+      const gasCostYocto = ESTIMATED_GAS_COST.toString();
 
-      const budgetCheck = checkBudgets(
-        owner,
-        depositYocto,
-        gasCostYocto,
-        db,
-        config,
-        nowMs
-      );
-      if (!budgetCheck.allowed) {
-        log.warn({ reason: budgetCheck.reason }, "Budget check failed");
-        return c.json(
-          { error: budgetCheck.reason, code: "BUDGET_EXCEEDED" },
-          429
-        );
-      }
+      const totalCost = BigInt(depositYocto) + BigInt(gasCostYocto);
+      const remainingBalance = BigInt(relayBalance) - totalCost;
+      const floorYocto = BigInt(Math.floor(config.relayBalanceFloorNear * 1e24));
 
-      log.info({ depositYocto, owner, nonce: parsedMsg.nonce }, "Submitting to NEAR");
-      const result = await nearClient.submitOwnerAction(
-        msg,
-        parsed.signature,
-        depositYocto
-      );
-
-      const totalSpent = (BigInt(depositYocto) + BigInt(gasCostYocto)).toString();
-      db.recordRequest(
-        owner,
-        parsedMsg.nonce,
-        totalSpent,
-        result.txHash,
-        result.success,
-        nowMs
-      );
-
-      if (!result.success) {
+      if (remainingBalance < floorYocto) {
         log.warn(
-          { txHash: result.txHash, error: result.errorMessage },
-          "Transaction failed"
+          {
+            relayBalance: relayBalance.toString(),
+            totalCost: totalCost.toString(),
+            remaining: remainingBalance.toString(),
+            floor: floorYocto.toString(),
+          },
+          "Transaction would breach balance floor"
         );
         return c.json(
           {
-            success: false,
-            txHash: result.txHash,
-            error: result.errorMessage,
+            error:
+              "Service temporarily unavailable: transaction would breach balance floor",
+            code: "BALANCE_TOO_LOW",
           },
-          400
+          503
         );
       }
 
-      log.info({ txHash: result.txHash }, "Transaction succeeded");
-      return c.json({
-        success: true,
-        txHash: result.txHash,
-        depositNear: yoctoToNear(depositYocto),
+      return await db.withOwnerLock(owner, async () => {
+        if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
+          log.warn({ owner, nonce: parsedMsg.nonce }, "Nonce already in flight");
+          return c.json(
+            {
+              error: "Request with same nonce already in progress",
+              code: "NONCE_IN_FLIGHT",
+            },
+            409
+          );
+        }
+
+        const onChainNonce = await nearClient.getOwnerNonce(owner);
+        if (parsedMsg.nonce <= onChainNonce) {
+          log.warn(
+            { provided: parsedMsg.nonce, onChain: onChainNonce },
+            "Nonce too old"
+          );
+          return c.json(
+            {
+              error: "Nonce too old",
+              provided: parsedMsg.nonce,
+              onChainNonce,
+            },
+            400
+          );
+        }
+
+        const actionCheck = checkActionLimits(parsedMsg.action, db, nowMs);
+        if (!actionCheck.allowed) {
+          log.warn({ reason: actionCheck.reason }, "Action limit check failed");
+          return c.json(
+            { error: actionCheck.reason, code: "LIMIT_EXCEEDED" },
+            429
+          );
+        }
+
+        const budgetCheck = checkBudgets(
+          owner,
+          depositYocto,
+          gasCostYocto,
+          db,
+          config,
+          nowMs
+        );
+        if (!budgetCheck.allowed) {
+          log.warn({ reason: budgetCheck.reason }, "Budget check failed");
+          return c.json(
+            { error: budgetCheck.reason, code: "BUDGET_EXCEEDED" },
+            429
+          );
+        }
+
+        const totalSpent = (BigInt(depositYocto) + BigInt(gasCostYocto)).toString();
+        db.reserveBudget(
+          owner,
+          parsedMsg.nonce,
+          parsedMsg.action.type,
+          totalSpent,
+          nowMs
+        );
+
+        log.info({ depositYocto, owner, nonce: parsedMsg.nonce, gas: gasAmount }, "Submitting to NEAR");
+
+        let result;
+        try {
+          result = await nearClient.submitOwnerAction(
+            msg,
+            parsed.signature,
+            depositYocto,
+            gasAmount
+          );
+
+          db.finalizeBudget(owner, parsedMsg.nonce, result.txHash, result.success);
+        } catch (error: unknown) {
+          log.error({ error }, "Submission failed before or after broadcast");
+          db.releaseBudget(owner, parsedMsg.nonce, nowMs);
+
+          if (
+            error &&
+            typeof error === "object" &&
+            "transaction" in error &&
+            error.transaction &&
+            typeof error.transaction === "object" &&
+            "hash" in error.transaction
+          ) {
+            const tx = error.transaction as { hash: unknown };
+            const txHash =
+              typeof tx.hash === "string"
+                ? tx.hash
+                : "unknown";
+            
+            let errorMsg = "Transaction failed";
+            if ("message" in error && typeof error.message === "string") {
+              const sgMatch = error.message.match(/SG_E\d+_[A-Z_]+/);
+              errorMsg = sgMatch ? sgMatch[0]! : error.message;
+            }
+
+            return c.json(
+              {
+                success: false,
+                txHash,
+                error: errorMsg,
+              },
+              400
+            );
+          }
+
+          return c.json(
+            {
+              error:
+                error instanceof Error ? error.message : "Internal server error",
+            },
+            500
+          );
+        }
+
+        if (!result.success) {
+          log.warn(
+            { txHash: result.txHash, error: result.errorMessage },
+            "Transaction failed"
+          );
+          return c.json(
+            {
+              success: false,
+              txHash: result.txHash,
+              error: result.errorMessage,
+            },
+            400
+          );
+        }
+
+        log.info({ txHash: result.txHash }, "Transaction succeeded");
+        return c.json({
+          success: true,
+          txHash: result.txHash,
+          depositNear: yoctoToNear(depositYocto),
+        });
       });
     } catch (error: unknown) {
       log.error({ error }, "Request processing failed");
@@ -219,27 +384,4 @@ export function createAdminRouter(
   });
 
   return app;
-}
-
-function buildAdminMessage(
-  action: Record<string, unknown>,
-  vault: number | null,
-  nonce: number,
-  expiry: string,
-  config: Config
-): string {
-  const network = `near-${config.nearNetwork}`;
-  const contract = config.guardContractId;
-  const vaultStr = vault === null ? "null" : String(vault);
-  const actionJson = JSON.stringify(action, null, 0);
-
-  return [
-    "SANA-GUARD-ADMIN-v1",
-    `network: ${network}`,
-    `contract: ${contract}`,
-    `vault: ${vaultStr}`,
-    `nonce: ${nonce}`,
-    `expires: ${expiry}`,
-    `action: ${actionJson}`,
-  ].join("\n");
 }

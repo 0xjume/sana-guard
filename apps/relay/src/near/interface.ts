@@ -32,6 +32,7 @@ export interface NearClient {
   submitOwnerAction(
     msg: string,
     sig: number[],
-    depositYocto: string
+    depositYocto: string,
+    gasAmount: string
   ): Promise<NearTransaction>;
 }

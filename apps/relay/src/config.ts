@@ -16,6 +16,9 @@ const configSchema = z.object({
   port: z.coerce.number().int().min(1).max(65535),
   nodeEnv: z.enum(["development", "production", "test"]),
   logLevel: z.enum(["trace", "debug", "info", "warn", "error"]),
+  inviteToken: z.string().optional(),
+  ownerAllowlist: z.string().optional(),
+  corsOrigins: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -31,13 +34,16 @@ export function loadConfig(): Config {
     databaseUrl: process.env.DATABASE_URL ?? "sqlite:./relay.db",
     relayBalanceFloorNear: process.env.RELAY_BALANCE_FLOOR_NEAR ?? "0.5",
     maxAgentGasFundingNear: process.env.MAX_AGENT_GAS_FUNDING_NEAR ?? "0.5",
-    globalDailyBudgetNear: process.env.GLOBAL_DAILY_BUDGET_NEAR ?? "10.0",
+    globalDailyBudgetNear: process.env.GLOBAL_DAILY_BUDGET_NEAR ?? "1.0",
     maxDepositPerCallNear: process.env.MAX_DEPOSIT_PER_CALL_NEAR ?? "2.0",
     ownerRateLimitPerHour: process.env.OWNER_RATE_LIMIT_PER_HOUR ?? "30",
     ownerDailyBudgetNear: process.env.OWNER_DAILY_BUDGET_NEAR ?? "5.0",
     port: process.env.PORT ?? "3000",
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: process.env.LOG_LEVEL ?? "info",
+    inviteToken: process.env.INVITE_TOKEN,
+    ownerAllowlist: process.env.OWNER_ALLOWLIST,
+    corsOrigins: process.env.CORS_ORIGINS,
   };
 
   return configSchema.parse(raw);

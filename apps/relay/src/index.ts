@@ -8,6 +8,7 @@ import { createAdminRouter } from "./routes/admin.js";
 import { createVaultsRouter } from "./routes/vaults.js";
 import { createQuoteRouter } from "./routes/quote.js";
 import { createHealthRouter } from "./routes/health.js";
+import { createCorsMiddleware } from "./middleware/cors.js";
 
 async function main() {
   const config = loadConfig();
@@ -41,6 +42,8 @@ async function main() {
 
   const app = new Hono();
 
+  app.use("*", createCorsMiddleware(config));
+
   app.get("/", (c) => {
     return c.json({
       service: "Sana Guard Relay",
@@ -51,7 +54,7 @@ async function main() {
 
   app.route("/", createAdminRouter(nearClient, db, config));
   app.route("/", createVaultsRouter(nearClient));
-  app.route("/", createQuoteRouter(config));
+  app.route("/", createQuoteRouter());
   app.route("/", createHealthRouter(nearClient, config));
 
   const server = serve(

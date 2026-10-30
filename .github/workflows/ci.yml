@@ -88,10 +88,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm lint || echo "Lint not implemented yet"
+        run: cd apps/relay && pnpm lint
 
       - name: Type check
-        run: pnpm typecheck || echo "Typecheck not implemented yet"
+        run: pnpm typecheck
 
       - name: Test
-        run: LOG_LEVEL=error pnpm test || echo "Tests not fully implemented yet"
+        run: LOG_LEVEL=error pnpm test
