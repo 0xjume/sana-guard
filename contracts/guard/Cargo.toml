@@ -1,0 +1,25 @@
+[package]
+name = "sana-guard-contract"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jume / 0xjume"]
+license = "MIT"
+repository = "https://github.com/0xjume/sana-guard"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+bs58 = "0.5"
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+near-workspaces = "0.24"
+tokio = { version = "1.42", features = ["full"] }
+
+[profile.release]
+overflow-checks = true

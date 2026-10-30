@@ -1,0 +1,41 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# NEAR
+*.wasm
+res/
+
+# Node
+node_modules/
+dist/
+.turbo/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env*.local
+*.secret
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
