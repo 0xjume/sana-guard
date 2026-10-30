@@ -139,7 +139,11 @@ impl SignRequest {
                 .collect(),
             hour: self.hour,
             status: self.status.clone(),
-            signature: self.signature.as_ref().map(|s| near_sdk::base64::encode(s)),
+            signature: self.signature.as_ref().map(|s| {
+                use near_sdk::base64::engine::general_purpose::STANDARD;
+                use near_sdk::base64::Engine;
+                STANDARD.encode(s)
+            }),
             created_ns: U64(self.created_ns),
         }
     }

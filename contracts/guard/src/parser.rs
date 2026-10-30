@@ -1,5 +1,4 @@
 use crate::types::Mint;
-use near_sdk::env;
 
 pub const SYSTEM_PROGRAM: [u8; 32] = [0; 32];
 // Decoded from base58 at compile time
@@ -47,16 +46,19 @@ pub enum ParsedInstruction {
         lamports: u64,
     },
     TokenTransfer {
+        #[allow(dead_code)]
         source: [u8; 32],
         dest: [u8; 32],
         authority: [u8; 32],
         mint: [u8; 32],
         amount: u64,
+        #[allow(dead_code)]
         decimals: Option<u8>,
     },
     AtaCreate {
         payer: [u8; 32],
         ata: [u8; 32],
+        #[allow(dead_code)]
         wallet: [u8; 32],
         mint: [u8; 32],
     },

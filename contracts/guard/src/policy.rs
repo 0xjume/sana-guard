@@ -1,9 +1,9 @@
 use crate::events::*;
 use crate::parser::*;
 use crate::types::*;
-use crate::{base64_decode_vec, base58_decode, mint_to_string, Guard, GAS_BUFFER, MPC_SIGN_GAS, ON_SIGNED_GAS};
+use crate::{base64_decode_vec, mint_to_string, Guard, GAS_BUFFER, MPC_SIGN_GAS, ON_SIGNED_GAS};
 use near_sdk::serde::Serialize;
-use near_sdk::{env, Gas, NearToken, Promise};
+use near_sdk::{env, NearToken, Promise};
 
 impl Guard {
     pub fn process_sign_request(
@@ -86,7 +86,7 @@ impl Guard {
         }
 
         for ix in &parsed.instructions {
-            self.check_instruction_policy(&vault, ix);
+            self.check_instruction_policy(vault, ix);
         }
 
         let spend = match calculate_spend(&parsed.instructions, &vault.vault_address) {
@@ -130,7 +130,7 @@ impl Guard {
 
         for (mint, amount) in &spend {
             let existing = spend_24h.get(mint).copied().unwrap_or(0);
-            let new_total = existing.checked_add(*amount).unwrap_or(u64::MAX);
+            let new_total = existing.saturating_add(*amount);
 
             let cap_found = vault
                 .policy
@@ -159,7 +159,7 @@ impl Guard {
         }
 
         // Now do mutations with mutable access
-        let mut vault = self.vaults.get_mut(&vault_id).unwrap();
+        let vault = self.vaults.get_mut(&vault_id).unwrap();
 
         let mut bucket_entries = vault.buckets.get(&now_hour).cloned().unwrap_or_default();
         bucket_entries.push((msg_hash_arr, 0));
@@ -295,7 +295,7 @@ impl Guard {
                 }
             }
             ParsedInstruction::ComputeBudgetSetLimit { limit } => {
-                if let Some(price_ix) = vault
+                if let Some(_price_ix) = vault
                     .policy
                     .programs
                     .iter()
@@ -325,10 +325,7 @@ impl Guard {
         req_id: [u8; 32],
         result: Result<MpcSignature, near_sdk::PromiseError>,
     ) -> Option<Vec<u8>> {
-        let request = match self.requests.get(&req_id) {
-            Some(r) => r.clone(),
-            None => return None,
-        };
+        let request = self.requests.get(&req_id)?.clone();
         let mut request = request;
 
         match result {
@@ -348,14 +345,18 @@ impl Guard {
                 self.requests.insert(req_id, request.clone());
 
                 emit_event(Event::Signed {
-                    req_id: near_sdk::base64::encode(&req_id),
+                    req_id: {
+                        use near_sdk::base64::engine::general_purpose::STANDARD;
+                        use near_sdk::base64::Engine;
+                        STANDARD.encode(req_id)
+                    },
                     vault_id: request.vault_id,
                 });
 
                 Some(signature)
             }
             Err(_) => {
-                self.release_reservation(&mut request);
+                self.release_reservation(&request);
                 request.status = Status::Failed;
                 self.requests.insert(req_id, request.clone());
 

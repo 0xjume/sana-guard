@@ -8,15 +8,11 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
-use near_sdk::store::{IterableMap, LookupMap, LookupSet};
-use near_sdk::serde::{Deserialize, Serialize};
+use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
 use events::*;
-use owner::*;
 use parser::*;
-use policy::*;
 use storage::*;
 use types::*;
 
@@ -87,7 +83,7 @@ impl Guard {
         #[callback_result] result: Result<(), PromiseError>,
     ) {
         if result.is_ok() {
-            if let Some(mut vault) = self.vaults.get_mut(&vault_id) {
+            if let Some(vault) = self.vaults.get_mut(&vault_id) {
                 let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
                     .parse()
                     .unwrap();
@@ -102,7 +98,7 @@ impl Guard {
     }
 
     pub fn apply_pending_policy(&mut self, vault_id: u32) {
-        let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+        let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
         
         if let Some((pending_policy, effective_ns)) = vault.pending_loosen.take() {
             if env::block_timestamp() < effective_ns {
@@ -190,7 +186,7 @@ impl Guard {
     }
 
     fn release_reservation(&mut self, request: &SignRequest) {
-        if let Some(mut vault) = self.vaults.get_mut(&request.vault_id) {
+        if let Some(vault) = self.vaults.get_mut(&request.vault_id) {
             if let Some(entries) = vault.buckets.get(&request.hour) {
                 let mut new_entries = entries.clone();
                 new_entries.retain(|(hash, _)| hash != &request.msg_hash);
@@ -210,12 +206,16 @@ fn base58_decode(s: &str) -> [u8; 32] {
 }
 
 fn base64_decode(s: &str) -> [u8; 32] {
-    let bytes = near_sdk::base64::decode(s).expect("invalid base64");
+    use near_sdk::base64::engine::general_purpose::STANDARD;
+    use near_sdk::base64::Engine;
+    let bytes = STANDARD.decode(s).expect("invalid base64");
     bytes.try_into().expect("wrong length")
 }
 
 fn base64_decode_vec(s: &str) -> Vec<u8> {
-    near_sdk::base64::decode(s).expect("invalid base64")
+    use near_sdk::base64::engine::general_purpose::STANDARD;
+    use near_sdk::base64::Engine;
+    STANDARD.decode(s).expect("invalid base64")
 }
 
 fn mint_to_string(mint: &Mint) -> String {

@@ -1,8 +1,8 @@
 use crate::events::*;
 use crate::types::*;
 use crate::{base58_decode, base58_encode, Guard};
-use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{env, json_types::U64, AccountId, Gas, NearToken, Promise, PublicKey};
+use near_sdk::serde::Deserialize;
+use near_sdk::{env, json_types::U64, AccountId, Gas, NearToken, Promise};
 
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]
@@ -54,6 +54,7 @@ pub enum OwnerAction {
 struct AdminMessage {
     network: String,
     contract: AccountId,
+    #[allow(dead_code)]
     vault: Option<u32>,
     nonce: u64,
     expires: u64,
@@ -83,7 +84,7 @@ impl Guard {
         let mut sig_arr = [0u8; 64];
         sig_arr.copy_from_slice(&sig);
 
-        let owner_pubkey = Self::extract_owner_from_action(&parsed.action, &self);
+        let owner_pubkey = Self::extract_owner_from_action(&parsed.action, self);
 
         if !env::ed25519_verify(&sig_arr, msg.as_bytes(), &owner_pubkey) {
             env::panic_str("invalid signature");
@@ -230,7 +231,7 @@ impl Guard {
                     .parse()
                     .expect("invalid agent name");
 
-                Promise::new(agent_id.clone())
+                let _ = Promise::new(agent_id.clone())
                     .create_account()
                     .transfer(NearToken::from_yoctonear(gas_funding.0 as u128))
                     .then(
@@ -242,7 +243,7 @@ impl Guard {
                 format!("agent {} creation initiated", name)
             }
             OwnerAction::RemoveAgent { vault_id, agent } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -258,7 +259,7 @@ impl Guard {
                 format!("agent {} removed", agent)
             }
             OwnerAction::SetPolicy { vault_id, policy } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -284,7 +285,7 @@ impl Guard {
                 vault_id,
                 recipient,
             } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -298,7 +299,7 @@ impl Guard {
                 vault_id,
                 recipient,
             } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -314,7 +315,7 @@ impl Guard {
                 mint,
                 decimals,
             } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -326,7 +327,7 @@ impl Guard {
                 format!("token account {} registered", ata)
             }
             OwnerAction::Pause { vault_id } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
@@ -338,7 +339,7 @@ impl Guard {
                 format!("vault {} paused", vault_id)
             }
             OwnerAction::Unpause { vault_id } => {
-                let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
+                let vault = self.vaults.get_mut(&vault_id).expect("vault not found");
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
