@@ -11,6 +11,10 @@ pub enum Event {
         owner: String,
         vault_address: String,
     },
+    VaultVerificationFailed {
+        vault_id: u32,
+        reason: String,
+    },
     AgentAdded {
         vault_id: u32,
         agent: String,

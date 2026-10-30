@@ -13,12 +13,21 @@ pub enum Mint {
     Spl([u8; 32]),
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq)]
+#[borsh(crate = "near_sdk::borsh")]
+#[serde(crate = "near_sdk::serde")]
+pub enum VaultState {
+    PendingVerification,
+    Active,
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
 pub struct Vault {
     pub owner: [u8; 32],
     pub vault_address: [u8; 32],
     pub path: String,
+    pub state: VaultState,
     pub agents: Vec<AccountId>,
     pub policy: Policy,
     pub pending_loosen: Option<(Policy, u64)>,
@@ -43,6 +52,7 @@ impl Vault {
             owner,
             vault_address,
             path,
+            state: VaultState::PendingVerification,
             agents: Vec::new(),
             policy,
             pending_loosen: None,
@@ -61,6 +71,7 @@ impl Vault {
             owner: crate::base58_encode(&self.owner),
             vault_address: crate::base58_encode(&self.vault_address),
             path: self.path.clone(),
+            state: self.state.clone(),
             agents: self.agents.clone(),
             policy: self.policy.clone(),
             pending_loosen: self
@@ -83,8 +94,6 @@ pub struct Policy {
     pub daily_cap: Vec<(Mint, U64)>,
     pub programs: Vec<String>,
     pub max_priority_fee_lamports: U64,
-    #[serde(default)]
-    #[borsh(skip)]
     pub max_total_priority_fee_lamports: Option<U64>,
     pub max_memo_len: u16,
     pub expires_at_ns: U64,
@@ -97,6 +106,7 @@ pub struct VaultView {
     pub owner: String,
     pub vault_address: String,
     pub path: String,
+    pub state: VaultState,
     pub agents: Vec<AccountId>,
     pub policy: Policy,
     pub pending_loosen: Option<PendingLoosenView>,

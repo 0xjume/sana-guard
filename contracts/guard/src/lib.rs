@@ -36,6 +36,7 @@ use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
 use events::*;
+use owner::VAULT_STORAGE_COST;
 use parser::*;
 use storage::*;
 use types::*;
@@ -89,13 +90,31 @@ impl Guard {
     pub fn migrate() -> Self {
         #[derive(near_sdk::borsh::BorshDeserialize)]
         #[borsh(crate = "near_sdk::borsh")]
+        struct OldVault {
+            owner: [u8; 32],
+            vault_address: [u8; 32],
+            path: String,
+            agents: Vec<AccountId>,
+            policy: Policy,
+            pending_loosen: Option<(Policy, u64)>,
+            recipients: LookupSet<[u8; 32]>,
+            programs: LookupSet<[u8; 32]>,
+            token_accounts: LookupMap<[u8; 32], ([u8; 32], u8)>,
+            bucket_hashes: LookupMap<u64, Vec<[u8; 32]>>,
+            bucket_spend: LookupMap<u64, Vec<(Mint, u64)>>,
+            spent_cursor: u64,
+            paused: bool,
+        }
+
+        #[derive(near_sdk::borsh::BorshDeserialize)]
+        #[borsh(crate = "near_sdk::borsh")]
         struct OldGuard {
             mpc_contract: AccountId,
             mpc_domain_id: u32,
             network_tag: String,
             admin: AccountId,
             global_paused: bool,
-            vaults: IterableMap<u32, Vault>,
+            vaults: IterableMap<u32, OldVault>,
             agent_to_vault: LookupMap<AccountId, u32>,
             owner_nonce: LookupMap<[u8; 32], u64>,
             requests: LookupMap<[u8; 32], SignRequest>,
@@ -105,13 +124,35 @@ impl Guard {
 
         let old: OldGuard = env::state_read().expect("state not found");
 
+        // Migrate vaults: add state field (all existing vaults are Active)
+        let mut new_vaults = IterableMap::new(StorageKey::Vaults);
+        for (vault_id, old_vault) in old.vaults.iter() {
+            let new_vault = Vault {
+                owner: old_vault.owner,
+                vault_address: old_vault.vault_address,
+                path: old_vault.path.clone(),
+                state: VaultState::Active,  // Existing vaults are active
+                agents: old_vault.agents.clone(),
+                policy: old_vault.policy.clone(),
+                pending_loosen: old_vault.pending_loosen.clone(),
+                recipients: old_vault.recipients.clone(),
+                programs: old_vault.programs.clone(),
+                token_accounts: old_vault.token_accounts.clone(),
+                bucket_hashes: old_vault.bucket_hashes.clone(),
+                bucket_spend: old_vault.bucket_spend.clone(),
+                spent_cursor: old_vault.spent_cursor,
+                paused: old_vault.paused,
+            };
+            new_vaults.insert(*vault_id, new_vault);
+        }
+
         Self {
             mpc_contract: old.mpc_contract,
             mpc_domain_id: old.mpc_domain_id,
             network_tag: old.network_tag,
             admin: old.admin,
             global_paused: old.global_paused,
-            vaults: old.vaults,
+            vaults: new_vaults,
             agent_to_vault: old.agent_to_vault,
             owner_nonce: old.owner_nonce,
             requests: old.requests,
@@ -161,6 +202,69 @@ impl Guard {
                     vault_id,
                     agent: agent_id.to_string(),
                 });
+            }
+        }
+    }
+
+    pub fn on_vault_verified(
+        &mut self,
+        vault_id: u32,
+        #[callback_result] result: Result<String, PromiseError>,
+    ) {
+        let vault = match self.vaults.get_mut(&vault_id) {
+            Some(v) => v,
+            None => {
+                env::log_str(&format!("vault {} not found for verification", vault_id));
+                return;
+            }
+        };
+
+        match result {
+            Ok(derived_key_b58) => {
+                let derived_key_bytes = base58_decode(&derived_key_b58);
+                if derived_key_bytes == vault.vault_address {
+                    // Address matches - activate vault
+                    vault.state = VaultState::Active;
+                    emit_event(Event::VaultCreated {
+                        vault_id,
+                        owner: base58_encode(&vault.owner),
+                        vault_address: base58_encode(&vault.vault_address),
+                    });
+                } else {
+                    // Address mismatch - remove vault and refund
+                    env::log_str(&format!(
+                        "vault address mismatch: expected {} got {}",
+                        base58_encode(&vault.vault_address),
+                        derived_key_b58
+                    ));
+                    let owner = vault.owner;
+                    self.vaults.remove(&vault_id);
+                    emit_event(Event::VaultVerificationFailed {
+                        vault_id,
+                        reason: "address_mismatch".to_string(),
+                    });
+                    // Refund vault creation deposit
+                    #[allow(unused_must_use)]
+                    {
+                        Promise::new(env::predecessor_account_id())
+                            .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                    }
+                }
+            }
+            Err(e) => {
+                // MPC call failed - remove vault and refund
+                env::log_str(&format!("MPC call failed: {:?}", e));
+                self.vaults.remove(&vault_id);
+                emit_event(Event::VaultVerificationFailed {
+                    vault_id,
+                    reason: "mpc_call_failed".to_string(),
+                });
+                // Refund vault creation deposit
+                #[allow(unused_must_use)]
+                {
+                    Promise::new(env::predecessor_account_id())
+                        .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                }
             }
         }
     }

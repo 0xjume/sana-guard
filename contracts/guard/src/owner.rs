@@ -12,7 +12,7 @@ const MAX_AGENT_FUNDING: u128 = 500_000_000_000_000_000_000_000; // 0.5 NEAR
 const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.25 NEAR
 
 // Approximate storage costs in yoctoNEAR (at 10^19 yocto per byte)
-const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
+pub(crate) const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
 const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
 
 #[derive(Deserialize)]
@@ -262,18 +262,41 @@ impl Guard {
 
                 let path = format!("vault/{}/{}", owner_b58, owner_index);
 
-                // TODO F3a: Add MPC vault address verification before creating vault
-                // For now, create vault immediately without verification
-                let vault = Vault::new(vault_id, owner, vault_address_bytes, path, policy);
+                // F3a: Create vault in Pending state and verify with MPC
+                let vault = Vault::new(vault_id, owner, vault_address_bytes, path.clone(), policy);
                 self.vaults.insert(vault_id, vault);
 
-                emit_event(Event::VaultCreated {
-                    vault_id,
-                    owner: owner_b58,
-                    vault_address,
-                });
+                // Call MPC to verify the derived public key
+                #[derive(near_sdk::serde::Serialize)]
+                #[serde(crate = "near_sdk::serde")]
+                struct DerivedKeyArgs {
+                    path: String,
+                    predecessor: AccountId,
+                    domain_id: u32,
+                }
 
-                format!("vault {} created", vault_id)
+                let args = DerivedKeyArgs {
+                    path,
+                    predecessor: env::current_account_id(),
+                    domain_id: self.mpc_domain_id,
+                };
+
+                let args_json = serde_json::to_vec(&args).expect("serialization failed");
+
+                Promise::new(self.mpc_contract.clone())
+                    .function_call(
+                        "derived_public_key".to_string(),
+                        args_json,
+                        NearToken::from_yoctonear(0),
+                        Gas::from_tgas(10),
+                    )
+                    .then(
+                        Self::ext(env::current_account_id())
+                            .with_static_gas(Gas::from_tgas(10))
+                            .on_vault_verified(vault_id),
+                    );
+
+                format!("vault {} creation initiated, verifying address", vault_id)
             }
             OwnerAction::AddAgent {
                 vault_id,
