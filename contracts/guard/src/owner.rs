@@ -13,7 +13,7 @@ const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.2
 
 // Approximate storage costs in yoctoNEAR (at 10^19 yocto per byte)
 pub(crate) const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
-const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
+pub(crate) const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
 
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]
@@ -303,7 +303,10 @@ impl Guard {
                                 .on_vault_verified(
                                     vault_id,
                                     env::predecessor_account_id(),
-                                    env::attached_deposit(),
+                                    // Only the remaining vault deposit. Excess was already
+                                    // refunded in handle_owner_action; passing attached_deposit()
+                                    // here would refund more than the caller sent.
+                                    NearToken::from_yoctonear(VAULT_STORAGE_COST),
                                 ),
                         );
                 }
@@ -359,7 +362,8 @@ impl Guard {
                                 vault_id,
                                 name.clone(),
                                 env::predecessor_account_id(),
-                                env::attached_deposit(),
+                                // Remaining deposit after the generic excess refund.
+                                NearToken::from_yoctonear(funding + AGENT_STORAGE_OVERHEAD),
                             ),
                     );
 

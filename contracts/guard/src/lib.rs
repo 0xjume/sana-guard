@@ -227,7 +227,13 @@ impl Guard {
                 });
             }
         } else {
-            // Promise failed (e.g., account already exists) - refund to original caller
+            // Promise failed (e.g. account already exists). Drop any agent entry
+            // that was written and refund the remaining deposit to the caller,
+            // not to predecessor (which is this contract inside a callback).
+            if let Some(vault) = self.vaults.get_mut(&vault_id) {
+                vault.agents.retain(|a| a != &agent_id);
+            }
+            self.agent_to_vault.remove(&agent_id);
             env::log_str(&format!(
                 "agent creation failed for {}, refunding deposit",
                 agent_name
@@ -239,6 +245,7 @@ impl Guard {
         }
     }
 
+    #[private]
     pub fn on_vault_verified(
         &mut self,
         vault_id: u32,
