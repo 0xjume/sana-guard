@@ -95,12 +95,12 @@ impl Guard {
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        use crate::legacy::{OldGuard, OldPolicy, OldVault};
+        use crate::legacy::OldGuard;
 
         let old: OldGuard = env::state_read().expect("state not found");
 
         // Migrate vaults from 014ea08 (PR #2) to current version
-        // Changes: add state (default Active), add max_total_priority_fee_lamports (default None), 
+        // Changes: add state (default Active), add max_total_priority_fee_lamports (default None),
         // add recipients_list (empty, needs backfill_recipients call)
         let mut old_vaults = old.vaults;
         let mut new_vaults = IterableMap::new(StorageKey::Vaults);
@@ -378,7 +378,7 @@ impl Guard {
 
         for recipient_b58 in recipients_b58 {
             let recipient = base58_decode(&recipient_b58);
-            
+
             // Only add if it's in the LookupSet (existing recipient)
             if vault.recipients.contains(&recipient) {
                 // Check if not already in list

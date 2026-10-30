@@ -4,9 +4,9 @@
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::store::{IterableMap, LookupMap, LookupSet};
-use near_sdk::{AccountId, json_types::U64};
+use near_sdk::{json_types::U64, AccountId};
 
-use crate::types::{Mint, SignRequest, Status};
+use crate::types::{Mint, SignRequest};
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone)]
 #[borsh(crate = "near_sdk::borsh")]
