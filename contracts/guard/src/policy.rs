@@ -27,9 +27,10 @@ impl Guard {
             env::panic_str("SG_E053_VAULT_MISMATCH");
         }
 
-        let mut vault = self
+        // First, do all validation with immutable access
+        let vault = self
             .vaults
-            .get_mut(&vault_id)
+            .get(&vault_id)
             .unwrap_or_else(|| env::panic_str("SG_E054_VAULT_NOT_FOUND"));
 
         if vault.paused {
@@ -157,6 +158,9 @@ impl Guard {
             env::panic_str("SG_E066_INSUFFICIENT_GAS");
         }
 
+        // Now do mutations with mutable access
+        let mut vault = self.vaults.get_mut(&vault_id).unwrap();
+
         let mut bucket_entries = vault.buckets.get(&now_hour).cloned().unwrap_or_default();
         bucket_entries.push((msg_hash_arr, 0));
         vault.buckets.insert(now_hour, bucket_entries);
@@ -182,6 +186,9 @@ impl Guard {
             vault.buckets.insert(now_hour, bucket_entries);
         }
 
+        // Get vault info before dropping the mutable borrow
+        let vault_path = vault.path.clone();
+
         let request = SignRequest {
             vault_id,
             agent: predecessor.clone(),
@@ -206,8 +213,6 @@ impl Guard {
             msg_hash: hex::encode(msg_hash_arr),
         });
 
-        let vault = self.vaults.get(&vault_id).unwrap();
-
         #[derive(Serialize)]
         #[serde(crate = "near_sdk::serde")]
         struct SignArgs {
@@ -230,7 +235,7 @@ impl Guard {
 
         let args = SignArgs {
             request: MpcSignRequest {
-                path: vault.path.clone(),
+                path: vault_path,
                 payload_v2: PayloadV2::Eddsa(hex::encode(&message_bytes)),
                 domain_id: self.mpc_domain_id,
             },

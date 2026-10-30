@@ -102,7 +102,9 @@ impl Guard {
         let mut vault = self.vaults.get_mut(&vault_id).expect("vault not found");
         
         if let Some((pending_policy, effective_ns)) = vault.pending_loosen.take() {
-            require!(env::block_timestamp() >= effective_ns, "delay not elapsed");
+            if env::block_timestamp() < effective_ns {
+                env::panic_str("delay not elapsed");
+            }
             vault.policy = pending_policy;
             emit_event(Event::PolicyChanged { vault_id });
         } else {
@@ -112,8 +114,12 @@ impl Guard {
 
     #[payable]
     pub fn admin_pause_all(&mut self, paused: bool) {
-        require!(env::predecessor_account_id() == self.admin, "admin only");
-        require!(env::attached_deposit() == NearToken::from_yoctonear(1), "attach 1 yocto");
+        if env::predecessor_account_id() != self.admin {
+            env::panic_str("admin only");
+        }
+        if env::attached_deposit() != NearToken::from_yoctonear(1) {
+            env::panic_str("attach 1 yocto");
+        }
         self.global_paused = paused;
     }
 
@@ -189,14 +195,6 @@ impl Guard {
             }
         }
     }
-}
-
-macro_rules! require {
-    ($cond:expr, $msg:expr) => {
-        if !$cond {
-            env::panic_str($msg);
-        }
-    };
 }
 
 fn base58_encode(bytes: &[u8]) -> String {
