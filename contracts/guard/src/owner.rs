@@ -134,8 +134,11 @@ impl Guard {
         // Refund excess deposit
         if attached > required {
             let refund = attached - required;
-            let _ = Promise::new(env::predecessor_account_id())
-                .transfer(NearToken::from_yoctonear(refund));
+            #[allow(unused_must_use)]
+            {
+                Promise::new(env::predecessor_account_id())
+                    .transfer(NearToken::from_yoctonear(refund));
+            }
         }
 
         self.owner_nonce.insert(owner_pubkey, parsed.nonce);
@@ -307,8 +310,11 @@ impl Guard {
                 }
                 if attached > required_deposit {
                     let refund = attached - required_deposit;
-                    let _ = Promise::new(env::predecessor_account_id())
-                        .transfer(NearToken::from_yoctonear(refund));
+                    #[allow(unused_must_use)]
+                    {
+                        Promise::new(env::predecessor_account_id())
+                            .transfer(NearToken::from_yoctonear(refund));
+                    }
                 }
 
                 let _ = Promise::new(agent_id.clone())

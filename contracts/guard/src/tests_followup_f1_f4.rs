@@ -214,9 +214,12 @@ fn test_f3b_program_not_in_allowlist() {
     context.attached_deposit(NearToken::from_yoctonear(1));
     testing_env!(context.build());
 
-    contract.process_sign_request(
-        0,
-        near_sdk::base64::engine::general_purpose::STANDARD.encode(&memo_tx),
-        "abcd".repeat(8),
-    );
+    #[allow(unused_must_use)]
+    {
+        contract.process_sign_request(
+            0,
+            near_sdk::base64::engine::general_purpose::STANDARD.encode(&memo_tx),
+            "abcd".repeat(8),
+        );
+    }
 }
