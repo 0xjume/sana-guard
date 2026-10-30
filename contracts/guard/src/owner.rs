@@ -410,7 +410,10 @@ impl Guard {
                 }
 
                 let recipient_bytes = base58_decode(&recipient);
-                vault.recipients.insert(recipient_bytes);
+                if vault.recipients.insert(recipient_bytes) {
+                    // F4: Also add to list for iteration
+                    vault.recipients_list.push(recipient_bytes);
+                }
 
                 format!("recipient {} added", recipient)
             }
@@ -424,7 +427,10 @@ impl Guard {
                 }
 
                 let recipient_bytes = base58_decode(&recipient);
-                vault.recipients.remove(&recipient_bytes);
+                if vault.recipients.remove(&recipient_bytes) {
+                    // F4: Also remove from list
+                    vault.recipients_list.retain(|r| r != &recipient_bytes);
+                }
 
                 format!("recipient {} removed", recipient)
             }

@@ -99,6 +99,7 @@ impl Guard {
             owner: [u8; 32],
             vault_address: [u8; 32],
             path: String,
+            state: VaultState,
             agents: Vec<AccountId>,
             policy: Policy,
             pending_loosen: Option<(Policy, u64)>,
@@ -143,11 +144,12 @@ impl Guard {
                     owner: old_vault.owner,
                     vault_address: old_vault.vault_address,
                     path: old_vault.path,
-                    state: VaultState::Active,  // Existing vaults are active
+                    state: old_vault.state,
                     agents: old_vault.agents,
                     policy: old_vault.policy,
                     pending_loosen: old_vault.pending_loosen,
                     recipients: old_vault.recipients,
+                    recipients_list: Vec::new(),  // F4: Empty for migrated vaults (will be populated on next add)
                     programs: old_vault.programs,
                     token_accounts: old_vault.token_accounts,
                     bucket_hashes: old_vault.bucket_hashes,
@@ -342,6 +344,25 @@ impl Guard {
         totals
             .into_iter()
             .map(|(m, a)| (mint_to_string(&m), a))
+            .collect()
+    }
+
+    pub fn get_recipients(
+        &self,
+        vault_id: u32,
+        from_index: Option<u32>,
+        limit: Option<u32>,
+    ) -> Vec<String> {
+        let vault = self.vaults.get(&vault_id).expect("vault not found");
+        let from = from_index.unwrap_or(0) as usize;
+        let limit = limit.unwrap_or(50).min(100) as usize;
+
+        vault
+            .recipients_list
+            .iter()
+            .skip(from)
+            .take(limit)
+            .map(|r| base58_encode(r))
             .collect()
     }
 

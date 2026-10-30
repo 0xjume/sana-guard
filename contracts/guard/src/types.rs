@@ -13,7 +13,7 @@ pub enum Mint {
     Spl([u8; 32]),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[borsh(crate = "near_sdk::borsh")]
 #[serde(crate = "near_sdk::serde")]
 pub enum VaultState {
@@ -32,6 +32,7 @@ pub struct Vault {
     pub policy: Policy,
     pub pending_loosen: Option<(Policy, u64)>,
     pub recipients: LookupSet<[u8; 32]>,
+    pub recipients_list: Vec<[u8; 32]>,  // F4: For iteration/pagination
     pub programs: LookupSet<[u8; 32]>,
     pub token_accounts: LookupMap<[u8; 32], ([u8; 32], u8)>,
     pub bucket_hashes: LookupMap<u64, Vec<[u8; 32]>>,
@@ -57,6 +58,7 @@ impl Vault {
             policy,
             pending_loosen: None,
             recipients: LookupSet::new(StorageKey::Recipients { vault: vault_id }),
+            recipients_list: Vec::new(),
             programs: LookupSet::new(StorageKey::Programs { vault: vault_id }),
             token_accounts: LookupMap::new(StorageKey::TokenAccts { vault: vault_id }),
             bucket_hashes: LookupMap::new(StorageKey::BucketHashes { vault: vault_id }),
