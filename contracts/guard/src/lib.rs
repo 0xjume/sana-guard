@@ -35,6 +35,8 @@ mod tests_followup_f1_f4;
 
 #[cfg(test)]
 mod tests_migration;
+#[cfg(test)]
+mod tests_refund_bugs;
 
 #[cfg(test)]
 mod test_helpers;
@@ -46,7 +48,6 @@ use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
 use events::*;
-use owner::VAULT_STORAGE_COST;
 use parser::*;
 use storage::*;
 use types::*;
@@ -208,13 +209,16 @@ impl Guard {
         &mut self,
         vault_id: u32,
         agent_name: String,
+        original_caller: AccountId,
+        deposit_amount: NearToken,
         #[callback_result] result: Result<(), PromiseError>,
     ) {
+        let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
+            .parse()
+            .unwrap();
+
         if result.is_ok() {
             if let Some(vault) = self.vaults.get_mut(&vault_id) {
-                let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
-                    .parse()
-                    .unwrap();
                 vault.agents.push(agent_id.clone());
                 self.agent_to_vault.insert(agent_id.clone(), vault_id);
                 emit_event(Event::AgentAdded {
@@ -222,12 +226,24 @@ impl Guard {
                     agent: agent_id.to_string(),
                 });
             }
+        } else {
+            // Promise failed (e.g., account already exists) - refund to original caller
+            env::log_str(&format!(
+                "agent creation failed for {}, refunding deposit",
+                agent_name
+            ));
+            #[allow(unused_must_use)]
+            {
+                Promise::new(original_caller).transfer(deposit_amount);
+            }
         }
     }
 
     pub fn on_vault_verified(
         &mut self,
         vault_id: u32,
+        original_caller: AccountId,
+        deposit_amount: NearToken,
         #[callback_result] result: Result<String, PromiseError>,
     ) {
         let vault = match self.vaults.get_mut(&vault_id) {
@@ -250,7 +266,7 @@ impl Guard {
                         vault_address: base58_encode(&vault.vault_address),
                     });
                 } else {
-                    // Address mismatch - remove vault and refund
+                    // Address mismatch - remove vault and refund to original caller
                     env::log_str(&format!(
                         "vault address mismatch: expected {} got {}",
                         base58_encode(&vault.vault_address),
@@ -261,27 +277,25 @@ impl Guard {
                         vault_id,
                         reason: "address_mismatch".to_string(),
                     });
-                    // Refund vault creation deposit
+                    // Refund vault creation deposit to original caller
                     #[allow(unused_must_use)]
                     {
-                        Promise::new(env::predecessor_account_id())
-                            .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                        Promise::new(original_caller).transfer(deposit_amount);
                     }
                 }
             }
             Err(e) => {
-                // MPC call failed - remove vault and refund
+                // MPC call failed - remove vault and refund to original caller
                 env::log_str(&format!("MPC call failed: {:?}", e));
                 self.vaults.remove(&vault_id);
                 emit_event(Event::VaultVerificationFailed {
                     vault_id,
                     reason: "mpc_call_failed".to_string(),
                 });
-                // Refund vault creation deposit
+                // Refund vault creation deposit to original caller
                 #[allow(unused_must_use)]
                 {
-                    Promise::new(env::predecessor_account_id())
-                        .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                    Promise::new(original_caller).transfer(deposit_amount);
                 }
             }
         }
