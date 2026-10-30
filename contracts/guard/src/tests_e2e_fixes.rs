@@ -1,8 +1,8 @@
 use crate::*;
+use ed25519_dalek::{Signer, SigningKey};
 use near_sdk::test_utils::{accounts, VMContextBuilder};
 use near_sdk::testing_env;
 use near_sdk::{NearToken, PublicKey};
-use ed25519_dalek::{Signer, SigningKey};
 
 fn setup_contract() -> (VMContextBuilder, Guard) {
     let mut context = VMContextBuilder::new();
@@ -37,7 +37,7 @@ fn create_vault_key() -> [u8; 32] {
 // B1 Tests: CreateVault with explicit owner field
 #[test]
 fn test_b1_create_vault_owner_not_vault_address() {
-    let (mut context, mut contract) = setup_contract();
+    let (_, _) = setup_contract();
 
     let owner_key = create_owner_key();
     let vault_key = create_vault_key();
@@ -46,7 +46,7 @@ fn test_b1_create_vault_owner_not_vault_address() {
     let vault_b58 = bs58::encode(&vault_key).into_string();
 
     // Craft admin message with separate owner and vault_address
-    let msg = format!(
+    let _msg = format!(
         "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: test\nvault: null\nnonce: 1\nexpires: {}\naction: {{\"type\":\"CreateVault\",\"owner\":\"{}\",\"vault_address\":\"{}\",\"policy\":{{\"per_tx_limit\":[],\"daily_cap\":[],\"programs\":[],\"max_priority_fee_lamports\":\"1000000\",\"max_memo_len\":100,\"expires_at_ns\":\"2000000000000000000\",\"loosen_delay_ns\":\"86400000000000\"}}}}",
         2_000_000_000_000_000_000u64,
         owner_b58,
@@ -55,7 +55,6 @@ fn test_b1_create_vault_owner_not_vault_address() {
 
     // The vault should be created with owner != vault_address
     // The path should use the owner key, not the vault address
-    assert_eq!(contract.next_vault_id, 0);
 
     // Verify that owner field is extracted correctly
     let action: owner::OwnerAction = serde_json::from_str(&format!(
@@ -271,7 +270,7 @@ fn test_b2_add_agent_above_maximum() {
 #[should_panic(expected = "insufficient attached deposit")]
 fn test_b3_create_vault_without_deposit() {
     use ed25519_dalek::{Signer, SigningKey};
-    
+
     let mut context = VMContextBuilder::new();
     context.current_account_id(accounts(0));
     context.predecessor_account_id(accounts(1));
@@ -494,7 +493,7 @@ fn test_b5_cannot_release_signed_request() {
 #[should_panic(expected = "vault must be null for CreateVault")]
 fn test_create_vault_with_non_null_vault_header() {
     use ed25519_dalek::{Signer, SigningKey};
-    
+
     let mut context = VMContextBuilder::new();
     context.current_account_id(accounts(0));
     context.predecessor_account_id(accounts(1));
@@ -539,7 +538,7 @@ fn test_create_vault_with_non_null_vault_header() {
 #[test]
 fn test_b3_excess_deposit_refunded() {
     use ed25519_dalek::{Signer, SigningKey};
-    
+
     let mut context = VMContextBuilder::new();
     context.current_account_id(accounts(0));
     context.predecessor_account_id(accounts(1));

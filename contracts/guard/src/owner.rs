@@ -1,16 +1,16 @@
 use crate::events::*;
 use crate::types::*;
 use crate::{base58_decode, base58_encode, Guard};
+use near_sdk::json_types::U128;
 use near_sdk::serde::Deserialize;
 use near_sdk::{env, AccountId, Allowance, Gas, NearToken, Promise};
-use near_sdk::json_types::U128;
 
 const MIN_AGENT_FUNDING: u128 = 2_500_000_000_000_000_000_000; // 0.0025 NEAR
 const MAX_AGENT_FUNDING: u128 = 500_000_000_000_000_000_000_000; // 0.5 NEAR
 const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.25 NEAR
 
 // Approximate storage costs in yoctoNEAR (at 10^19 yocto per byte)
-const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage  
+const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
 const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
 
 #[derive(Deserialize)]
@@ -132,7 +132,8 @@ impl Guard {
         // Refund excess deposit
         if attached > required {
             let refund = attached - required;
-            Promise::new(env::predecessor_account_id()).transfer(NearToken::from_yoctonear(refund));
+            let _ = Promise::new(env::predecessor_account_id())
+                .transfer(NearToken::from_yoctonear(refund));
         }
 
         self.owner_nonce.insert(owner_pubkey, parsed.nonce);

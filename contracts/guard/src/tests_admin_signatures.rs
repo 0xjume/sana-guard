@@ -64,8 +64,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         let message = build_admin_message(
@@ -110,8 +109,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         let message = build_admin_message(
@@ -154,8 +152,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         let message = build_admin_message(
@@ -200,8 +197,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         let message = build_admin_message(
@@ -246,8 +242,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         let now = 1_000_000_000_000; // 1 second in nanoseconds
@@ -295,8 +290,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         // Try to replay nonce 1
@@ -342,8 +336,7 @@ mod admin_signature_tests {
 
         let action_json = format!(
             r#"{{"type":"CreateVault","owner":"{}","vault_address":"{}","policy":{{"per_tx_limit":[],"daily_cap":[],"programs":[],"max_priority_fee_lamports":"1000000","max_memo_len":100,"expires_at_ns":"999999999999999999","loosen_delay_ns":"3600000000000"}}}}"#,
-            owner_address,
-            owner_address
+            owner_address, owner_address
         );
 
         // Try nonce 3 (lower than 5)
