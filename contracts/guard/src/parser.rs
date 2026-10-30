@@ -73,6 +73,40 @@ pub enum ParsedInstruction {
     },
 }
 
+impl ParsedInstruction {
+    /// Each variant is decoded from exactly one program, so the program id is implied.
+    pub fn program_id(&self) -> [u8; 32] {
+        match self {
+            ParsedInstruction::SystemTransfer { .. } => SYSTEM_PROGRAM,
+            ParsedInstruction::TokenTransfer { .. } => TOKEN_PROGRAM,
+            ParsedInstruction::AtaCreate { .. } => ATA_PROGRAM,
+            ParsedInstruction::ComputeBudgetSetLimit { .. }
+            | ParsedInstruction::ComputeBudgetSetPrice { .. } => COMPUTE_BUDGET_PROGRAM,
+            ParsedInstruction::Memo { .. } => MEMO_V2_PROGRAM,
+        }
+    }
+}
+
+/// Decodes a policy's program allowlist. Every entry must be a base58 32-byte key
+/// that is one of SUPPORTED_PROGRAMS.
+pub fn decode_policy_programs(programs: &[String]) -> Result<Vec<[u8; 32]>, &'static str> {
+    programs
+        .iter()
+        .map(|p| {
+            let bytes = bs58::decode(p)
+                .into_vec()
+                .map_err(|_| "SG_E075_INVALID_POLICY_PROGRAM")?;
+            let key: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| "SG_E075_INVALID_POLICY_PROGRAM")?;
+            if !SUPPORTED_PROGRAMS.contains(&key) {
+                return Err("SG_E075_INVALID_POLICY_PROGRAM");
+            }
+            Ok(key)
+        })
+        .collect()
+}
+
 pub fn parse_solana_message(bytes: &[u8]) -> Result<ParsedMessage, &'static str> {
     if bytes.len() < 32 || bytes.len() > 1167 {
         return Err("SG_E001_SIZE");

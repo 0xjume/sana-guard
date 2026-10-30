@@ -1,7 +1,10 @@
 use crate::events::*;
 use crate::parser::*;
 use crate::types::*;
-use crate::{base64_decode_vec, mint_to_string, Guard, GAS_BUFFER, MPC_SIGN_GAS, ON_SIGNED_GAS};
+use crate::{
+    base64_decode_vec, mint_to_string, reserve_spend, Guard, GAS_BUFFER, MPC_SIGN_GAS,
+    ON_SIGNED_GAS,
+};
 use near_sdk::serde::Serialize;
 use near_sdk::{env, NearToken, Promise};
 
@@ -85,7 +88,15 @@ impl Guard {
             env::panic_str("SG_E061_WRONG_FEE_PAYER");
         }
 
+        let allowed_programs = match decode_policy_programs(&vault.policy.programs) {
+            Ok(p) => p,
+            Err(e) => env::panic_str(e),
+        };
+
         for ix in &parsed.instructions {
+            if !allowed_programs.contains(&ix.program_id()) {
+                env::panic_str("SG_E074_PROGRAM_NOT_ALLOWED");
+            }
             self.check_instruction_policy(vault, ix);
         }
 
@@ -156,37 +167,7 @@ impl Guard {
         // Now do mutations with mutable access
         let vault = self.vaults.get_mut(&vault_id).unwrap();
 
-        // Add message hash to prevent replays
-        let mut hashes = vault
-            .bucket_hashes
-            .get(&now_hour)
-            .cloned()
-            .unwrap_or_default();
-        hashes.push(msg_hash_arr);
-        vault.bucket_hashes.insert(now_hour, hashes);
-
-        // Add spend amounts
-        for (mint, amount) in &spend {
-            let mut spend_entries = vault
-                .bucket_spend
-                .get(&now_hour)
-                .cloned()
-                .unwrap_or_default();
-
-            let mut found = false;
-            for (existing_mint, existing_amount) in spend_entries.iter_mut() {
-                if existing_mint == mint {
-                    *existing_amount = existing_amount.checked_add(*amount).unwrap_or(u64::MAX);
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                spend_entries.push((mint.clone(), *amount));
-            }
-
-            vault.bucket_spend.insert(now_hour, spend_entries);
-        }
+        reserve_spend(vault, now_hour, &msg_hash_arr, &spend);
 
         // Get vault info before dropping the mutable borrow
         let vault_path = vault.path.clone();
@@ -319,21 +300,15 @@ impl Guard {
         req_id: [u8; 32],
         result: Result<MpcSignature, near_sdk::PromiseError>,
     ) -> Option<Vec<u8>> {
-        let request = self.requests.get(&req_id)?.clone();
-        let mut request = request;
+        let mut request = self.requests.get(&req_id)?.clone();
 
-        match result {
-            Ok(MpcSignature::Ed25519 { signature }) => {
-                if signature.len() != 64 {
-                    request.status = Status::Failed;
-                    self.requests.insert(req_id, request.clone());
-                    emit_event(Event::SignFailed {
-                        req_id: hex::encode(req_id),
-                        vault_id: request.vault_id,
-                    });
-                    return None;
-                }
+        let signature = match result {
+            Ok(MpcSignature::Ed25519 { signature }) if signature.len() == 64 => Some(signature),
+            _ => None,
+        };
 
+        match (&request.status, signature) {
+            (Status::Pending, Some(signature)) => {
                 request.status = Status::Signed;
                 request.signature = Some(signature.clone());
                 self.requests.insert(req_id, request.clone());
@@ -345,7 +320,8 @@ impl Guard {
 
                 Some(signature)
             }
-            Err(_) => {
+            (Status::Pending, None) => {
+                // Every Failed request has had its reservation released exactly once, here.
                 self.release_reservation(&request);
                 request.status = Status::Failed;
                 self.requests.insert(req_id, request.clone());
@@ -357,6 +333,26 @@ impl Guard {
 
                 None
             }
+            (Status::Released, Some(signature)) => {
+                // The owner released this request while MPC was still working, but a valid
+                // signature is money out, so put the spend back on the books.
+                if let Some(vault) = self.vaults.get_mut(&request.vault_id) {
+                    reserve_spend(vault, request.hour, &request.msg_hash, &request.spend);
+                }
+                request.status = Status::Signed;
+                request.signature = Some(signature.clone());
+                self.requests.insert(req_id, request.clone());
+
+                emit_event(Event::Signed {
+                    req_id: hex::encode(req_id),
+                    vault_id: request.vault_id,
+                });
+
+                Some(signature)
+            }
+            // Released + no signature: the reservation is already gone, nothing to undo.
+            // Signed/Failed: the callback already ran for this request.
+            _ => None,
         }
     }
 }
