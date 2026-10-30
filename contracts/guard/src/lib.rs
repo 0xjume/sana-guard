@@ -26,6 +26,9 @@ mod tests_admin_signatures;
 #[cfg(test)]
 mod tests_e2e_fixes;
 
+#[cfg(test)]
+mod tests_release_and_programs;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -271,6 +274,27 @@ impl Guard {
             }
         }
     }
+}
+
+/// Records `msg_hash` and adds `spend` to the vault's bucket for `hour`.
+/// Inverse of `Guard::release_reservation`.
+fn reserve_spend(vault: &mut Vault, hour: u64, msg_hash: &[u8; 32], spend: &[(Mint, u64)]) {
+    // Add message hash to prevent replays
+    let mut hashes = vault.bucket_hashes.get(&hour).cloned().unwrap_or_default();
+    hashes.push(*msg_hash);
+    vault.bucket_hashes.insert(hour, hashes);
+
+    // Add spend amounts
+    let mut spend_entries = vault.bucket_spend.get(&hour).cloned().unwrap_or_default();
+    for (mint, amount) in spend {
+        match spend_entries.iter_mut().find(|(m, _)| m == mint) {
+            Some((_, existing_amount)) => {
+                *existing_amount = existing_amount.checked_add(*amount).unwrap_or(u64::MAX);
+            }
+            None => spend_entries.push((mint.clone(), *amount)),
+        }
+    }
+    vault.bucket_spend.insert(hour, spend_entries);
 }
 
 fn base58_encode(bytes: &[u8]) -> String {

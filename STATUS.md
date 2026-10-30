@@ -31,7 +31,7 @@ Successfully bootstrapped the complete Sana Guard monorepo for the NEAR Hackatho
     - ATA::CreateIdempotent
     - ComputeBudget::SetLimit, ComputeBudget::SetPrice
     - Memo v2
-  - Strict validation with descriptive error codes (SG_E001-SG_E073)
+  - Strict validation with descriptive error codes (SG_E001-SG_E075)
 - ✅ **Policy evaluation** per PLAN.md § 6:
   1. Global pause check
   2. Agent → vault authorization

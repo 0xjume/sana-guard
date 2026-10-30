@@ -1,4 +1,5 @@
 use crate::events::*;
+use crate::parser::decode_policy_programs;
 use crate::types::*;
 use crate::{base58_decode, base58_encode, Guard};
 use near_sdk::json_types::U128;
@@ -246,6 +247,7 @@ impl Guard {
 
                 let vault_address_bytes = base58_decode(&vault_address);
                 let owner_b58 = base58_encode(&owner);
+                Self::validate_policy(&policy);
 
                 if owner_str != owner_b58 {
                     env::panic_str("owner field must match signature");
@@ -335,6 +337,7 @@ impl Guard {
                 if vault.owner != owner {
                     env::panic_str("not owner");
                 }
+                Self::validate_policy(&policy);
 
                 let is_stricter = Self::is_policy_stricter(&policy, &vault.policy);
 
@@ -447,7 +450,8 @@ impl Guard {
                 // Only allow release for Failed or expired requests, not Signed ones
                 match request.status {
                     Status::Failed => {
-                        // Allow release for failed requests
+                        // on_signed already released the reservation when the request failed
+                        env::panic_str("failed request already released");
                     }
                     Status::Pending => {
                         // Check if blockhash is expired (older than ~2 minutes in nanoseconds)
@@ -480,7 +484,18 @@ impl Guard {
         }
     }
 
+    fn validate_policy(policy: &Policy) {
+        if let Err(e) = decode_policy_programs(&policy.programs) {
+            env::panic_str(e);
+        }
+    }
+
     fn is_policy_stricter(new: &Policy, old: &Policy) -> bool {
+        // Allowing a program the old policy did not allow is a loosening
+        if new.programs.iter().any(|p| !old.programs.contains(p)) {
+            return false;
+        }
+
         for (mint, new_limit) in &new.per_tx_limit {
             if let Some((_, old_limit)) = old.per_tx_limit.iter().find(|(m, _)| m == mint) {
                 if new_limit.0 > old_limit.0 {
