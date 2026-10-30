@@ -20,6 +20,8 @@ bs58 = "0.5"
 near-sdk = { workspace = true, features = ["unit-testing"] }
 near-workspaces = "0.24"
 tokio = { version = "1.42", features = ["full"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
 
 [profile.release]
 overflow-checks = true
