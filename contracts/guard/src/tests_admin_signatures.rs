@@ -69,7 +69,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             1,
             env::block_timestamp() + 300_000_000_000, // 5 min from now
@@ -114,7 +114,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             1,
             env::block_timestamp() + 300_000_000_000,
@@ -157,7 +157,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             1,
             env::block_timestamp() + 300_000_000_000,
@@ -202,7 +202,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             1,
             env::block_timestamp() + 300_000_000_000,
@@ -258,7 +258,7 @@ mod admin_signature_tests {
         // Expired 1 nanosecond ago
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             1,
             now - 1,
@@ -296,7 +296,7 @@ mod admin_signature_tests {
         // Try to replay nonce 1
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             1, // same nonce
             env::block_timestamp() + 300_000_000_000,
@@ -342,7 +342,7 @@ mod admin_signature_tests {
         // Try nonce 3 (lower than 5)
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             None,
             3,
             env::block_timestamp() + 300_000_000_000,
@@ -392,7 +392,7 @@ mod admin_signature_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -404,7 +404,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             Some(0),
             1,
             env::block_timestamp() + 300_000_000_000,
@@ -449,7 +449,7 @@ mod admin_signature_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -460,7 +460,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             Some(0),
             1,
             env::block_timestamp() + 300_000_000_000,
@@ -509,7 +509,7 @@ mod admin_signature_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -520,7 +520,7 @@ mod admin_signature_tests {
 
         let message = build_admin_message(
             "near-testnet",
-            &env::current_account_id().to_string(),
+            env::current_account_id().as_ref(),
             Some(0),
             1,
             env::block_timestamp() + 300_000_000_000,

@@ -36,7 +36,7 @@ fn get_context_with_time(
 #[cfg(test)]
 mod rolling_24h_cap_tests {
     use super::*;
-    use crate::types::*;
+    
 
     #[test]
     fn test_rolling_cap_across_hour_boundaries() {
@@ -55,28 +55,26 @@ mod rolling_24h_cap_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
         contract.vaults.insert(0, vault);
 
-        let hour_ns = 3600_000_000_000u64;
+        let _hour_ns = 3_600_000_000_000u64;
         let hour_0 = 1000u64;
         let hour_12 = hour_0 + 12;
         let hour_25 = hour_0 + 25;
 
         // Spend 0.5 SOL at hour 0
         let vault = contract.vaults.get_mut(&0).unwrap();
-        let mut bucket = vec![];
-        bucket.push(([0u8; 32], 500_000_000)); // 0.5 SOL
+        let bucket = vec![([0u8; 32], 500_000_000)]; // 0.5 SOL
         vault.buckets.insert(hour_0, bucket);
 
         // Spend another 0.3 SOL at hour 12
-        let mut bucket = vec![];
-        bucket.push(([0u8; 32], 300_000_000)); // 0.3 SOL
+        let bucket = vec![([0u8; 32], 300_000_000)]; // 0.3 SOL
         vault.buckets.insert(hour_12, bucket);
-        drop(vault);
+        let _ = vault;
 
         // Check total spend in 24h window from hour 12 (should be 0.8 SOL)
         let vault = contract.vaults.get(&0).unwrap();
@@ -125,7 +123,7 @@ mod rolling_24h_cap_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -150,7 +148,7 @@ mod rolling_24h_cap_tests {
 #[cfg(test)]
 mod allowlist_tests {
     use super::*;
-    use crate::types::*;
+    
 
     #[test]
     fn test_recipient_allowlist() {
@@ -168,7 +166,7 @@ mod allowlist_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -186,7 +184,7 @@ mod allowlist_tests {
         let mut contract = setup_contract();
         let system_program_str = "11111111111111111111111111111111".to_string();
 
-        let mut vault = Vault::new(
+        let vault = Vault::new(
             0,
             [1u8; 32],
             [2u8; 32],
@@ -197,7 +195,7 @@ mod allowlist_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![system_program_str.clone()],
             },
         );
@@ -225,7 +223,7 @@ mod allowlist_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -245,7 +243,7 @@ mod allowlist_tests {
 #[cfg(test)]
 mod expiry_and_killswitch_tests {
     use super::*;
-    use crate::types::*;
+    
 
     #[test]
     fn test_vault_expiry() {
@@ -263,7 +261,7 @@ mod expiry_and_killswitch_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(expiry_time),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -310,7 +308,7 @@ mod expiry_and_killswitch_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
@@ -326,7 +324,7 @@ mod expiry_and_killswitch_tests {
 #[cfg(test)]
 mod idempotency_tests {
     use super::*;
-    use crate::types::*;
+    
 
     #[test]
     fn test_req_id_idempotency() {
@@ -372,13 +370,12 @@ mod idempotency_tests {
                 max_priority_fee_lamports: U64(1_000_000),
                 max_memo_len: 100,
                 expires_at_ns: U64(u64::MAX),
-                loosen_delay_ns: U64(3600_000_000_000),
+                loosen_delay_ns: U64(3_600_000_000_000),
                 programs: vec![],
             },
         );
 
-        let mut bucket = vec![];
-        bucket.push((msg_hash, 0u64));
+        let bucket = vec![(msg_hash, 0u64)];
         vault.buckets.insert(hour, bucket);
         contract.vaults.insert(0, vault);
 
@@ -393,7 +390,7 @@ mod idempotency_tests {
 #[cfg(test)]
 mod policy_change_tests {
     use super::*;
-    use crate::types::*;
+    
 
     #[test]
     fn test_stricter_policy_immediate() {
@@ -405,7 +402,7 @@ mod policy_change_tests {
             max_priority_fee_lamports: U64(1_000_000),
             max_memo_len: 100,
             expires_at_ns: U64(u64::MAX),
-            loosen_delay_ns: U64(3600_000_000_000),
+            loosen_delay_ns: U64(3_600_000_000_000),
             programs: vec![],
         };
 
@@ -415,7 +412,7 @@ mod policy_change_tests {
             max_priority_fee_lamports: U64(500_000),           // lower (stricter)
             max_memo_len: 50,                                  // lower (stricter)
             expires_at_ns: U64(1_000_000_000),                 // sooner (stricter)
-            loosen_delay_ns: U64(3600_000_000_000),
+            loosen_delay_ns: U64(3_600_000_000_000),
             programs: vec![],
         };
 
@@ -434,7 +431,7 @@ mod policy_change_tests {
     #[test]
     fn test_looser_policy_delayed() {
         let mut contract = setup_contract();
-        let delay_ns = 3600_000_000_000u64; // 1 hour
+        let delay_ns = 3_600_000_000_000u64; // 1 hour
         let current_time = 1_000_000_000_000_000_000u64;
 
         let old_policy = Policy {

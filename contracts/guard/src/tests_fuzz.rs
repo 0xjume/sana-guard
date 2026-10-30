@@ -22,12 +22,10 @@ mod fuzz_tests {
         while start.elapsed() < Duration::from_secs(fuzz_secs) {
             // Generate random message length (0-2000 bytes)
             let len = (count * 17) % 2000;
-            let mut msg = vec![0u8; len];
-
             // Fill with pseudo-random data
-            for i in 0..len {
-                msg[i] = ((count + i) * 251) as u8;
-            }
+            let msg: Vec<u8> = (0..len)
+                .map(|i| ((count + i) * 251) as u8)
+                .collect();
 
             // Should not panic
             let _ = parse_solana_message(&msg);
@@ -88,7 +86,7 @@ mod fuzz_tests {
                 }
                 let data_len = (seed % 20) as usize;
                 msg.push(data_len as u8);
-                msg.extend_from_slice(&vec![(seed as u8); data_len]);
+                msg.extend_from_slice(&vec![seed as u8; data_len]);
             }
 
             // Should not panic

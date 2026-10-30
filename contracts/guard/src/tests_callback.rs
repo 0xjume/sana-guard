@@ -2,8 +2,8 @@
 use crate::types::*;
 use crate::*;
 use near_sdk::json_types::U64;
-use near_sdk::test_utils::{accounts, VMContextBuilder};
-use near_sdk::{testing_env, Gas, NearToken, PromiseError};
+use near_sdk::test_utils::accounts;
+use near_sdk::PromiseError;
 
 fn setup_contract_with_request() -> (Guard, [u8; 32]) {
     let mut contract = Guard::new(
@@ -37,14 +37,13 @@ fn setup_contract_with_request() -> (Guard, [u8; 32]) {
             max_priority_fee_lamports: U64(1_000_000),
             max_memo_len: 100,
             expires_at_ns: U64(u64::MAX),
-            loosen_delay_ns: U64(3600_000_000_000),
+            loosen_delay_ns: U64(3_600_000_000_000),
             programs: vec![],
         },
     );
 
     // Add reservation to bucket
-    let mut bucket = vec![];
-    bucket.push(([0u8; 32], 100_000_000));
+    let bucket = vec![([0u8; 32], 100_000_000)];
     vault.buckets.insert(1000, bucket);
     contract.vaults.insert(0, vault);
 
