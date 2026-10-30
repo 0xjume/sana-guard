@@ -60,6 +60,7 @@ Common rejection codes:
 - `SG_E067_RECIPIENT_NOT_ALLOWED` — Recipient not in allowlist
 - `SG_E069_MINT_NOT_IN_POLICY` — Token mint not allowed
 - `SG_E074_PROGRAM_NOT_ALLOWED` — Transaction uses a program not in the vault's program allowlist
+- `SG_E077_AGENT_EXISTS` — AddAgent name is already registered (`{name}.{guard}`)
 - `SG_E055_VAULT_PAUSED` — Owner has paused the vault (kill switch)
 
 ## Budget awareness

@@ -156,6 +156,52 @@ fn enter_callback_context(context: &mut VMContextBuilder) {
     testing_env!(context.build());
 }
 
+fn register_live_agent(contract: &mut Guard, vault_id: u32, name: &str) -> AccountId {
+    let agent_id: AccountId = format!("{}.{}", name, env::current_account_id())
+        .parse()
+        .unwrap();
+    contract.on_agent_created(
+        vault_id,
+        name.to_string(),
+        accounts(1),
+        NearToken::from_yoctonear(0),
+        Ok(()),
+    );
+    agent_id
+}
+
+fn agent_pk() -> near_sdk::PublicKey {
+    AGENT_PUBLIC_KEY.parse().unwrap()
+}
+
+fn add_agent_action(vault_id: u32, name: &str) -> owner::OwnerAction {
+    owner::OwnerAction::AddAgent {
+        vault_id,
+        name: name.to_string(),
+        public_key: agent_pk(),
+        gas_funding: near_sdk::json_types::U128(MIN_AGENT_FUNDING),
+    }
+}
+
+fn create_second_vault(contract: &mut Guard, context: &mut VMContextBuilder) -> [u8; 32] {
+    let owner_key = SigningKey::from_bytes(&[42u8; 32])
+        .verifying_key()
+        .to_bytes();
+    let vault_key = [11u8; 32];
+    context.attached_deposit(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+    testing_env!(context.build());
+    contract.execute_owner_action(
+        owner_key,
+        owner::OwnerAction::CreateVault {
+            owner: bs58::encode(&owner_key).into_string(),
+            vault_address: bs58::encode(&vault_key).into_string(),
+            policy: default_policy(),
+        },
+    );
+    contract.activate_vault_for_test(1);
+    owner_key
+}
+
 // ========================================================================
 // (a) AddAgent excess must be refunded exactly once
 // ========================================================================
@@ -309,40 +355,24 @@ fn test_vault_verification_mpc_error_refunds_original_caller() {
 }
 
 // ========================================================================
-// (c) Failed create_account must roll back agent state and refund
+// (c) Failed create_account refunds; must not unregister a live agent
 // ========================================================================
 
 #[test]
-fn test_add_agent_creation_failure_rolls_back_and_refunds() {
+fn test_add_agent_retry_create_account_failure_keeps_registration() {
+    // agent1 is live in vault 0. The owner retries the same name; create_account
+    // fails (account already exists). The failure callback must leave agent1
+    // registered and refund exactly the required deposit once.
     let caller = accounts(1);
     let (mut context, mut contract) = init_contract(caller.clone());
     create_and_activate_vault(&mut contract, &mut context);
 
-    let gas_funding = MIN_AGENT_FUNDING;
-    let required = gas_funding + AGENT_STORAGE_OVERHEAD;
-
-    context.predecessor_account_id(caller.clone());
-    context.attached_deposit(NearToken::from_yoctonear(required));
-    testing_env!(context.build());
-
-    let msg = add_agent_message(1, gas_funding);
-    let sig = sign_admin(&msg);
-    contract.owner_action(msg, sig);
-
-    let args = callback_args("on_agent_created");
-    assert_eq!(args["original_caller"], caller.to_string());
-    assert_eq!(args["deposit_amount"], required.to_string());
-
-    // AddAgent writes the agent only in the success callback. Seed a half-written
-    // entry so the failure path has something to roll back (the original concern).
-    let agent_id = agent_account();
-    {
-        let vault = contract.vaults.get_mut(&0).unwrap();
-        vault.agents.push(agent_id.clone());
-    }
-    contract.agent_to_vault.insert(agent_id.clone(), 0);
+    enter_callback_context(&mut context);
+    let agent_id = register_live_agent(&mut contract, 0, "agent1");
     assert!(contract.vaults.get(&0).unwrap().agents.contains(&agent_id));
+    assert_eq!(contract.agent_to_vault.get(&agent_id), Some(&0));
 
+    let required = MIN_AGENT_FUNDING + AGENT_STORAGE_OVERHEAD;
     enter_callback_context(&mut context);
     contract.on_agent_created(
         0,
@@ -354,22 +384,149 @@ fn test_add_agent_creation_failure_rolls_back_and_refunds() {
 
     let vault = contract.vaults.get(&0).unwrap();
     assert!(
-        !vault.agents.contains(&agent_id),
-        "failed create_account must roll back the agent entry"
+        vault.agents.contains(&agent_id),
+        "failed retry must not unregister the live agent"
     );
-    assert!(
-        contract.agent_to_vault.get(&agent_id).is_none(),
-        "failed create_account must drop the agent_to_vault mapping"
-    );
-
+    assert_eq!(contract.agent_to_vault.get(&agent_id), Some(&0));
     assert_eq!(
         transfer_amounts_to(&caller),
         vec![required],
-        "failed create_account must refund gas_funding + 0.05 overhead to the original caller"
+        "failed create_account must refund gas_funding + 0.05 overhead once"
+    );
+    assert!(transfer_amounts_to(&env::current_account_id()).is_empty());
+}
+
+#[test]
+fn test_add_agent_other_vault_cannot_unregister_victim() {
+    // A different vault's owner reuses vault 0's agent name. AddAgent must
+    // panic E077 before any promise, and vault 0's agent stays registered.
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+    let vault0_owner = create_and_activate_vault(&mut contract, &mut context);
+
+    enter_callback_context(&mut context);
+    let agent_id = register_live_agent(&mut contract, 0, "agent1");
+
+    let other_owner = create_second_vault(&mut contract, &mut context);
+    assert_ne!(other_owner, vault0_owner);
+
+    context.predecessor_account_id(accounts(2));
+    context.attached_deposit(NearToken::from_yoctonear(
+        MIN_AGENT_FUNDING + AGENT_STORAGE_OVERHEAD,
+    ));
+    context.prepaid_gas(Gas::from_tgas(50));
+    testing_env!(context.build());
+
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contract.execute_owner_action(other_owner, add_agent_action(1, "agent1"));
+    }));
+    let payload = panicked.expect_err("other vault must not reuse a live agent name");
+    let msg = panic_message(&payload);
+    assert!(
+        msg.contains("SG_E077_AGENT_EXISTS"),
+        "expected SG_E077_AGENT_EXISTS, got {msg}"
+    );
+
+    assert!(contract.vaults.get(&0).unwrap().agents.contains(&agent_id));
+    assert_eq!(contract.agent_to_vault.get(&agent_id), Some(&0));
+    assert!(
+        !has_create_account_for(&agent_id),
+        "E077 must fire before create_account"
+    );
+}
+
+#[test]
+fn test_add_agent_duplicate_panics_e077_before_promise() {
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+    let owner = create_and_activate_vault(&mut contract, &mut context);
+
+    enter_callback_context(&mut context);
+    let agent_id = register_live_agent(&mut contract, 0, "agent1");
+
+    context.predecessor_account_id(caller);
+    context.attached_deposit(NearToken::from_yoctonear(
+        MIN_AGENT_FUNDING + AGENT_STORAGE_OVERHEAD,
+    ));
+    context.prepaid_gas(Gas::from_tgas(50));
+    testing_env!(context.build());
+
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contract.execute_owner_action(owner, add_agent_action(0, "agent1"));
+    }));
+    let payload = panicked.expect_err("duplicate AddAgent must panic");
+    let msg = panic_message(&payload);
+    assert!(
+        msg.contains("SG_E077_AGENT_EXISTS"),
+        "expected SG_E077_AGENT_EXISTS, got {msg}"
     );
     assert!(
-        transfer_amounts_to(&env::current_account_id()).is_empty(),
-        "must not refund the guard (the callback predecessor)"
+        !has_create_account_for(&agent_id),
+        "duplicate AddAgent must not create a promise"
+    );
+}
+
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        format!("{payload:?}")
+    }
+}
+
+fn has_create_account_for(agent_id: &AccountId) -> bool {
+    get_created_receipts().iter().any(|receipt| {
+        &receipt.receiver_id == agent_id
+            && receipt
+                .actions
+                .iter()
+                .any(|action| matches!(action, MockAction::CreateAccount { .. }))
+    })
+}
+
+#[test]
+fn test_vault_verification_refunds_when_vault_missing() {
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+    enter_callback_context(&mut context);
+    contract.on_vault_verified(
+        99,
+        caller.clone(),
+        NearToken::from_yoctonear(VAULT_STORAGE_COST),
+        Ok(bs58::encode(&[9u8; 32]).into_string()),
+    );
+    assert_eq!(
+        transfer_amounts_to(&caller),
+        vec![VAULT_STORAGE_COST],
+        "vault-not-found must still refund the original caller"
+    );
+}
+
+#[test]
+fn test_vault_verification_bad_base58_refunds() {
+    let caller = accounts(1);
+    let (mut context, mut contract) = init_contract(caller.clone());
+    create_and_activate_vault(&mut contract, &mut context);
+    // Recreate as pending so verification can fail
+    if let Some(vault) = contract.vaults.get_mut(&0) {
+        vault.state = types::VaultState::PendingVerification;
+    }
+
+    enter_callback_context(&mut context);
+    contract.on_vault_verified(
+        0,
+        caller.clone(),
+        NearToken::from_yoctonear(VAULT_STORAGE_COST),
+        Ok("%%%not-base58%%%".to_string()),
+    );
+
+    assert!(contract.vaults.get(&0).is_none());
+    assert_eq!(
+        transfer_amounts_to(&caller),
+        vec![VAULT_STORAGE_COST],
+        "undecodable MPC key must be treated as a mismatch and refunded"
     );
 }
 

@@ -227,13 +227,9 @@ impl Guard {
                 });
             }
         } else {
-            // Promise failed (e.g. account already exists). Drop any agent entry
-            // that was written and refund the remaining deposit to the caller,
-            // not to predecessor (which is this contract inside a callback).
-            if let Some(vault) = self.vaults.get_mut(&vault_id) {
-                vault.agents.retain(|a| a != &agent_id);
-            }
-            self.agent_to_vault.remove(&agent_id);
+            // Nothing is written before success. Do not touch vault.agents or
+            // agent_to_vault: a failed create_account for a name that is already
+            // live (or belongs to another vault) must not unregister it.
             env::log_str(&format!(
                 "agent creation failed for {}, refunding deposit",
                 agent_name
@@ -257,49 +253,51 @@ impl Guard {
             Some(v) => v,
             None => {
                 env::log_str(&format!("vault {} not found for verification", vault_id));
+                #[allow(unused_must_use)]
+                {
+                    Promise::new(original_caller).transfer(deposit_amount);
+                }
                 return;
             }
         };
 
         match result {
             Ok(derived_key_b58) => {
-                let derived_key_bytes = base58_decode(&derived_key_b58);
-                if derived_key_bytes == vault.vault_address {
-                    // Address matches - activate vault
-                    vault.state = VaultState::Active;
-                    emit_event(Event::VaultCreated {
-                        vault_id,
-                        owner: base58_encode(&vault.owner),
-                        vault_address: base58_encode(&vault.vault_address),
-                    });
-                } else {
-                    // Address mismatch - remove vault and refund to original caller
-                    env::log_str(&format!(
-                        "vault address mismatch: expected {} got {}",
-                        base58_encode(&vault.vault_address),
-                        derived_key_b58
-                    ));
-                    self.vaults.remove(&vault_id);
-                    emit_event(Event::VaultVerificationFailed {
-                        vault_id,
-                        reason: "address_mismatch".to_string(),
-                    });
-                    // Refund vault creation deposit to original caller
-                    #[allow(unused_must_use)]
-                    {
-                        Promise::new(original_caller).transfer(deposit_amount);
+                match try_base58_decode(&derived_key_b58) {
+                    Some(derived_key_bytes) if derived_key_bytes == vault.vault_address => {
+                        vault.state = VaultState::Active;
+                        emit_event(Event::VaultCreated {
+                            vault_id,
+                            owner: base58_encode(&vault.owner),
+                            vault_address: base58_encode(&vault.vault_address),
+                        });
+                    }
+                    _ => {
+                        // Mismatch or undecodable key: remove vault and refund.
+                        env::log_str(&format!(
+                            "vault address mismatch: expected {} got {}",
+                            base58_encode(&vault.vault_address),
+                            derived_key_b58
+                        ));
+                        self.vaults.remove(&vault_id);
+                        emit_event(Event::VaultVerificationFailed {
+                            vault_id,
+                            reason: "address_mismatch".to_string(),
+                        });
+                        #[allow(unused_must_use)]
+                        {
+                            Promise::new(original_caller).transfer(deposit_amount);
+                        }
                     }
                 }
             }
             Err(e) => {
-                // MPC call failed - remove vault and refund to original caller
                 env::log_str(&format!("MPC call failed: {:?}", e));
                 self.vaults.remove(&vault_id);
                 emit_event(Event::VaultVerificationFailed {
                     vault_id,
                     reason: "mpc_call_failed".to_string(),
                 });
-                // Refund vault creation deposit to original caller
                 #[allow(unused_must_use)]
                 {
                     Promise::new(original_caller).transfer(deposit_amount);
@@ -467,9 +465,13 @@ fn base58_encode(bytes: &[u8]) -> String {
     bs58::encode(bytes).into_string()
 }
 
+fn try_base58_decode(s: &str) -> Option<[u8; 32]> {
+    let bytes = bs58::decode(s).into_vec().ok()?;
+    bytes.try_into().ok()
+}
+
 fn base58_decode(s: &str) -> [u8; 32] {
-    let bytes = bs58::decode(s).into_vec().expect("invalid base58");
-    bytes.try_into().expect("wrong length")
+    try_base58_decode(s).expect("invalid base58")
 }
 
 #[allow(dead_code)]

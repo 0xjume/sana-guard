@@ -113,7 +113,7 @@ pub struct SignRequest { vault_id: u32, agent: AccountId, msg_hash: [u8;32], spe
 | `#[init] new(mpc_contract, mpc_domain_id, network_tag, admin)` | deployer | `#[init]`; `PanicOnDefault` |
 | `owner_action(msg: String, sig: Base64VecU8)` | anyone (relay) | Parses the admin msg, checks `ed25519_verify(sig, msg_bytes, owner)`, nonce > last, expiry, contract id, network tag. Dispatches the variants below |
 | ↳ `CreateVault{vault_address, policy}` | owner | `owner` = signer pubkey in msg. Checks `vault_address` against `path` *off-chain*; [?] optional on-chain check via view-call promise |
-| ↳ `AddAgent{name, gas_funding}` / `RemoveAgent{agent}` | owner | B: `Promise::new(name.guard...).create_account().transfer(f).add_access_key_allowance(agent_pk, allowance, guard, "request_sign")` + callback. Remove = state disable (key stays but is useless) |
+| ↳ `AddAgent{name, gas_funding}` / `RemoveAgent{agent}` | owner | B: `Promise::new(name.guard...).create_account().transfer(f).add_access_key_allowance(agent_pk, allowance, guard, "request_sign")` + 15 Tgas `on_agent_created` callback. Panics `SG_E077_AGENT_EXISTS` if `{name}.{guard}` is already registered. Prepaid gas: at least 50 Tgas works live. Remove = state disable (key stays but is useless) |
 | ↳ `SetPolicy{policy}` | owner | Stricter applies instantly; looser goes to `pending_loosen` |
 | ↳ `AddRecipient/RemoveRecipient`, `RegisterTokenAccount{ata, mint, decimals}` | owner | Add = loosen (delayed); remove = instant |
 | ↳ `Pause/Unpause` (kill switch) | owner | Pause is instant; unpause is instant (owner-signed) |

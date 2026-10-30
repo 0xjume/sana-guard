@@ -340,8 +340,13 @@ impl Guard {
                     .parse()
                     .expect("invalid agent name");
 
-                // Note: Excess deposit is already refunded in handle_owner_action.
-                // Do not refund again here to avoid double refund bug.
+                if self.agent_to_vault.get(&agent_id).is_some() {
+                    env::panic_str("SG_E077_AGENT_EXISTS");
+                }
+
+                // Excess deposit is already refunded in handle_owner_action.
+                // Prepaid gas for AddAgent: at least 50 Tgas works live
+                // (create_account + access key + 15 Tgas on_agent_created).
 
                 let _ = Promise::new(agent_id.clone())
                     .create_account()
@@ -357,7 +362,7 @@ impl Guard {
                     )
                     .then(
                         Self::ext(env::current_account_id())
-                            .with_static_gas(Gas::from_tgas(5))
+                            .with_static_gas(Gas::from_tgas(15))
                             .on_agent_created(
                                 vault_id,
                                 name.clone(),
