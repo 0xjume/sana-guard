@@ -519,14 +519,21 @@ pub fn calculate_spend(
     }
 
     if let (Some(limit), Some(price)) = (compute_limit, compute_price) {
+        // Solana rounds up: (limit * price + 999_999) / 1_000_000
         let priority_fee = (limit as u64)
             .checked_mul(price)
             .ok_or("SG_E049_OVERFLOW")?
+            .checked_add(999_999)
+            .ok_or("SG_E049_OVERFLOW")?
             / 1_000_000;
+
+        // Add 5000 lamport base fee per signature (1 signature per tx)
+        let total_fee = priority_fee.checked_add(5_000).ok_or("SG_E050_OVERFLOW")?;
+
         *spend_map.entry(Mint::Sol).or_insert(0) = spend_map
             .get(&Mint::Sol)
             .unwrap_or(&0)
-            .checked_add(priority_fee)
+            .checked_add(total_fee)
             .ok_or("SG_E050_OVERFLOW")?;
     }
 

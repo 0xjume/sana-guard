@@ -13,16 +13,26 @@ pub enum Mint {
     Spl([u8; 32]),
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[borsh(crate = "near_sdk::borsh")]
+#[serde(crate = "near_sdk::serde")]
+pub enum VaultState {
+    PendingVerification,
+    Active,
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
 pub struct Vault {
     pub owner: [u8; 32],
     pub vault_address: [u8; 32],
     pub path: String,
+    pub state: VaultState,
     pub agents: Vec<AccountId>,
     pub policy: Policy,
     pub pending_loosen: Option<(Policy, u64)>,
     pub recipients: LookupSet<[u8; 32]>,
+    pub recipients_list: Vec<[u8; 32]>, // F4: For iteration/pagination
     pub programs: LookupSet<[u8; 32]>,
     pub token_accounts: LookupMap<[u8; 32], ([u8; 32], u8)>,
     pub bucket_hashes: LookupMap<u64, Vec<[u8; 32]>>,
@@ -43,10 +53,12 @@ impl Vault {
             owner,
             vault_address,
             path,
+            state: VaultState::PendingVerification,
             agents: Vec::new(),
             policy,
             pending_loosen: None,
             recipients: LookupSet::new(StorageKey::Recipients { vault: vault_id }),
+            recipients_list: Vec::new(),
             programs: LookupSet::new(StorageKey::Programs { vault: vault_id }),
             token_accounts: LookupMap::new(StorageKey::TokenAccts { vault: vault_id }),
             bucket_hashes: LookupMap::new(StorageKey::BucketHashes { vault: vault_id }),
@@ -61,6 +73,7 @@ impl Vault {
             owner: crate::base58_encode(&self.owner),
             vault_address: crate::base58_encode(&self.vault_address),
             path: self.path.clone(),
+            state: self.state.clone(),
             agents: self.agents.clone(),
             policy: self.policy.clone(),
             pending_loosen: self
@@ -83,6 +96,7 @@ pub struct Policy {
     pub daily_cap: Vec<(Mint, U64)>,
     pub programs: Vec<String>,
     pub max_priority_fee_lamports: U64,
+    pub max_total_priority_fee_lamports: Option<U64>,
     pub max_memo_len: u16,
     pub expires_at_ns: U64,
     pub loosen_delay_ns: U64,
@@ -94,6 +108,7 @@ pub struct VaultView {
     pub owner: String,
     pub vault_address: String,
     pub path: String,
+    pub state: VaultState,
     pub agents: Vec<AccountId>,
     pub policy: Policy,
     pub pending_loosen: Option<PendingLoosenView>,
@@ -167,6 +182,8 @@ pub struct SignRequestView {
     pub created_ns: U64,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
+#[borsh(crate = "near_sdk::borsh")]
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 #[serde(tag = "scheme")]

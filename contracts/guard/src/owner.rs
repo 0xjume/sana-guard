@@ -6,12 +6,13 @@ use near_sdk::json_types::U128;
 use near_sdk::serde::Deserialize;
 use near_sdk::{env, AccountId, Allowance, Gas, NearToken, Promise};
 
-const MIN_AGENT_FUNDING: u128 = 2_500_000_000_000_000_000_000; // 0.0025 NEAR
+// Agent funding: minimum covers 90-100 Tgas request_sign calls (~0.095 NEAR/call)
+const MIN_AGENT_FUNDING: u128 = 150_000_000_000_000_000_000_000; // 0.15 NEAR
 const MAX_AGENT_FUNDING: u128 = 500_000_000_000_000_000_000_000; // 0.5 NEAR
 const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.25 NEAR
 
 // Approximate storage costs in yoctoNEAR (at 10^19 yocto per byte)
-const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
+pub(crate) const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
 const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
 
 #[derive(Deserialize)]
@@ -56,6 +57,10 @@ pub enum OwnerAction {
     },
     Unpause {
         vault_id: u32,
+    },
+    BackfillRecipients {
+        vault_id: u32,
+        recipients: Vec<String>,
     },
     Release {
         vault_id: u32,
@@ -133,8 +138,11 @@ impl Guard {
         // Refund excess deposit
         if attached > required {
             let refund = attached - required;
-            let _ = Promise::new(env::predecessor_account_id())
-                .transfer(NearToken::from_yoctonear(refund));
+            #[allow(unused_must_use)]
+            {
+                Promise::new(env::predecessor_account_id())
+                    .transfer(NearToken::from_yoctonear(refund));
+            }
         }
 
         self.owner_nonce.insert(owner_pubkey, parsed.nonce);
@@ -231,6 +239,7 @@ impl Guard {
             OwnerAction::RegisterTokenAccount { vault_id, .. } => *vault_id,
             OwnerAction::Pause { vault_id } => *vault_id,
             OwnerAction::Unpause { vault_id } => *vault_id,
+            OwnerAction::BackfillRecipients { vault_id, .. } => *vault_id,
             OwnerAction::Release { vault_id, .. } => *vault_id,
         }
     }
@@ -258,16 +267,44 @@ impl Guard {
 
                 let path = format!("vault/{}/{}", owner_b58, owner_index);
 
-                let vault = Vault::new(vault_id, owner, vault_address_bytes, path, policy);
+                // F3a: Create vault in Pending state and verify with MPC
+                let vault = Vault::new(vault_id, owner, vault_address_bytes, path.clone(), policy);
                 self.vaults.insert(vault_id, vault);
 
-                emit_event(Event::VaultCreated {
-                    vault_id,
-                    owner: owner_b58,
-                    vault_address,
-                });
+                // Call MPC to verify the derived public key
+                #[derive(near_sdk::serde::Serialize)]
+                #[serde(crate = "near_sdk::serde")]
+                struct DerivedKeyArgs {
+                    path: String,
+                    predecessor: AccountId,
+                    domain_id: u32,
+                }
 
-                format!("vault {} created", vault_id)
+                let args = DerivedKeyArgs {
+                    path,
+                    predecessor: env::current_account_id(),
+                    domain_id: self.mpc_domain_id,
+                };
+
+                let args_json = serde_json::to_vec(&args).expect("serialization failed");
+
+                #[allow(unused_must_use)]
+                {
+                    Promise::new(self.mpc_contract.clone())
+                        .function_call(
+                            "derived_public_key".to_string(),
+                            args_json,
+                            NearToken::from_yoctonear(0),
+                            Gas::from_tgas(10),
+                        )
+                        .then(
+                            Self::ext(env::current_account_id())
+                                .with_static_gas(Gas::from_tgas(10))
+                                .on_vault_verified(vault_id),
+                        );
+                }
+
+                format!("vault {} creation initiated, verifying address", vault_id)
             }
             OwnerAction::AddAgent {
                 vault_id,
@@ -295,6 +332,21 @@ impl Guard {
                 let agent_id: AccountId = format!("{}.{}", name, env::current_account_id())
                     .parse()
                     .expect("invalid agent name");
+
+                // F3d: Refund excess deposits
+                let required_deposit = funding + AGENT_STORAGE_OVERHEAD;
+                let attached = env::attached_deposit().as_yoctonear();
+                if attached < required_deposit {
+                    env::panic_str("insufficient attached deposit");
+                }
+                if attached > required_deposit {
+                    let refund = attached - required_deposit;
+                    #[allow(unused_must_use)]
+                    {
+                        Promise::new(env::predecessor_account_id())
+                            .transfer(NearToken::from_yoctonear(refund));
+                    }
+                }
 
                 let _ = Promise::new(agent_id.clone())
                     .create_account()
@@ -366,7 +418,10 @@ impl Guard {
                 }
 
                 let recipient_bytes = base58_decode(&recipient);
-                vault.recipients.insert(recipient_bytes);
+                if vault.recipients.insert(recipient_bytes) {
+                    // F4: Also add to list for iteration
+                    vault.recipients_list.push(recipient_bytes);
+                }
 
                 format!("recipient {} added", recipient)
             }
@@ -380,7 +435,10 @@ impl Guard {
                 }
 
                 let recipient_bytes = base58_decode(&recipient);
-                vault.recipients.remove(&recipient_bytes);
+                if vault.recipients.remove(&recipient_bytes) {
+                    // F4: Also remove from list
+                    vault.recipients_list.retain(|r| r != &recipient_bytes);
+                }
 
                 format!("recipient {} removed", recipient)
             }
@@ -426,6 +484,17 @@ impl Guard {
                 emit_event(Event::Unpaused { vault_id });
 
                 format!("vault {} unpaused", vault_id)
+            }
+            OwnerAction::BackfillRecipients {
+                vault_id,
+                recipients,
+            } => {
+                let vault = self.vaults.get(&vault_id).expect("vault not found");
+                if vault.owner != owner {
+                    env::panic_str("not owner");
+                }
+
+                self.backfill_recipients(vault_id, recipients)
             }
             OwnerAction::Release { vault_id, req_id } => {
                 let vault = self.vaults.get(&vault_id).expect("vault not found");

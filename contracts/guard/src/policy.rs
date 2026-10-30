@@ -36,6 +36,11 @@ impl Guard {
             .get(&vault_id)
             .unwrap_or_else(|| env::panic_str("SG_E054_VAULT_NOT_FOUND"));
 
+        // F3a: Reject pending vaults
+        if vault.state != VaultState::Active {
+            env::panic_str("SG_E076_VAULT_NOT_ACTIVE");
+        }
+
         if vault.paused {
             env::panic_str("SG_E055_VAULT_PAUSED");
         }

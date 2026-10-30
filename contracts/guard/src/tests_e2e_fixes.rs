@@ -94,6 +94,7 @@ fn test_b1_vault_path_uses_per_owner_index() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -141,6 +142,7 @@ fn test_b2_add_agent_with_proper_funding() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -158,10 +160,13 @@ fn test_b2_add_agent_with_proper_funding() {
     contract.execute_owner_action(owner_key, create_action);
 
     // Test AddAgent with minimum funding
-    let min_funding = 2_500_000_000_000_000_000_000u128; // 0.0025 NEAR
+    let min_funding = 150_000_000_000_000_000_000_000u128; // 0.15 NEAR (new minimum for 90-100 Tgas calls)
     let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
         .parse()
         .unwrap();
+
+    context.attached_deposit(NearToken::from_near(1)); // Cover agent funding + storage overhead
+    testing_env!(context.build());
 
     let add_agent_action = owner::OwnerAction::AddAgent {
         vault_id: 0,
@@ -171,7 +176,8 @@ fn test_b2_add_agent_with_proper_funding() {
     };
 
     // This should not panic
-    contract.execute_owner_action(owner_key, add_agent_action);
+    let result = contract.execute_owner_action(owner_key, add_agent_action);
+    assert!(result.contains("agent1 creation initiated"));
 }
 
 #[test]
@@ -190,6 +196,7 @@ fn test_b2_add_agent_below_minimum() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -235,6 +242,7 @@ fn test_b2_add_agent_above_maximum() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -382,6 +390,7 @@ fn test_b5_release_failed_request_refunds_cap() {
         daily_cap: vec![(types::Mint::Sol, near_sdk::json_types::U64(10_000_000_000))],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -448,6 +457,7 @@ fn test_b5_cannot_release_signed_request() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),
@@ -576,7 +586,7 @@ fn test_b3_excess_deposit_refunded() {
 
     // Should succeed and refund excess
     let result = contract.owner_action(msg, sig);
-    assert!(result.contains("vault 0 created"));
+    assert!(result.contains("vault 0 creation initiated"));
 }
 
 // Test request-id hex consistency
@@ -607,6 +617,7 @@ fn test_b5_cannot_release_recent_pending_request() {
         daily_cap: vec![],
         programs: vec![],
         max_priority_fee_lamports: near_sdk::json_types::U64(1_000_000),
+        max_total_priority_fee_lamports: None,
         max_memo_len: 100,
         expires_at_ns: near_sdk::json_types::U64(2_000_000_000_000_000_000),
         loosen_delay_ns: near_sdk::json_types::U64(86_400_000_000_000),

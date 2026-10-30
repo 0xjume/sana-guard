@@ -1,4 +1,5 @@
 mod events;
+mod legacy;
 mod owner;
 mod parser;
 mod policy;
@@ -29,10 +30,20 @@ mod tests_e2e_fixes;
 #[cfg(test)]
 mod tests_release_and_programs;
 
+#[cfg(test)]
+mod tests_followup_f1_f4;
+
+#[cfg(test)]
+mod tests_migration;
+
+#[cfg(test)]
+mod test_helpers;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
 use events::*;
+use owner::VAULT_STORAGE_COST;
 use parser::*;
 use storage::*;
 use types::*;
@@ -84,22 +95,72 @@ impl Guard {
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        #[derive(near_sdk::borsh::BorshDeserialize)]
-        #[borsh(crate = "near_sdk::borsh")]
-        struct OldGuard {
-            mpc_contract: AccountId,
-            mpc_domain_id: u32,
-            network_tag: String,
-            admin: AccountId,
-            global_paused: bool,
-            vaults: IterableMap<u32, Vault>,
-            agent_to_vault: LookupMap<AccountId, u32>,
-            owner_nonce: LookupMap<[u8; 32], u64>,
-            requests: LookupMap<[u8; 32], SignRequest>,
-            next_vault_id: u32,
-        }
+        use crate::legacy::OldGuard;
 
         let old: OldGuard = env::state_read().expect("state not found");
+
+        // Migrate vaults from 014ea08 (PR #2) to current version
+        // Changes: add state (default Active), add max_total_priority_fee_lamports (default None),
+        // add recipients_list (empty, needs backfill_recipients call)
+        let mut old_vaults = old.vaults;
+        let mut new_vaults = IterableMap::new(StorageKey::Vaults);
+
+        // Old and new maps share StorageKey::Vaults. Drain the old entries into memory and
+        // flush the deletions to storage BEFORE inserting: IterableMap::insert reads the
+        // existing value at that key (to return it) and would try to decode OldVault bytes
+        // as the new Vault -> "Cannot deserialize element".
+        let old_entries: Vec<(u32, crate::legacy::OldVault)> = old_vaults.drain().collect();
+        old_vaults.flush();
+        drop(old_vaults);
+
+        for (vault_id, old_vault) in old_entries {
+            // Convert old policy to new policy
+            let new_policy = Policy {
+                per_tx_limit: old_vault.policy.per_tx_limit,
+                daily_cap: old_vault.policy.daily_cap,
+                programs: old_vault.policy.programs,
+                max_priority_fee_lamports: old_vault.policy.max_priority_fee_lamports,
+                max_total_priority_fee_lamports: None, // New field, default to None
+                max_memo_len: old_vault.policy.max_memo_len,
+                expires_at_ns: old_vault.policy.expires_at_ns,
+                loosen_delay_ns: old_vault.policy.loosen_delay_ns,
+            };
+
+            // Convert pending_loosen if it exists
+            let pending_loosen = old_vault.pending_loosen.map(|(old_pol, ts)| {
+                let new_pol = Policy {
+                    per_tx_limit: old_pol.per_tx_limit,
+                    daily_cap: old_pol.daily_cap,
+                    programs: old_pol.programs,
+                    max_priority_fee_lamports: old_pol.max_priority_fee_lamports,
+                    max_total_priority_fee_lamports: None,
+                    max_memo_len: old_pol.max_memo_len,
+                    expires_at_ns: old_pol.expires_at_ns,
+                    loosen_delay_ns: old_pol.loosen_delay_ns,
+                };
+                (new_pol, ts)
+            });
+
+            let new_vault = Vault {
+                owner: old_vault.owner,
+                vault_address: old_vault.vault_address,
+                path: old_vault.path,
+                state: VaultState::Active, // All existing vaults are active
+                agents: old_vault.agents,
+                policy: new_policy,
+                pending_loosen,
+                recipients: old_vault.recipients,
+                recipients_list: Vec::new(), // Empty, needs backfill_recipients call
+                programs: old_vault.programs,
+                token_accounts: old_vault.token_accounts,
+                bucket_hashes: old_vault.bucket_hashes,
+                bucket_spend: old_vault.bucket_spend,
+                spent_cursor: old_vault.spent_cursor,
+                paused: old_vault.paused,
+            };
+
+            new_vaults.insert(vault_id, new_vault);
+        }
 
         Self {
             mpc_contract: old.mpc_contract,
@@ -107,12 +168,12 @@ impl Guard {
             network_tag: old.network_tag,
             admin: old.admin,
             global_paused: old.global_paused,
-            vaults: old.vaults,
+            vaults: new_vaults,
             agent_to_vault: old.agent_to_vault,
             owner_nonce: old.owner_nonce,
             requests: old.requests,
             next_vault_id: old.next_vault_id,
-            owner_vault_count: LookupMap::new(StorageKey::OwnerVaultCount),
+            owner_vault_count: old.owner_vault_count,
         }
     }
 
@@ -157,6 +218,68 @@ impl Guard {
                     vault_id,
                     agent: agent_id.to_string(),
                 });
+            }
+        }
+    }
+
+    pub fn on_vault_verified(
+        &mut self,
+        vault_id: u32,
+        #[callback_result] result: Result<String, PromiseError>,
+    ) {
+        let vault = match self.vaults.get_mut(&vault_id) {
+            Some(v) => v,
+            None => {
+                env::log_str(&format!("vault {} not found for verification", vault_id));
+                return;
+            }
+        };
+
+        match result {
+            Ok(derived_key_b58) => {
+                let derived_key_bytes = base58_decode(&derived_key_b58);
+                if derived_key_bytes == vault.vault_address {
+                    // Address matches - activate vault
+                    vault.state = VaultState::Active;
+                    emit_event(Event::VaultCreated {
+                        vault_id,
+                        owner: base58_encode(&vault.owner),
+                        vault_address: base58_encode(&vault.vault_address),
+                    });
+                } else {
+                    // Address mismatch - remove vault and refund
+                    env::log_str(&format!(
+                        "vault address mismatch: expected {} got {}",
+                        base58_encode(&vault.vault_address),
+                        derived_key_b58
+                    ));
+                    self.vaults.remove(&vault_id);
+                    emit_event(Event::VaultVerificationFailed {
+                        vault_id,
+                        reason: "address_mismatch".to_string(),
+                    });
+                    // Refund vault creation deposit
+                    #[allow(unused_must_use)]
+                    {
+                        Promise::new(env::predecessor_account_id())
+                            .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                    }
+                }
+            }
+            Err(e) => {
+                // MPC call failed - remove vault and refund
+                env::log_str(&format!("MPC call failed: {:?}", e));
+                self.vaults.remove(&vault_id);
+                emit_event(Event::VaultVerificationFailed {
+                    vault_id,
+                    reason: "mpc_call_failed".to_string(),
+                });
+                // Refund vault creation deposit
+                #[allow(unused_must_use)]
+                {
+                    Promise::new(env::predecessor_account_id())
+                        .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                }
             }
         }
     }
@@ -222,6 +345,25 @@ impl Guard {
         totals
             .into_iter()
             .map(|(m, a)| (mint_to_string(&m), a))
+            .collect()
+    }
+
+    pub fn get_recipients(
+        &self,
+        vault_id: u32,
+        from_index: Option<u32>,
+        limit: Option<u32>,
+    ) -> Vec<String> {
+        let vault = self.vaults.get(&vault_id).expect("vault not found");
+        let from = from_index.unwrap_or(0) as usize;
+        let limit = limit.unwrap_or(50).min(100) as usize;
+
+        vault
+            .recipients_list
+            .iter()
+            .skip(from)
+            .take(limit)
+            .map(|r| base58_encode(r))
             .collect()
     }
 
@@ -312,6 +454,43 @@ pub fn base64_decode(s: &str) -> [u8; 32] {
     use near_sdk::base64::Engine;
     let bytes = STANDARD.decode(s).expect("invalid base64");
     bytes.try_into().expect("wrong length")
+}
+
+// Private helper methods (not exported via NEAR ABI)
+impl Guard {
+    /// Backfill recipients_list from recipients LookupSet for migrated vaults.
+    /// Can only add recipients that are already in the LookupSet (no new recipients).
+    /// PRIVATE: Only callable via owner-signed BackfillRecipients action.
+    pub(crate) fn backfill_recipients(
+        &mut self,
+        vault_id: u32,
+        recipients_b58: Vec<String>,
+    ) -> String {
+        let mut vault = self.vaults.remove(&vault_id).expect("vault not found");
+
+        let mut added = 0;
+        let mut skipped = 0;
+
+        for recipient_b58 in recipients_b58 {
+            let recipient = base58_decode(&recipient_b58);
+
+            // Only add if it's in the LookupSet (existing recipient)
+            if vault.recipients.contains(&recipient) {
+                // Check if not already in list
+                if !vault.recipients_list.contains(&recipient) {
+                    vault.recipients_list.push(recipient);
+                    added += 1;
+                } else {
+                    skipped += 1;
+                }
+            } else {
+                skipped += 1;
+            }
+        }
+
+        self.vaults.insert(vault_id, vault);
+        format!("backfilled {} recipients, skipped {}", added, skipped)
+    }
 }
 
 fn base64_decode_vec(s: &str) -> Vec<u8> {
