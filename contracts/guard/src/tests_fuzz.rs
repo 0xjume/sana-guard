@@ -12,8 +12,8 @@ mod fuzz_tests {
         let start = Instant::now();
         let mut count = 0;
         
-        // Run for at least 5 seconds
-        while start.elapsed() < Duration::from_secs(5) {
+        // Run for at least 60 seconds
+        while start.elapsed() < Duration::from_secs(60) {
             // Generate random message length (0-2000 bytes)
             let len = (count * 17) % 2000;
             let mut msg = vec![0u8; len];

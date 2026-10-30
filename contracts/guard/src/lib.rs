@@ -17,6 +17,9 @@ mod tests_fuzz;
 #[cfg(test)]
 mod tests_policy_comprehensive;
 
+#[cfg(test)]
+mod tests_callback;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
