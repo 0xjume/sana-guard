@@ -5,6 +5,9 @@ mod policy;
 mod storage;
 mod types;
 
+#[cfg(test)]
+mod tests;
+
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::store::{IterableMap, LookupMap, LookupSet};
 use near_sdk::serde::{Deserialize, Serialize};
@@ -222,27 +225,3 @@ fn mint_to_string(mint: &Mint) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_base58_roundtrip() {
-        let bytes = [1u8; 32];
-        let encoded = base58_encode(&bytes);
-        let decoded = base58_decode(&encoded);
-        assert_eq!(bytes, decoded);
-    }
-
-    #[test]
-    fn test_init() {
-        let contract = Guard::new(
-            "v1.signer-prod.testnet".parse().unwrap(),
-            1,
-            "near-testnet".to_string(),
-            "admin.testnet".parse().unwrap(),
-        );
-        assert_eq!(contract.next_vault_id, 0);
-        assert!(!contract.global_paused);
-    }
-}

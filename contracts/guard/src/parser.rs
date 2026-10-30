@@ -33,11 +33,13 @@ pub const SUPPORTED_PROGRAMS: &[[u8; 32]] = &[
 
 const ATA_RENT_LAMPORTS: u64 = 2_039_280;
 
+#[derive(Debug)]
 pub struct ParsedMessage {
     pub fee_payer: [u8; 32],
     pub instructions: Vec<ParsedInstruction>,
 }
 
+#[derive(Debug)]
 pub enum ParsedInstruction {
     SystemTransfer {
         from: [u8; 32],
@@ -369,7 +371,7 @@ fn parse_memo_instruction(data: &[u8]) -> Result<ParsedInstruction, &'static str
     })
 }
 
-fn read_compact_u16(bytes: &[u8]) -> Result<(u16, usize), &'static str> {
+pub(crate) fn read_compact_u16(bytes: &[u8]) -> Result<(u16, usize), &'static str> {
     if bytes.is_empty() {
         return Err("SG_E036_COMPACT_EMPTY");
     }
@@ -495,27 +497,3 @@ pub fn calculate_spend(
     Ok(spend_map.into_iter().collect())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_read_compact_u16() {
-        assert_eq!(read_compact_u16(&[0x00]).unwrap(), (0, 1));
-        assert_eq!(read_compact_u16(&[0x7f]).unwrap(), (127, 1));
-        assert_eq!(read_compact_u16(&[0x80, 0x01]).unwrap(), (128, 2));
-        assert_eq!(read_compact_u16(&[0xff, 0x01]).unwrap(), (255, 2));
-        assert_eq!(read_compact_u16(&[0x80, 0x02]).unwrap(), (256, 2));
-    }
-
-    #[test]
-    fn test_parse_empty() {
-        assert!(parse_solana_message(&[]).is_err());
-    }
-
-    #[test]
-    fn test_parse_too_long() {
-        let msg = vec![0u8; 1168];
-        assert!(parse_solana_message(&msg).is_err());
-    }
-}
