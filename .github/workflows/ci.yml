@@ -33,9 +33,6 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install cargo-near
-        run: cargo install cargo-near || true
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -46,7 +43,9 @@ jobs:
         run: cargo test
 
       - name: Build WASM
-        run: cargo near build --release
+        run: |
+          cargo build --target wasm32-unknown-unknown --release
+          ls -lh ../../target/wasm32-unknown-unknown/release/*.wasm
 
   typescript:
     name: TypeScript (lint, typecheck)
