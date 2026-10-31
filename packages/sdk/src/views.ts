@@ -66,6 +66,8 @@ export function parseJsonIntegersAsStrings(text: string): unknown {
 
 /**
  * Parse a u64 that may arrive as a string, number, or bigint.
+ * The contract now returns `near_sdk::json_types::U64` (JSON string).
+ * Number form is still accepted for older deploys (e.g. f7b736b).
  */
 export function parseU64Amount(value: unknown): bigint {
   if (typeof value === 'bigint') {
@@ -87,7 +89,8 @@ export function parseU64Amount(value: unknown): bigint {
 }
 
 /**
- * Parse get_spend_24h raw JSON text without losing precision on u64 numbers.
+ * Parse get_spend_24h raw JSON text without losing precision on u64 amounts.
+ * Current contract form is `[["SOL","123"]]`; older deploys emit `[["SOL",123]]`.
  */
 export function parseSpend24hJson(text: string): Array<{ mint: string; amount: bigint }> {
   const result = parseJsonIntegersAsStrings(text);
@@ -187,7 +190,8 @@ export class Views {
   }
 
   /**
-   * Get 24-hour spend totals for a vault
+   * Get 24-hour spend totals for a vault.
+   * Reads raw JSON so both U64 strings and legacy number amounts parse as bigint.
    */
   async getSpend24h(vaultId: number): Promise<Array<{ mint: string; amount: bigint }>> {
     const text: string = await this.nearAccount.viewFunction({

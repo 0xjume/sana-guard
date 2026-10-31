@@ -44,6 +44,7 @@ mod test_helpers;
 #[cfg(test)]
 mod tests_sdk_admin_fixtures;
 
+use near_sdk::json_types::U64;
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -350,7 +351,7 @@ impl Guard {
         self.requests.get(&req_id).map(|r| r.to_view())
     }
 
-    pub fn get_spend_24h(&self, vault_id: u32) -> Vec<(String, u64)> {
+    pub fn get_spend_24h(&self, vault_id: u32) -> Vec<(String, U64)> {
         let vault = self.vaults.get(&vault_id).expect("vault not found");
         let now_hour = env::block_timestamp() / (3600 * 1_000_000_000);
         let mut totals: std::collections::HashMap<Mint, u64> = std::collections::HashMap::new();
@@ -367,7 +368,7 @@ impl Guard {
 
         totals
             .into_iter()
-            .map(|(m, a)| (mint_to_string(&m), a))
+            .map(|(m, a)| (mint_to_string(&m), U64(a)))
             .collect()
     }
 
