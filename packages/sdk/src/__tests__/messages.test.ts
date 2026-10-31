@@ -54,7 +54,9 @@ describe('Messages', () => {
       expect(message[0]).toBe(0x80);
 
       // Check message size is larger than without ComputeBudget
-      const messageWithoutCB = buildSolTransfer(from, to, BigInt(1000000), blockhash, { version: 'v0' });
+      const messageWithoutCB = buildSolTransfer(from, to, BigInt(1000000), blockhash, {
+        version: 'v0',
+      });
       expect(message.length).toBeGreaterThan(messageWithoutCB.length);
     });
   });
@@ -80,7 +82,7 @@ describe('Messages', () => {
   describe('message format golden fixtures', () => {
     /**
      * Golden fixture test: match exact bytes against contract parser test vectors
-     * 
+     *
      * These fixtures are derived from the contract's parser tests in contracts/guard/src/tests.rs
      */
     it('should produce message bytes matching contract test vector for simple transfer', () => {

@@ -222,7 +222,8 @@ export async function createVaultAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'CreateVault',
@@ -246,7 +247,8 @@ export async function setPolicyAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'SetPolicy',
@@ -269,7 +271,8 @@ export async function addRecipientAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'AddRecipient',
@@ -298,7 +301,8 @@ export async function addAgentAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   if (params.gasFunding < MIN_AGENT_FUNDING) {
     throw new SanaGuardError(`gas_funding below minimum (${MIN_AGENT_FUNDING})`);
@@ -327,7 +331,8 @@ export async function pauseAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'Pause',
@@ -348,7 +353,8 @@ export async function unpauseAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'Unpause',
@@ -370,7 +376,8 @@ export async function releaseAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'Release',
@@ -393,7 +400,8 @@ export async function backfillRecipientsAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'BackfillRecipients',
@@ -416,7 +424,8 @@ export async function removeAgentAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'RemoveAgent',
@@ -439,7 +448,8 @@ export async function removeRecipientAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'RemoveRecipient',
@@ -464,7 +474,8 @@ export async function registerTokenAccountAction(
   signer: Ed25519Signer,
   ttlSeconds: number = 600
 ): Promise<SignedAdminMessage> {
-  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+  const expiryNs =
+    BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
 
   const action: OwnerAction = {
     type: 'RegisterTokenAccount',

@@ -1,14 +1,11 @@
-import { logger } from "./logger.js";
-import type { RelayDatabase, UnknownReservation } from "./db.js";
-import type { NearClient, TxStatusResult } from "./near/interface.js";
+import { logger } from './logger.js';
+import type { RelayDatabase, UnknownReservation } from './db.js';
+import type { NearClient, TxStatusResult } from './near/interface.js';
 
 /** NEAR signed txs expire once their reference block is too old (~1 day). */
 export const TX_VALIDITY_MS = 24 * 60 * 60 * 1000;
 
-export function createUnknownResolver(
-  db: RelayDatabase,
-  nearClient: NearClient
-) {
+export function createUnknownResolver(db: RelayDatabase, nearClient: NearClient) {
   let running = false;
 
   return async function resolveOnce(): Promise<number> {
@@ -22,7 +19,7 @@ export function createUnknownResolver(
         txValidityMs: TX_VALIDITY_MS,
       });
     } catch (error) {
-      logger.error({ error }, "Failed to resolve unknown reservations");
+      logger.error({ error }, 'Failed to resolve unknown reservations');
       return 0;
     } finally {
       running = false;

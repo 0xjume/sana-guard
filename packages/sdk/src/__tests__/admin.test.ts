@@ -14,7 +14,9 @@ import { PublicKey } from '@solana/web3.js';
 
 // Mock signer for tests
 class MockSigner implements Ed25519Signer {
-  publicKey = Buffer.from([7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7]);
+  publicKey = Buffer.from([
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+  ]);
 
   async sign(_message: Uint8Array): Promise<Uint8Array> {
     // Return a mock 64-byte signature
@@ -101,7 +103,13 @@ describe('Admin', () => {
       const policy: Policy = {
         perTxLimit: [
           { mint: { type: 'sol' }, amount: BigInt(50000000) },
-          { mint: { type: 'spl', address: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') }, amount: BigInt(1000000) },
+          {
+            mint: {
+              type: 'spl',
+              address: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+            },
+            amount: BigInt(1000000),
+          },
         ],
         dailyCap: [{ mint: { type: 'sol' }, amount: BigInt(100000000) }],
         programs: ['11111111111111111111111111111111'],
@@ -181,12 +189,12 @@ describe('Admin', () => {
         owner: 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB',
         vaultAddress: 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB',
         policy: {
-            perTxLimit: [],
-            dailyCap: [],
-            programs: [],
-            maxPriorityFeeLamports: BigInt(1000000),
-            maxTotalPriorityFeeLamports: undefined,
-            maxMemoLen: 100,
+          perTxLimit: [],
+          dailyCap: [],
+          programs: [],
+          maxPriorityFeeLamports: BigInt(1000000),
+          maxTotalPriorityFeeLamports: undefined,
+          maxMemoLen: 100,
           expiresAtNs: BigInt('999999999999999999'),
           loosenDelayNs: BigInt('3600000000000'),
         },
@@ -212,7 +220,7 @@ describe('Admin', () => {
       const parsedAction = JSON.parse(actionLine);
       expect(parsedAction.type).toBe('CreateVault');
       expect(parsedAction.owner).toBe('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB');
-      
+
       // Check that mints are formatted as 'Sol' not 'SOL'
       expect(actionLine).not.toContain('"SOL"');
     });
@@ -220,12 +228,14 @@ describe('Admin', () => {
 
   describe('vaultHeaderFromAction', () => {
     it('uses null for CreateVault and vaultId for every other action', () => {
-      expect(vaultHeaderFromAction({
-        type: 'CreateVault',
-        owner: 'o',
-        vaultAddress: 'v',
-        policy: mockPolicy,
-      })).toBeNull();
+      expect(
+        vaultHeaderFromAction({
+          type: 'CreateVault',
+          owner: 'o',
+          vaultAddress: 'v',
+          policy: mockPolicy,
+        })
+      ).toBeNull();
       expect(vaultHeaderFromAction({ type: 'Pause', vaultId: 7 })).toBe(7);
       expect(vaultHeaderFromAction({ type: 'RemoveAgent', vaultId: 3, agent: 'a' })).toBe(3);
     });
@@ -238,9 +248,18 @@ describe('Admin', () => {
       expect(removeAgent.message).toContain('"type":"RemoveAgent"');
       expect(removeAgent.message).toContain('"agent":"agent.near"');
 
-      const removeRecipient = await removeRecipientAction(network, contract, 2, 6, 'Recipient111111111111111111111111111111111', signer);
+      const removeRecipient = await removeRecipientAction(
+        network,
+        contract,
+        2,
+        6,
+        'Recipient111111111111111111111111111111111',
+        signer
+      );
       expect(removeRecipient.message).toContain('"type":"RemoveRecipient"');
-      expect(removeRecipient.message).toContain('"recipient":"Recipient111111111111111111111111111111111"');
+      expect(removeRecipient.message).toContain(
+        '"recipient":"Recipient111111111111111111111111111111111"'
+      );
 
       const register = await registerTokenAccountAction(
         network,

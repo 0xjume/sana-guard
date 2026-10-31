@@ -1,15 +1,15 @@
-import { serve } from "@hono/node-server";
-import { Hono } from "hono";
-import { logger } from "./logger.js";
-import { loadConfig } from "./config.js";
-import { NearClientImpl } from "./near/client.js";
-import { RelayDatabase } from "./db.js";
-import { createAdminRouter } from "./routes/admin.js";
-import { createVaultsRouter } from "./routes/vaults.js";
-import { createQuoteRouter } from "./routes/quote.js";
-import { createHealthRouter } from "./routes/health.js";
-import { createCorsMiddleware } from "./middleware/cors.js";
-import { createUnknownResolver } from "./resolve.js";
+import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
+import { logger } from './logger.js';
+import { loadConfig } from './config.js';
+import { NearClientImpl } from './near/client.js';
+import { RelayDatabase } from './db.js';
+import { createAdminRouter } from './routes/admin.js';
+import { createVaultsRouter } from './routes/vaults.js';
+import { createQuoteRouter } from './routes/quote.js';
+import { createHealthRouter } from './routes/health.js';
+import { createCorsMiddleware } from './middleware/cors.js';
+import { createUnknownResolver } from './resolve.js';
 
 async function main() {
   const config = loadConfig();
@@ -20,12 +20,12 @@ async function main() {
       guardContract: config.guardContractId,
       relayAccount: config.relayAccountId,
     },
-    "Starting Sana Guard Relay"
+    'Starting Sana Guard Relay'
   );
 
   const mpcContractId =
     process.env.MPC_CONTRACT_ID ??
-    (config.nearNetwork === "mainnet" ? "v1.signer" : "v1.signer-prod.testnet");
+    (config.nearNetwork === 'mainnet' ? 'v1.signer' : 'v1.signer-prod.testnet');
 
   const nearClient = new NearClientImpl(
     config.nearNetwork,
@@ -39,7 +39,7 @@ async function main() {
   try {
     await nearClient.init();
   } catch (err) {
-    logger.error({ err }, "NEAR connection setup failed; refusing to listen");
+    logger.error({ err }, 'NEAR connection setup failed; refusing to listen');
     throw err;
   }
 
@@ -60,20 +60,20 @@ async function main() {
 
   const app = new Hono();
 
-  app.use("*", createCorsMiddleware(config));
+  app.use('*', createCorsMiddleware(config));
 
-  app.get("/", (c) => {
+  app.get('/', (c) => {
     return c.json({
-      service: "Sana Guard Relay",
-      version: "0.1.0",
+      service: 'Sana Guard Relay',
+      version: '0.1.0',
       network: config.nearNetwork,
     });
   });
 
-  app.route("/", createAdminRouter(nearClient, db, config));
-  app.route("/", createVaultsRouter(nearClient, config));
-  app.route("/", createQuoteRouter(config));
-  app.route("/", createHealthRouter(nearClient, config));
+  app.route('/', createAdminRouter(nearClient, db, config));
+  app.route('/', createVaultsRouter(nearClient, config));
+  app.route('/', createQuoteRouter(config));
+  app.route('/', createHealthRouter(nearClient, config));
 
   const server = serve(
     {
@@ -81,26 +81,26 @@ async function main() {
       port: config.port,
     },
     (info) => {
-      logger.info({ port: info.port }, "Relay server listening");
+      logger.info({ port: info.port }, 'Relay server listening');
     }
   );
 
   const shutdown = () => {
-    logger.info("Shutting down gracefully");
+    logger.info('Shutting down gracefully');
     clearInterval(cleanupInterval);
     clearInterval(resolveInterval);
     db.close();
     server.close(() => {
-      logger.info("Server closed");
+      logger.info('Server closed');
       process.exit(0);
     });
   };
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 main().catch((error) => {
-  logger.error({ error }, "Fatal error");
+  logger.error({ error }, 'Fatal error');
   process.exit(1);
 });

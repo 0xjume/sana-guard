@@ -16,17 +16,9 @@ function signedFixture() {
   return { vaultAddress, message, signature };
 }
 
-function mockClient(
-  functionCall: jest.Mock,
-  vaultAddress: PublicKey
-): AgentClient {
+function mockClient(functionCall: jest.Mock, vaultAddress: PublicKey): AgentClient {
   const nearAccount = { functionCall } as unknown as NearAccount;
-  return new AgentClient(
-    {} as Connection,
-    nearAccount,
-    'guard.djume.testnet',
-    vaultAddress
-  );
+  return new AgentClient({} as Connection, nearAccount, 'guard.djume.testnet', vaultAddress);
 }
 
 describe('validateIdempotencyKey', () => {
@@ -170,9 +162,9 @@ describe('AgentClient.requestSign', () => {
 
   it('maps contract panic codes onto SanaGuardSignError', async () => {
     const { vaultAddress, message } = signedFixture();
-    const functionCall = jest.fn().mockRejectedValue(
-      new Error('Smart contract panicked: SG_E058_INVALID_REQ_ID')
-    );
+    const functionCall = jest
+      .fn()
+      .mockRejectedValue(new Error('Smart contract panicked: SG_E058_INVALID_REQ_ID'));
     const client = mockClient(functionCall, vaultAddress);
     const requestId = validKey();
 

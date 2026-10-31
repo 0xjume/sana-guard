@@ -1,21 +1,21 @@
-import * as nearAPI from "near-api-js";
-import { logger } from "../logger.js";
-import { Mutex } from "../mutex.js";
+import * as nearAPI from 'near-api-js';
+import { logger } from '../logger.js';
+import { Mutex } from '../mutex.js';
 import type {
   NearClient,
   NearTransaction,
   SubmitHooks,
   TxStatusResult,
   VaultInfo,
-} from "./interface.js";
+} from './interface.js';
 import {
   errorMessage,
   isOnChainExecutionError,
   isPreAcceptanceRejection,
   PreSignError,
-} from "./errors.js";
-import { forgetAccessKey, rememberSignedNonce } from "./nonceCache.js";
-import { parseTxStatusJson, sumTokensBurnt, type TxRpcResponse } from "./txStatus.js";
+} from './errors.js';
+import { forgetAccessKey, rememberSignedNonce } from './nonceCache.js';
+import { parseTxStatusJson, sumTokensBurnt, type TxRpcResponse } from './txStatus.js';
 
 const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
 
@@ -38,7 +38,7 @@ export class NearClientImpl implements NearClient {
     accountId: string,
     privateKey: string,
     contractId: string,
-    mpcContractId = "v1.signer-prod.testnet"
+    mpcContractId = 'v1.signer-prod.testnet'
   ) {
     this.contractId = contractId;
     this.mpcContractId = mpcContractId;
@@ -59,7 +59,7 @@ export class NearClientImpl implements NearClient {
       await this.initPromise;
     } catch (err) {
       this.initPromise = undefined;
-      logger.error({ err }, "Failed to initialize NEAR connection");
+      logger.error({ err }, 'Failed to initialize NEAR connection');
       throw err;
     }
   }
@@ -87,7 +87,7 @@ export class NearClientImpl implements NearClient {
   async getOwnerNonce(ownerB58: string): Promise<number> {
     const result = await this.account.viewFunction({
       contractId: this.contractId,
-      methodName: "owner_nonce",
+      methodName: 'owner_nonce',
       args: { owner_b58: ownerB58 },
     });
     return Number(result);
@@ -96,7 +96,7 @@ export class NearClientImpl implements NearClient {
   async getOwnerVaultCount(ownerB58: string): Promise<number> {
     const result = await this.account.viewFunction({
       contractId: this.contractId,
-      methodName: "owner_vault_count",
+      methodName: 'owner_vault_count',
       args: { owner_b58: ownerB58 },
     });
     return Number(result);
@@ -105,27 +105,27 @@ export class NearClientImpl implements NearClient {
   async getDerivedPublicKey(path: string, predecessor: string): Promise<string> {
     const result: unknown = await this.account.viewFunction({
       contractId: this.mpcContractId,
-      methodName: "derived_public_key",
+      methodName: 'derived_public_key',
       args: { path, predecessor, domain_id: 1 },
     });
-    if (typeof result === "string") {
+    if (typeof result === 'string') {
       return result;
     }
     if (
       result &&
-      typeof result === "object" &&
-      "public_key" in result &&
-      typeof result.public_key === "string"
+      typeof result === 'object' &&
+      'public_key' in result &&
+      typeof result.public_key === 'string'
     ) {
       return result.public_key;
     }
-    throw new Error("MPC derived_public_key returned unexpected value");
+    throw new Error('MPC derived_public_key returned unexpected value');
   }
 
   async getVault(vaultId: number): Promise<VaultInfo | null> {
     const result = await this.account.viewFunction({
       contractId: this.contractId,
-      methodName: "get_vault",
+      methodName: 'get_vault',
       args: { vault_id: vaultId },
     });
     return result;
@@ -141,7 +141,7 @@ export class NearClientImpl implements NearClient {
     return this.submitMutex.run(async () => {
       const actions = [
         transactions.functionCall(
-          "owner_action",
+          'owner_action',
           { msg, sig },
           BigInt(gasAmount),
           BigInt(depositYocto)
@@ -150,24 +150,21 @@ export class NearClientImpl implements NearClient {
 
       let accessKeyInfo: Awaited<ReturnType<typeof this.account.findAccessKey>>;
       try {
-        accessKeyInfo = await this.account.findAccessKey(
-          this.contractId,
-          actions
-        );
+        accessKeyInfo = await this.account.findAccessKey(this.contractId, actions);
       } catch (error: unknown) {
-        throw new PreSignError("Failed to load access key", { cause: error });
+        throw new PreSignError('Failed to load access key', { cause: error });
       }
       if (!accessKeyInfo) {
-        throw new PreSignError("No matching access key for the relay account");
+        throw new PreSignError('No matching access key for the relay account');
       }
 
       let block: { header: { hash: string } };
       try {
         block = await this.connection.connection.provider.block({
-          finality: "final",
+          finality: 'final',
         });
       } catch (error: unknown) {
-        throw new PreSignError("Failed to fetch latest block", { cause: error });
+        throw new PreSignError('Failed to fetch latest block', { cause: error });
       }
 
       const nonce = BigInt(accessKeyInfo.accessKey.nonce) + 1n;
@@ -187,7 +184,7 @@ export class NearClientImpl implements NearClient {
           this.networkId
         );
       } catch (error: unknown) {
-        throw new PreSignError("Failed to sign transaction", { cause: error });
+        throw new PreSignError('Failed to sign transaction', { cause: error });
       }
 
       const txHash = utils.serialize.base_encode(hashBytes);
@@ -201,13 +198,11 @@ export class NearClientImpl implements NearClient {
       );
 
       try {
-        const outcome = await this.connection.connection.provider.sendTransaction(
-          signedTx
-        );
+        const outcome = await this.connection.connection.provider.sendTransaction(signedTx);
         return this.outcomeToResult(outcome, txHash, depositYocto);
       } catch (error: unknown) {
         forgetAccessKey(this.account.accessKeyByPublicKeyCache, publicKey);
-        logger.error({ error, txHash }, "NEAR transaction failed");
+        logger.error({ error, txHash }, 'NEAR transaction failed');
         if (isPreAcceptanceRejection(error)) {
           throw error;
         }
@@ -236,7 +231,7 @@ export class NearClientImpl implements NearClient {
     depositYocto: string
   ): NearTransaction {
     const txHash =
-      typeof outcome.transaction.hash === "string"
+      typeof outcome.transaction.hash === 'string'
         ? outcome.transaction.hash
         : utils.serialize.base_encode(outcome.transaction.hash) || fallbackHash;
 
@@ -248,10 +243,10 @@ export class NearClientImpl implements NearClient {
     }
 
     const status = asRecord(outcome.status) ?? {};
-    const success = "SuccessValue" in status || "SuccessReceiptId" in status;
+    const success = 'SuccessValue' in status || 'SuccessReceiptId' in status;
 
     let errorMessageText: string | undefined;
-    if (!success && "Failure" in status) {
+    if (!success && 'Failure' in status) {
       errorMessageText = this.extractErrorMessage(status.Failure, logs);
     }
 
@@ -259,18 +254,18 @@ export class NearClientImpl implements NearClient {
 
     logger.info(
       { txHash, success, logs, depositYocto, tokensBurntYocto },
-      "NEAR transaction complete"
+      'NEAR transaction complete'
     );
 
     return { txHash, success, errorMessage: errorMessageText, tokensBurntYocto };
   }
 
   private extractErrorMessage(failure: unknown, logs: string[]): string {
-    const sgError = logs.find((log) => log.includes("SG_E"));
+    const sgError = logs.find((log) => log.includes('SG_E'));
     if (sgError) return sgError;
 
     const failureRecord = asRecord(failure);
-    if (!failureRecord || !("ActionError" in failureRecord)) {
+    if (!failureRecord || !('ActionError' in failureRecord)) {
       return JSON.stringify(failure);
     }
 
@@ -287,34 +282,29 @@ export class NearClientImpl implements NearClient {
    * receipts (and tokens_burnt) are present even with wait_until NONE.
    */
   async getTransactionStatus(txHash: string): Promise<TxStatusResult> {
-    const experimental = await this.rpcTxStatus(
-      "EXPERIMENTAL_tx_status",
-      txHash
-    );
+    const experimental = await this.rpcTxStatus('EXPERIMENTAL_tx_status', txHash);
     if (experimental) return experimental;
-    return (
-      (await this.rpcTxStatus("tx", txHash)) ?? { status: "pending" }
-    );
+    return (await this.rpcTxStatus('tx', txHash)) ?? { status: 'pending' };
   }
 
   private async rpcTxStatus(
-    method: "EXPERIMENTAL_tx_status" | "tx",
+    method: 'EXPERIMENTAL_tx_status' | 'tx',
     txHash: string
   ): Promise<TxStatusResult | undefined> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TX_STATUS_TIMEOUT_MS);
     try {
       const res = await fetch(this.rpcUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "relay-tx-status",
+          jsonrpc: '2.0',
+          id: 'relay-tx-status',
           method,
           params: {
             tx_hash: txHash,
             sender_account_id: this.accountId,
-            wait_until: "NONE",
+            wait_until: 'NONE',
           },
         }),
         signal: controller.signal,
@@ -330,7 +320,7 @@ export class NearClientImpl implements NearClient {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (value && typeof value === "object") {
+  if (value && typeof value === 'object') {
     return value as Record<string, unknown>;
   }
   return undefined;

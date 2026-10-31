@@ -1,6 +1,6 @@
-import type { Config } from "./config.js";
-import type { RelayDatabase } from "./db.js";
-import type { AdminAction } from "./validation.js";
+import type { Config } from './config.js';
+import type { RelayDatabase } from './db.js';
+import type { AdminAction } from './validation.js';
 import {
   CREATE_VAULT_DEPOSIT,
   AGENT_OVERHEAD,
@@ -10,7 +10,7 @@ import {
   GAS_150_TGAS,
   maxGasCostYocto,
   yoctoToNearString,
-} from "./constants.js";
+} from './constants.js';
 
 export function addAgentDeposit(
   gasFundingYocto: bigint,
@@ -33,24 +33,21 @@ export function maxAgentFundingYocto(config: Config): bigint {
   return config.maxAgentGasFundingYocto;
 }
 
-export function calculateRequiredDeposit(
-  action: AdminAction,
-  config?: Config
-): string {
-  if (action.type === "CreateVault") {
+export function calculateRequiredDeposit(action: AdminAction, config?: Config): string {
+  if (action.type === 'CreateVault') {
     return CREATE_VAULT_DEPOSIT.toString();
   }
 
-  if (action.type === "AddAgent") {
+  if (action.type === 'AddAgent') {
     const max = config ? maxAgentFundingYocto(config) : MAX_AGENT_FUNDING;
     return addAgentDeposit(BigInt(action.gas_funding), max);
   }
 
-  return "0";
+  return '0';
 }
 
 export function calculateGas(action: AdminAction): string {
-  if (action.type === "AddAgent") {
+  if (action.type === 'AddAgent') {
     return GAS_150_TGAS.toString();
   }
   return GAS_100_TGAS.toString();
@@ -114,12 +111,11 @@ export function checkBudgets(
   return { allowed: true };
 }
 
-const DAILY_ACTION_LIMITS: Partial<
-  Record<AdminAction["type"], { limit: number; reason: string }>
-> = {
-  CreateVault: { limit: 3, reason: "CreateVault daily limit exceeded: 3 per day" },
-  AddAgent: { limit: 5, reason: "AddAgent daily limit exceeded: 5 per day" },
-};
+const DAILY_ACTION_LIMITS: Partial<Record<AdminAction['type'], { limit: number; reason: string }>> =
+  {
+    CreateVault: { limit: 3, reason: 'CreateVault daily limit exceeded: 3 per day' },
+    AddAgent: { limit: 5, reason: 'AddAgent daily limit exceeded: 5 per day' },
+  };
 
 export function checkActionLimits(
   action: AdminAction,

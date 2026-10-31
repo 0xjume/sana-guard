@@ -61,9 +61,7 @@ const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{64}$/;
  */
 export function validateIdempotencyKey(key: string): void {
   if (!IDEMPOTENCY_KEY_RE.test(key)) {
-    throw new SanaGuardError(
-      'idempotencyKey must be 64 lowercase hex characters (32 bytes)'
-    );
+    throw new SanaGuardError('idempotencyKey must be 64 lowercase hex characters (32 bytes)');
   }
 }
 

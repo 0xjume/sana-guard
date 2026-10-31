@@ -1,11 +1,8 @@
-import { isIP } from "node:net";
-import { Context, Next } from "hono";
-import type { Config } from "../config.js";
+import { isIP } from 'node:net';
+import { Context, Next } from 'hono';
+import type { Config } from '../config.js';
 
-type ProxyConfig = Pick<
-  Config,
-  "trustProxy" | "trustProxyHops" | "clientIpHeader"
->;
+type ProxyConfig = Pick<Config, 'trustProxy' | 'trustProxyHops' | 'clientIpHeader'>;
 
 interface RateLimitEntry {
   count: number;
@@ -22,10 +19,10 @@ const readLimits = new Map<string, RateLimitEntry>();
 function parseSingleIp(value: string | undefined): string | undefined {
   if (!value) return undefined;
   let trimmed = value.trim();
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
     trimmed = trimmed.slice(1, -1);
   }
-  if (!trimmed || trimmed.includes(",") || /\s/.test(trimmed)) {
+  if (!trimmed || trimmed.includes(',') || /\s/.test(trimmed)) {
     return undefined;
   }
   return isIP(trimmed) !== 0 ? trimmed : undefined;
@@ -33,7 +30,10 @@ function parseSingleIp(value: string | undefined): string | undefined {
 
 function ipFromXff(xff: string | undefined, hops: number): string | undefined {
   if (!xff) return undefined;
-  const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = xff
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const index = Math.max(0, parts.length - hops);
   return parseSingleIp(parts[index]);
 }
@@ -52,17 +52,12 @@ export function getClientIp(
       const fromHeader = parseSingleIp(c.req.header(named));
       if (fromHeader) return fromHeader;
     }
-    const fromXff = ipFromXff(
-      c.req.header("x-forwarded-for"),
-      opts.trustProxyHops
-    );
+    const fromXff = ipFromXff(c.req.header('x-forwarded-for'), opts.trustProxyHops);
     if (fromXff) return fromXff;
   }
 
-  const env = c.env as
-    | { incoming?: { socket?: { remoteAddress?: string } } }
-    | undefined;
-  return env?.incoming?.socket?.remoteAddress || "unknown";
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
+  return env?.incoming?.socket?.remoteAddress || 'unknown';
 }
 
 function sweep(map: Map<string, RateLimitEntry>, now: number): void {
@@ -79,7 +74,7 @@ export function createRateLimit(
   config: ProxyConfig
 ) {
   return async (c: Context, next: Next) => {
-    if (process.env.NODE_ENV === "test" && process.env.RELAY_TEST_RATE_LIMIT !== "1") {
+    if (process.env.NODE_ENV === 'test' && process.env.RELAY_TEST_RATE_LIMIT !== '1') {
       await next();
       return;
     }
@@ -99,10 +94,7 @@ export function createRateLimit(
     }
 
     if (entry.count >= limit) {
-      return c.json(
-        { error: "Rate limit exceeded", retryAfter: entry.resetAt - now },
-        429
-      );
+      return c.json({ error: 'Rate limit exceeded', retryAfter: entry.resetAt - now }, 429);
     }
 
     entry.count++;

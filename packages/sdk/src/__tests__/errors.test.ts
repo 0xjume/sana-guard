@@ -51,7 +51,9 @@ describe('Errors', () => {
       expect(getErrorMessage('SG_E051_GLOBAL_PAUSED')).toBe('Contract is globally paused');
       expect(getErrorMessage('SG_E035_MEMO_INVALID_UTF8')).toBe('Memo text is not valid UTF-8');
       expect(getErrorMessage('SG_E076_VAULT_NOT_ACTIVE')).toBe('Vault is not in Active state');
-      expect(getErrorMessage('SG_E077_AGENT_EXISTS')).toBe('Agent account name is already registered');
+      expect(getErrorMessage('SG_E077_AGENT_EXISTS')).toBe(
+        'Agent account name is already registered'
+      );
       expect(getErrorMessage('SG_E999_UNKNOWN')).toContain('Unknown error');
     });
   });
@@ -81,7 +83,11 @@ describe('Errors', () => {
 
   describe('SanaGuardSignError', () => {
     it('carries requestId and remains an isErrorCode match', () => {
-      const error = new SanaGuardSignError('Vault is paused', 'ab'.repeat(32), 'SG_E055_VAULT_PAUSED');
+      const error = new SanaGuardSignError(
+        'Vault is paused',
+        'ab'.repeat(32),
+        'SG_E055_VAULT_PAUSED'
+      );
       expect(error).toBeInstanceOf(SanaGuardError);
       expect(error.requestId).toBe('ab'.repeat(32));
       expect(isErrorCode(error, 'SG_E055_VAULT_PAUSED')).toBe(true);

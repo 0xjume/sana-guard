@@ -4,7 +4,7 @@
 export class SanaGuardError extends Error {
   constructor(
     message: string,
-    public readonly code?: string,
+    public readonly code?: string
   ) {
     super(message);
     this.name = 'SanaGuardError';
@@ -19,7 +19,7 @@ export class SanaGuardSignError extends SanaGuardError {
   constructor(
     message: string,
     public readonly requestId: string,
-    code?: string,
+    code?: string
   ) {
     super(message, code);
     this.name = 'SanaGuardSignError';
