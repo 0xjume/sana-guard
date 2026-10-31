@@ -253,6 +253,18 @@ describe("POST /v1/admin", () => {
     expect(near.viewCalls).toBe(0);
   });
 
+  it("returns 400 INVALID_JSON for a malformed body", async () => {
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_JSON");
+    expect(body.error).toBe("Invalid JSON body");
+  });
+
   it("rejects unknown actions with 400", async () => {
     const msg = makeAdminMsg({
       vault: "0",

@@ -24,6 +24,13 @@ const configSchema = z.object({
     .default("false")
     .transform((v) => v === "true" || v === "1"),
   trustProxyHops: z.coerce.number().int().min(1).max(10),
+  clientIpHeader: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined)
+    .refine((v) => v === undefined || /^[a-z0-9-]+$/.test(v), {
+      message: "CLIENT_IP_HEADER must be a simple header name",
+    }),
 });
 
 export interface Config extends z.infer<typeof configSchema> {
@@ -58,6 +65,7 @@ export function loadConfig(): Config {
     adminGateEnabled: process.env.ADMIN_GATE_ENABLED ?? "true",
     trustProxy: process.env.TRUST_PROXY ?? "false",
     trustProxyHops: process.env.TRUST_PROXY_HOPS ?? "1",
+    clientIpHeader: process.env.CLIENT_IP_HEADER,
   });
 
   const globalDailyBudgetYocto = parseNearToYocto(globalDaily, "near");

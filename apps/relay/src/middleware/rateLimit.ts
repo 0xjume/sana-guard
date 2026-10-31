@@ -1,7 +1,11 @@
+import { isIP } from "node:net";
 import { Context, Next } from "hono";
 import type { Config } from "../config.js";
 
-type ProxyConfig = Pick<Config, "trustProxy" | "trustProxyHops">;
+type ProxyConfig = Pick<
+  Config,
+  "trustProxy" | "trustProxyHops" | "clientIpHeader"
+>;
 
 interface RateLimitEntry {
   count: number;
@@ -15,18 +19,44 @@ const WINDOW_MS = 60 * 1000;
 const adminLimits = new Map<string, RateLimitEntry>();
 const readLimits = new Map<string, RateLimitEntry>();
 
+function parseSingleIp(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  let trimmed = value.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    trimmed = trimmed.slice(1, -1);
+  }
+  if (!trimmed || trimmed.includes(",") || /\s/.test(trimmed)) {
+    return undefined;
+  }
+  return isIP(trimmed) !== 0 ? trimmed : undefined;
+}
+
+function ipFromXff(xff: string | undefined, hops: number): string | undefined {
+  if (!xff) return undefined;
+  const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+  const index = Math.max(0, parts.length - hops);
+  return parseSingleIp(parts[index]);
+}
+
 export function getClientIp(
   c: Context,
-  opts: { trustProxy: boolean; trustProxyHops: number }
+  opts: {
+    trustProxy: boolean;
+    trustProxyHops: number;
+    clientIpHeader?: string;
+  }
 ): string {
   if (opts.trustProxy) {
-    const xff = c.req.header("x-forwarded-for");
-    if (xff) {
-      const hops = xff.split(",").map((s) => s.trim()).filter(Boolean);
-      const index = Math.max(0, hops.length - opts.trustProxyHops);
-      const picked = hops[index];
-      if (picked) return picked;
+    const named = opts.clientIpHeader?.trim().toLowerCase();
+    if (named) {
+      const fromHeader = parseSingleIp(c.req.header(named));
+      if (fromHeader) return fromHeader;
     }
+    const fromXff = ipFromXff(
+      c.req.header("x-forwarded-for"),
+      opts.trustProxyHops
+    );
+    if (fromXff) return fromXff;
   }
 
   const env = c.env as
@@ -57,6 +87,7 @@ export function createRateLimit(
     const ip = getClientIp(c, {
       trustProxy: config.trustProxy,
       trustProxyHops: config.trustProxyHops,
+      clientIpHeader: config.clientIpHeader,
     });
     const now = Date.now();
     sweep(map, now);
