@@ -56,8 +56,9 @@ jobs:
           echo "WASM size: $((WASM_SIZE / 1024)) KB ($WASM_SIZE bytes)"
           ls -lh ../../target/near/sana_guard_contract/*.wasm
 
+  # packages/sdk only. apps/* are placeholders; PR #5 (relay) may add more TS steps here.
   typescript:
-    name: TypeScript (lint, typecheck)
+    name: TypeScript (sdk)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,14 +88,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint || echo "Lint not implemented yet"
+      - name: SDK lint
+        run: pnpm --filter @sana-guard/sdk lint
 
-      - name: Type check
-        run: pnpm typecheck || echo "Typecheck not implemented yet"
+      - name: SDK typecheck
+        run: pnpm --filter @sana-guard/sdk typecheck
 
-  # Separate from the typescript job so PR #6 (SDK) can edit that job
-  # without conflicting. Failures here fail CI.
+      - name: SDK build
+        run: pnpm --filter @sana-guard/sdk build
+
+      - name: SDK test
+        run: pnpm --filter @sana-guard/sdk test
+
+  # Separate from the typescript job so SDK steps stay isolated.
   relay:
     name: Relay (lint, typecheck, test)
     runs-on: ubuntu-latest
@@ -121,7 +127,7 @@ jobs:
       - name: Test
         run: LOG_LEVEL=error pnpm --filter @sana-guard/relay test
 
-  # Isolated from the typescript job (PR #6) and from the relay unit job.
+  # Isolated from the typescript job (SDK) and from the relay unit job.
   relay-docker:
     name: Relay (docker build)
     runs-on: ubuntu-latest

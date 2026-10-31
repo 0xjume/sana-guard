@@ -3,7 +3,7 @@ use crate::*;
 use near_sdk::base64::Engine;
 use near_sdk::test_utils::{accounts, VMContextBuilder};
 use near_sdk::testing_env;
-use near_sdk::{NearToken, PublicKey};
+use near_sdk::{env, NearToken, PublicKey};
 
 fn setup_contract() -> (VMContextBuilder, Guard) {
     let mut context = VMContextBuilder::new();
@@ -333,8 +333,15 @@ fn test_f3a_vault_activated_on_match() {
     contract.execute_owner_action(owner_key, create_action);
 
     // Simulate successful MPC callback with matching key
-    let result = Ok(vault_b58.clone());
-    contract.on_vault_verified(0, result);
+    context.predecessor_account_id(env::current_account_id());
+    testing_env!(context.build());
+    let result = Ok(format!("ed25519:{}", vault_b58));
+    contract.on_vault_verified(
+        0,
+        accounts(0),
+        NearToken::from_yoctonear(owner::VAULT_STORAGE_COST),
+        result,
+    );
 
     // Vault should now be Active
     let vault_view = contract.get_vault(0).expect("vault should exist");
@@ -374,8 +381,15 @@ fn test_f3a_vault_removed_on_mismatch() {
     contract.execute_owner_action(owner_key, create_action);
 
     // Simulate MPC callback with mismatched key
-    let result = Ok(wrong_b58);
-    contract.on_vault_verified(0, result);
+    context.predecessor_account_id(env::current_account_id());
+    testing_env!(context.build());
+    let result = Ok(format!("ed25519:{}", wrong_b58));
+    contract.on_vault_verified(
+        0,
+        accounts(0),
+        NearToken::from_yoctonear(owner::VAULT_STORAGE_COST),
+        result,
+    );
 
     // Vault should be removed
     assert!(contract.get_vault(0).is_none());
