@@ -199,7 +199,9 @@ describe('Messages', () => {
       expect(() => encodeCompactU16(1.5)).toThrow('Compact-u16 must be an integer');
       expect(() => encodeCompactU16(Number.NaN)).toThrow(SanaGuardError);
       expect(() => encodeCompactU16(Number.NaN)).toThrow('Compact-u16 must be an integer');
-      expect(() => encodeCompactU16(Number.POSITIVE_INFINITY)).toThrow('Compact-u16 must be an integer');
+      expect(() => encodeCompactU16(Number.POSITIVE_INFINITY)).toThrow(
+        'Compact-u16 must be an integer'
+      );
     });
   });
 

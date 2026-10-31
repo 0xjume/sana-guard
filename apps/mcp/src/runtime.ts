@@ -97,7 +97,7 @@ export async function createRuntime(config: GuardConfig = loadConfig()): Promise
         return connection.getLatestBlockhash('confirmed');
       },
       async isBlockhashValid(blockhash) {
-        return (await connection.isBlockhashValid(blockhash, { commitment: "confirmed" })).value;
+        return (await connection.isBlockhashValid(blockhash, { commitment: 'confirmed' })).value;
       },
       async getMintDecimals(mint) {
         const mintInfo = await getMint(connection, mint);
