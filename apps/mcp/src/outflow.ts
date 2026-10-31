@@ -3,15 +3,13 @@ import bs58 from "bs58";
 import {
   ATA_PROGRAM,
   COMPUTE_BUDGET_PROGRAM,
+  MEMO_PROGRAM,
   SYSTEM_PROGRAM,
   TOKEN_PROGRAM,
   type VaultView,
 } from "@sana-guard/sdk";
 import { SERVER_MAX_CODE, UNACCOUNTABLE_CODE } from "./errors.js";
 import { findLimit, normalizeSpendMint, spentFor, type CheckReason } from "./policyCheck.js";
-
-/** Memo v2 — the only memo program the contract parser accepts. */
-export const MEMO_V2_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
 const ATA_RENT_LAMPORTS = 2_039_280n;
 const SIGNATURE_BASE_FEE = 5_000n;
@@ -40,6 +38,7 @@ export type AccountedOutflow = {
   spend: OutflowSpend[];
   /** Priority fee in lamports (excluding the base signature fee). */
   priorityFee: bigint;
+  memos: string[];
 };
 
 export type UnaccountedOutflow = {
@@ -160,6 +159,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
   const feePayer = accountKeys[0]!;
   const programs: string[] = [];
   const transfers: OutflowTransfer[] = [];
+  const memos: string[] = [];
   const spendMap = new Map<string, bigint>();
   let computeLimit: number | undefined;
   let computePrice: bigint | undefined;
@@ -305,9 +305,10 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
       return fail("SG_E034_CB_UNSUPPORTED", "Unsupported ComputeBudget instruction");
     }
 
-    if (keysEqual(program, MEMO_V2_PROGRAM)) {
+    // Same address the guard allowlists (`MEMO_V2_PROGRAM` in the contract is Memo v1).
+    if (keysEqual(program, MEMO_PROGRAM)) {
       try {
-        new TextDecoder("utf-8", { fatal: true }).decode(ix.data);
+        memos.push(new TextDecoder("utf-8", { fatal: true }).decode(ix.data));
       } catch {
         return fail("SG_E035_MEMO_INVALID_UTF8", "Memo text is not valid UTF-8");
       }
@@ -350,6 +351,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
     transfers,
     spend: [...spendMap.entries()].map(([mint, amount]) => ({ mint, amount })),
     priorityFee,
+    memos,
   };
 }
 
@@ -415,6 +417,16 @@ export async function checkSignMessage(opts: {
       reasons.push({
         code: "SG_E074_PROGRAM_NOT_ALLOWED",
         message: `Program ${program} is not in the vault program allowlist`,
+      });
+    }
+  }
+
+  for (const memo of outflow.memos) {
+    const byteLen = Buffer.from(memo, "utf-8").length;
+    if (byteLen > vault.policy.maxMemoLen) {
+      reasons.push({
+        code: "SG_E073_MEMO_TOO_LONG",
+        message: `Memo text exceeds max length (${byteLen} > ${vault.policy.maxMemoLen})`,
       });
     }
   }
