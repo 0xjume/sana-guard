@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { allowRateLimited, trustedClientIp } from './rate-limit';
 
 export const ATTACK_LAB_TOKEN_HEADER = 'x-attack-lab-token';
 const WINDOW_MS = 60_000;
@@ -17,9 +18,7 @@ export function attackLabTokensEqual(provided: string, expected: string): boolea
 }
 
 export function attackLabClientKey(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  const first = forwarded?.split(',')[0]?.trim();
-  return first || request.headers.get('x-real-ip') || 'local';
+  return trustedClientIp(request.headers);
 }
 
 export function allowAttackLabRequest(
@@ -27,14 +26,7 @@ export function allowAttackLabRequest(
   now = Date.now(),
   store: Map<string, number[]> = hits
 ): boolean {
-  const recent = (store.get(key) ?? []).filter((stamp) => now - stamp < WINDOW_MS);
-  if (recent.length >= MAX_REQUESTS) {
-    store.set(key, recent);
-    return false;
-  }
-  recent.push(now);
-  store.set(key, recent);
-  return true;
+  return allowRateLimited(store, key, now, WINDOW_MS, MAX_REQUESTS);
 }
 
 export function resetAttackLabRateLimit(store: Map<string, number[]> = hits): void {

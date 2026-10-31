@@ -6,6 +6,7 @@ import { StatusBadge } from './status-badge';
 
 export function AttackLabPanel({ vaultId }: { vaultId: number }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [pinnedVaultId, setPinnedVaultId] = useState<number | null>(null);
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState<AttackKind | null>(null);
   const [results, setResults] = useState<Record<string, unknown> | null>(null);
@@ -13,7 +14,10 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
   useEffect(() => {
     void fetch('/api/attack-lab')
       .then((response) => response.json())
-      .then((body: { enabled?: boolean }) => setEnabled(Boolean(body.enabled)))
+      .then((body: { enabled?: boolean; vaultId?: number | null }) => {
+        setEnabled(Boolean(body.enabled));
+        setPinnedVaultId(typeof body.vaultId === 'number' ? body.vaultId : null);
+      })
       .catch(() => setEnabled(false));
   }, []);
 
@@ -40,16 +44,21 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
       <h2 className="mt-2 text-lg font-semibold">Policy-violating agent requests</h2>
       <p className="mt-2 text-sm text-parchment-400">
         Buttons call a server route that uses <code>DEMO_AGENT_*</code> to submit{' '}
-        <code>request_sign</code>. Agent keys never enter this browser bundle. The route pins{' '}
-        <code>DEMO_AGENT_VAULT_ID</code> (this page is vault {vaultId}; the client id is ignored)
-        and requires <code>X-Attack-Lab-Token</code>. Every payload is evaluated against a TS port
-        of the contract rules before it is sent.
+        <code>request_sign</code>. Agent keys never enter this browser bundle. This page is vault{' '}
+        {vaultId}. Attacks always run against pinned vault{' '}
+        {pinnedVaultId === null ? (
+          <code>DEMO_AGENT_VAULT_ID</code>
+        ) : (
+          <strong>{pinnedVaultId}</strong>
+        )}{' '}
+        (the client vault id is ignored) and require <code>X-Attack-Lab-Token</code>. Every payload
+        is evaluated against a TS port of the contract rules before it is sent.
       </p>
       <div className="mt-3">
         {enabled === null ? (
           <StatusBadge tone="muted">Checking demo agent…</StatusBadge>
         ) : enabled ? (
-          <StatusBadge tone="ok">Demo agent configured</StatusBadge>
+          <StatusBadge tone="ok">Demo agent configured · pinned vault {pinnedVaultId}</StatusBadge>
         ) : (
           <StatusBadge tone="warn">
             Disabled — set DEMO_AGENT_ACCOUNT_ID, DEMO_AGENT_PRIVATE_KEY, DEMO_AGENT_VAULT_ID, and

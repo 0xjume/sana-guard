@@ -23,6 +23,8 @@ const MEMO = MEMO_PROGRAM.toBase58();
 const SUPPORTED = new Set([SYSTEM, TOKEN, ATA, COMPUTE_BUDGET, MEMO]);
 const DEFAULT_COMPUTE_UNITS_PER_IX = 200_000n;
 const MAX_COMPUTE_UNIT_LIMIT = 1_400_000n;
+const ATA_RENT_LAMPORTS = 2_039_280n;
+const BASE_FEE_LAMPORTS = 5_000n;
 
 export type PolicyEvalResult = { code: string } | { accepted: true };
 
@@ -314,8 +316,22 @@ function mintAllowed(policy: Policy, mint: string): boolean {
   );
 }
 
-function solPerTx(policy: Policy): bigint | undefined {
-  return policy.perTxLimit.find((item) => item.mint.type === 'sol')?.amount;
+function perTxFor(policy: Policy, mint: 'sol' | string): bigint | undefined {
+  if (mint === 'sol') {
+    return policy.perTxLimit.find((item) => item.mint.type === 'sol')?.amount;
+  }
+  return policy.perTxLimit.find(
+    (item) => item.mint.type === 'spl' && item.mint.address.toBase58() === mint
+  )?.amount;
+}
+
+function dailyCapFor(policy: Policy, mint: 'sol' | string): bigint | undefined {
+  if (mint === 'sol') {
+    return policy.dailyCap.find((item) => item.mint.type === 'sol')?.amount;
+  }
+  return policy.dailyCap.find(
+    (item) => item.mint.type === 'spl' && item.mint.address.toBase58() === mint
+  )?.amount;
 }
 
 function priorityFeeLamports(decoded: DecodedInstruction[]): bigint | { code: string } {
@@ -340,14 +356,72 @@ function priorityFeeLamports(decoded: DecodedInstruction[]): bigint | { code: st
   return (units * price + 999_999n) / 1_000_000n;
 }
 
+export type SpendMap = Map<string, bigint>;
+
 /**
- * Evaluate a compiled Solana message against vault policy, in the same order as
- * `policy.rs`: parse → program allowlist (E074) → per-ix checks (incl. E072) →
- * total fee (E078) → per-tx spend (E062).
+ * Mirrors `calculate_spend` in parser.rs: transfer amounts, ATA rent, and when
+ * a compute-unit price is present, priority fee + 5000 lamport base fee.
+ */
+export function calculateSpend(
+  decoded: DecodedInstruction[],
+  vaultAddress: string
+): SpendMap | { code: string } {
+  const spend: SpendMap = new Map();
+  const add = (mint: string, amount: bigint): { code: string } | null => {
+    const next = (spend.get(mint) ?? 0n) + amount;
+    spend.set(mint, next);
+    return null;
+  };
+
+  for (const item of decoded) {
+    if (item.kind === 'system_transfer') {
+      if (item.from !== vaultAddress) {
+        return { code: 'SG_E040_WRONG_FROM' };
+      }
+      add('sol', item.lamports);
+    }
+    if (item.kind === 'token_transfer') {
+      if (item.authority !== vaultAddress) {
+        return { code: 'SG_E042_WRONG_AUTHORITY' };
+      }
+      if (!item.mint) {
+        return { code: 'SG_E043_MINT_UNKNOWN' };
+      }
+      add(item.mint, item.amount);
+    }
+    if (item.kind === 'ata_create') {
+      if (item.payer !== vaultAddress) {
+        return { code: 'SG_E045_WRONG_PAYER' };
+      }
+      add('sol', ATA_RENT_LAMPORTS);
+    }
+  }
+
+  const fee = priorityFeeLamports(decoded);
+  if (typeof fee !== 'bigint') {
+    return fee;
+  }
+  if (decoded.some((item) => item.kind === 'cb_price')) {
+    add('sol', fee + BASE_FEE_LAMPORTS);
+  }
+  return spend;
+}
+
+/**
+ * Evaluate a compiled Solana message against vault policy in the same order as
+ * `process_sign_request` in policy.rs: parse → program allowlist (E074) →
+ * per-ix checks (E067–E073, including E072) → max total priority fee (E078) →
+ * calculate_spend (transfers + ATA rent + priority fee + 5000 base fee) →
+ * per-tx (E062/E063) → rolling 24h daily cap (E064/E065).
  */
 export function evaluateSignPayload(
   message: Uint8Array,
-  args: { vaultAddress: string; policy: Policy; recipients: string[] }
+  args: {
+    vaultAddress: string;
+    policy: Policy;
+    recipients: string[];
+    spend24h?: Array<{ mint: string; amount: bigint }>;
+  }
 ): PolicyEvalResult {
   const parsed = parseSolanaMessage(message);
   if ('code' in parsed) {
@@ -406,19 +480,32 @@ export function evaluateSignPayload(
     }
   }
 
-  let solSpend = 0n;
-  for (const item of decoded) {
-    if (item.kind === 'system_transfer') {
-      solSpend += item.lamports;
-    }
+  const spend = calculateSpend(decoded, args.vaultAddress);
+  if ('code' in spend) {
+    return spend;
   }
-  if (solSpend > 0n) {
-    const limit = solPerTx(args.policy);
+
+  for (const [mint, amount] of spend) {
+    const limit = perTxFor(args.policy, mint);
     if (limit === undefined) {
       return { code: 'SG_E063_MINT_NOT_IN_PER_TX_LIMIT' };
     }
-    if (solSpend > limit) {
+    if (amount > limit) {
       return { code: 'SG_E062_PER_TX_LIMIT_EXCEEDED' };
+    }
+  }
+
+  const prior = new Map<string, bigint>();
+  for (const row of args.spend24h ?? []) {
+    prior.set(row.mint, (prior.get(row.mint) ?? 0n) + row.amount);
+  }
+  for (const [mint, amount] of spend) {
+    const cap = dailyCapFor(args.policy, mint);
+    if (cap === undefined) {
+      return { code: 'SG_E065_MINT_NOT_IN_DAILY_CAP' };
+    }
+    if ((prior.get(mint) ?? 0n) + amount > cap) {
+      return { code: 'SG_E064_DAILY_CAP_EXCEEDED' };
     }
   }
 

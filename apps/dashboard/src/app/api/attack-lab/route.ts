@@ -5,6 +5,7 @@ import { AgentClient, createSanaGuardError, parseErrorCode } from '@sana-guard/s
 import {
   ATTACK_EXPECTED,
   ATTACK_KINDS,
+  AttackLabSkipError,
   buildAttackMessage,
   expectedRejectionForMessage,
 } from '@/lib/attack-lab';
@@ -80,6 +81,7 @@ function errorPayload(error: unknown): { message: string; code?: string } {
 export async function GET() {
   return NextResponse.json({
     enabled: isEnabled(),
+    vaultId: pinnedVaultId(),
     documented:
       'Attack Lab runs on this Next.js server route so agent keys never enter the browser bundle. Enable it with DEMO_AGENT_ACCOUNT_ID, DEMO_AGENT_PRIVATE_KEY, DEMO_AGENT_VAULT_ID, and ATTACK_LAB_TOKEN. POST requires X-Attack-Lab-Token. The client vault id is ignored; the route pins DEMO_AGENT_VAULT_ID. Every payload is evaluated against a TS port of policy.rs before request_sign.',
   });
@@ -123,13 +125,21 @@ export async function POST(request: Request) {
   const recipients = await views.getRecipients(vaultId);
   const connection = new Connection(publicConfig.solanaRpcUrl, 'confirmed');
   const latest = await connection.getLatestBlockhash('confirmed');
-  const message = buildAttackMessage({
-    kind: body.kind,
-    vaultAddress: vault.vaultAddress,
-    recentBlockhash: latest.blockhash,
-    policy: vault.policy,
-    allowlistedRecipient: recipients[0],
-  });
+  let message: Uint8Array;
+  try {
+    message = buildAttackMessage({
+      kind: body.kind,
+      vaultAddress: vault.vaultAddress,
+      recentBlockhash: latest.blockhash,
+      policy: vault.policy,
+      allowlistedRecipient: recipients[0],
+    });
+  } catch (error) {
+    if (error instanceof AttackLabSkipError) {
+      return NextResponse.json({ error: error.message, kind: body.kind, vaultId }, { status: 409 });
+    }
+    throw error;
+  }
 
   const localCode = expectedRejectionForMessage(body.kind, message, {
     vaultAddress: vault.vaultAddress,

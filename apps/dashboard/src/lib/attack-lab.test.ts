@@ -1,9 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
-import type { Policy } from '@sana-guard/sdk';
+import { U64_MAX, buildSolTransfer, type Policy } from '@sana-guard/sdk';
 import {
   ATTACK_EXPECTED,
   ATTACK_KINDS,
+  AttackLabSkipError,
   BURN_ADDRESS,
   buildAttackMessage,
   expectedRejectionForMessage,
@@ -11,7 +12,11 @@ import {
   pickDisallowedProgram,
   solPerTxLimit,
 } from './attack-lab';
-import { allowAttackLabRequest, attackLabTokensEqual } from './attack-lab-guard';
+import {
+  allowAttackLabRequest,
+  attackLabClientKey,
+  attackLabTokensEqual,
+} from './attack-lab-guard';
 import { evaluateSignPayload, parseSolanaMessage } from './guard-policy-eval';
 
 const VAULT = 'Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU';
@@ -46,6 +51,20 @@ describe('attack lab payloads', () => {
     expect(oversizedPriorityFeePrice(policy)).toBe(cap * 1_000_000n + 1n);
   });
 
+  it('skips oversized fee when the price would overflow u64', () => {
+    const huge = { ...policy, maxPriorityFeeLamports: U64_MAX };
+    expect(oversizedPriorityFeePrice(huge)).toBeNull();
+    expect(() =>
+      buildAttackMessage({
+        kind: 'oversized_priority_fee',
+        vaultAddress: VAULT,
+        recentBlockhash: BLOCKHASH,
+        policy: huge,
+        allowlistedRecipient: OWNER,
+      })
+    ).toThrow(AttackLabSkipError);
+  });
+
   it('evaluates each attack payload against a TS port of policy.rs and rejects', () => {
     const recipients = [OWNER];
     for (const kind of ATTACK_KINDS) {
@@ -74,6 +93,33 @@ describe('attack lab payloads', () => {
     expect(result).toEqual({ code: 'SG_E072_PRIORITY_FEE_TOO_HIGH' });
   });
 
+  it('counts priority fee, 5000 base fee, and daily cap like the contract', () => {
+    const transfer = buildSolTransfer(new PublicKey(VAULT), new PublicKey(OWNER), 1n, BLOCKHASH, {
+      computeUnitPrice: 1n,
+    });
+    const tight: Policy = {
+      ...policy,
+      perTxLimit: [{ mint: { type: 'sol' }, amount: 5_000n }],
+    };
+    expect(
+      evaluateSignPayload(transfer, {
+        vaultAddress: VAULT,
+        policy: tight,
+        recipients: [OWNER],
+      })
+    ).toEqual({ code: 'SG_E062_PER_TX_LIMIT_EXCEEDED' });
+
+    const small = buildSolTransfer(new PublicKey(VAULT), new PublicKey(OWNER), 1n, BLOCKHASH);
+    expect(
+      evaluateSignPayload(small, {
+        vaultAddress: VAULT,
+        policy,
+        recipients: [OWNER],
+        spend24h: [{ mint: 'sol', amount: 100_000_000n }],
+      })
+    ).toEqual({ code: 'SG_E064_DAILY_CAP_EXCEEDED' });
+  });
+
   it('uses Token program when it is not on the allowlist', () => {
     expect(pickDisallowedProgram(policy)).toBe('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
   });
@@ -93,7 +139,7 @@ describe('attack lab guard', () => {
     expect(attackLabTokensEqual('short', 'longer-token')).toBe(false);
   });
 
-  it('rate-limits a client key', () => {
+  it('rate-limits a client key and prunes stale entries', () => {
     const store = new Map<string, number[]>();
     const start = 1_000_000;
     for (let i = 0; i < 8; i += 1) {
@@ -101,5 +147,22 @@ describe('attack lab guard', () => {
     }
     expect(allowAttackLabRequest('ip', start + 9, store)).toBe(false);
     expect(allowAttackLabRequest('ip', start + 60_001, store)).toBe(true);
+    expect(store.has('gone')).toBe(false);
+    store.set('gone', [start]);
+    expect(allowAttackLabRequest('other', start + 60_001, store)).toBe(true);
+    expect(store.has('gone')).toBe(false);
+  });
+
+  it('keys the rate limit on a trusted header, not x-forwarded-for', () => {
+    expect(
+      attackLabClientKey(
+        new Request('http://local/api/attack-lab', {
+          headers: {
+            'x-forwarded-for': '8.8.8.8',
+            'x-vercel-forwarded-for': '1.2.3.4',
+          },
+        })
+      )
+    ).toBe('1.2.3.4');
   });
 });

@@ -19,7 +19,7 @@ Login, create vault, policy edits, agents, and the kill switch stay disabled unt
 - Privy login (Solana embedded wallets + optional external Solana wallets)
 - Vault list for the signed-in owner
 - Vault detail: address + QR, SOL balance (devnet RPC), policy, pending loosen countdown, agents, recipients
-- Owner actions via the SDK + `/api/owner-action` + relay: create vault, set policy, add/remove agent, add/remove recipient, register token account, pause/unpause
+- Owner actions via the SDK + `/api/owner-action` + relay: create vault, set policy, add/remove agent, add/remove recipient, register token account, pause/unpause. The route verifies a Privy access token, checks the payload owner is a linked Solana wallet, optionally enforces `OWNER_ALLOWLIST`, and rate-limits per owner and trusted IP.
 - Policy editor preserves SPL / unedited fields and shows whether a change is an **immediate tightening** or a **delayed loosen**
 - Cancel pending loosen by re-submitting the current policy (the contract treats an equal policy as stricter and clears `pending_loosen`). There is no dedicated cancel method.
 - Activity feed from NearBlocks testnet account history (empty indexer responses are **no history source**, not a silent empty vault)
@@ -66,13 +66,16 @@ Requires Node.js 20+.
 | `NEXT_PUBLIC_MPC_DOMAIN_ID` | client | `1` |
 | `NEXT_PUBLIC_RELAY_URL` | client | `https://relay-production-665a.up.railway.app` |
 | `NEXT_PUBLIC_SOLANA_RPC` | client | `https://api.devnet.solana.com` |
-| `INVITE_TOKEN` | server | Relay invite gate. Attached by `/api/owner-action`. Never `NEXT_PUBLIC_` |
+| `PRIVY_APP_SECRET` | server | Required to enable `/api/owner-action`. Verifies Privy access tokens (JWKS or `PRIVY_VERIFICATION_KEY`) and loads linked wallets |
+| `PRIVY_VERIFICATION_KEY` | server | Optional ES256 PEM so JWT verify can skip a JWKS fetch |
+| `OWNER_ALLOWLIST` | server | Optional comma-separated owner pubkeys. When set, others get 403 |
+| `INVITE_TOKEN` | server | Relay invite gate. Attached after Privy auth. Unset = forward without it. Never `NEXT_PUBLIC_` |
 | `DEMO_AGENT_ACCOUNT_ID` | server | Attack Lab agent account |
 | `DEMO_AGENT_PRIVATE_KEY` | server | Attack Lab `ed25519:` key. Never commit |
 | `DEMO_AGENT_VAULT_ID` | server | Pinned Attack Lab vault. Required to enable |
 | `ATTACK_LAB_TOKEN` | server | Required header for Attack Lab POST. Disabled if unset |
 
-CreateVault and AddAgent on the public relay require `X-Invite-Token` (or an owner allowlist). Set `INVITE_TOKEN` on the dashboard server. The alternative is to configure the relay so it does not require invite for this origin — prefer the server route so the token never ships in the client bundle.
+`POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. It then requires `Authorization: Bearer <Privy access token>`, the signed payload's owner to be a Solana wallet linked to that user, and (when set) `OWNER_ALLOWLIST`. Rate limits use `x-vercel-forwarded-for` / `x-real-ip` only — not client `x-forwarded-for`. `INVITE_TOKEN` is attached only when set; otherwise the relay decides.
 
 ## Vercel deploy
 
@@ -81,7 +84,7 @@ CreateVault and AddAgent on the public relay require `X-Invite-Token` (or an own
 3. Framework preset: Next.js. Install/build from the monorepo (Vercel should detect pnpm). If the build cannot see the workspace SDK, set:
    - Install command: `cd ../.. && pnpm install --frozen-lockfile`
    - Build command: `pnpm --filter @sana-guard/sdk build && pnpm --filter @sana-guard/dashboard build`
-4. Add the env vars above (at least `NEXT_PUBLIC_PRIVY_APP_ID`, plus the `NEXT_PUBLIC_*` network defaults). Put `INVITE_TOKEN` and Attack Lab secrets on the server only.
+4. Add the env vars above (at least `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` for owner actions, plus the `NEXT_PUBLIC_*` network defaults). Put `INVITE_TOKEN`, `OWNER_ALLOWLIST`, and Attack Lab secrets on the server only.
 5. Owner actions no longer need the browser to call the relay directly. If you still expose other browser→relay calls, add the Vercel URL to relay `CORS_ORIGINS`.
 6. In Privy, add the Vercel URL to allowed origins and enable Solana embedded wallets.
 

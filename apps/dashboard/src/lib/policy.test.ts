@@ -119,4 +119,18 @@ describe('policy form encoding', () => {
     expect(encoded.loosenDelayNs).toBe(3_661_000_000_000n);
     expect(isPolicyStricter(encoded, current)).toBe(true);
   });
+
+  it('does not add a 0 SOL row when the current policy has no SOL limit', () => {
+    const current = policy({
+      perTxLimit: [{ mint: splMint, amount: 1n }],
+      dailyCap: [{ mint: splMint, amount: 2n }],
+    });
+    const values = formFromPolicy(current);
+    expect(values.solPerTx).toBe('0');
+    expect(values.solDaily).toBe('0');
+    const encoded = policyFromForm(values, current);
+    expect(encoded.perTxLimit.some((item) => item.mint.type === 'sol')).toBe(false);
+    expect(encoded.dailyCap.some((item) => item.mint.type === 'sol')).toBe(false);
+    expect(encoded.perTxLimit[0]?.amount).toBe(1n);
+  });
 });

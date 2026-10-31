@@ -4,6 +4,7 @@ import {
   MEMO_PROGRAM,
   SYSTEM_PROGRAM,
   TOKEN_PROGRAM,
+  U64_MAX,
   buildSolTransfer,
   encodeCompactU16,
   encodeU64Le,
@@ -54,8 +55,19 @@ export function solPerTxLimit(policy: Policy): bigint {
  * (policy.rs), not a derived (cap+1)*1e6/limit price. The latter is ~71k vs 1e11
  * for a 100k-lamport cap and would be signed.
  */
-export function oversizedPriorityFeePrice(policy: Policy): bigint {
-  return policy.maxPriorityFeeLamports * 1_000_000n + 1n;
+export class AttackLabSkipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AttackLabSkipError';
+  }
+}
+
+export function oversizedPriorityFeePrice(policy: Policy): bigint | null {
+  const price = policy.maxPriorityFeeLamports * 1_000_000n + 1n;
+  if (price > U64_MAX) {
+    return null;
+  }
+  return price;
 }
 
 export function pickDisallowedProgram(policy: Policy): string {
@@ -187,8 +199,14 @@ export function buildAttackMessage(args: {
   }
 
   const to = new PublicKey(args.allowlistedRecipient ?? BURN_ADDRESS);
+  const price = oversizedPriorityFeePrice(args.policy);
+  if (price === null) {
+    throw new AttackLabSkipError(
+      'oversized_priority_fee skipped: max_priority_fee_lamports * 1_000_000 + 1 exceeds u64'
+    );
+  }
   return buildSolTransfer(from, to, 1n, args.recentBlockhash, {
-    computeUnitPrice: oversizedPriorityFeePrice(args.policy),
+    computeUnitPrice: price,
   });
 }
 

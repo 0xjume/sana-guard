@@ -1,11 +1,12 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSignMessage, useWallets } from '@privy-io/react-auth/solana';
 import bs58 from 'bs58';
 import type { Ed25519Signer } from '@sana-guard/sdk';
 import { publicConfig } from '@/lib/config';
+import { registerPrivyAccessTokenGetter } from '@/lib/privy-browser-token';
 
 export interface OwnerSession {
   privyEnabled: boolean;
@@ -79,6 +80,11 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
       },
     };
   }, [owner, signMessage, wallet]);
+
+  useEffect(() => {
+    registerPrivyAccessTokenGetter(() => privy.getAccessToken());
+    return () => registerPrivyAccessTokenGetter(null);
+  }, [privy]);
 
   const login = useCallback(() => {
     void privy.login();

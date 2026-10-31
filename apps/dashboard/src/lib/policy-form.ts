@@ -5,7 +5,8 @@ import { defaultCreatePolicyForm, type PolicyFormValues } from './policy';
 
 function mergeSolAmount(
   rows: Array<{ mint: Mint; amount: bigint }>,
-  solAmount: bigint
+  solAmount: bigint,
+  addIfMissing: boolean
 ): Array<{ mint: Mint; amount: bigint }> {
   let found = false;
   const next = rows.map((row) => {
@@ -15,7 +16,7 @@ function mergeSolAmount(
     found = true;
     return { mint: row.mint, amount: solAmount };
   });
-  if (!found) {
+  if (!found && addIfMissing) {
     next.unshift({ mint: { type: 'sol' }, amount: solAmount });
   }
   return next;
@@ -49,8 +50,20 @@ export function policyFromForm(values: PolicyFormValues, current?: Policy): Poli
 
   return {
     ...(current ?? {}),
-    perTxLimit: mergeSolAmount(current?.perTxLimit ?? [], solToLamports(values.solPerTx)),
-    dailyCap: mergeSolAmount(current?.dailyCap ?? [], solToLamports(values.solDaily)),
+    perTxLimit: mergeSolAmount(
+      current?.perTxLimit ?? [],
+      solToLamports(values.solPerTx),
+      !current ||
+        current.perTxLimit.some((item) => item.mint.type === 'sol') ||
+        values.solPerTx.trim() !== '0'
+    ),
+    dailyCap: mergeSolAmount(
+      current?.dailyCap ?? [],
+      solToLamports(values.solDaily),
+      !current ||
+        current.dailyCap.some((item) => item.mint.type === 'sol') ||
+        values.solDaily.trim() !== '0'
+    ),
     programs: values.programs,
     maxPriorityFeeLamports:
       current && baseline && values.maxPriorityFeeLamports === baseline.maxPriorityFeeLamports

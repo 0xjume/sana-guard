@@ -1,5 +1,6 @@
 import { publicConfig } from './config';
 import { explainGuardError, formatActionError, type GuardActionError } from './errors';
+import { readPrivyAccessToken } from './privy-browser-token';
 
 export interface RelayAdminSuccess {
   success: true;
@@ -82,11 +83,17 @@ export async function submitOwnerAction(args: {
   signature: Uint8Array;
   owner: string;
 }): Promise<RelayAdminResult> {
+  const accessToken = await readPrivyAccessToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
   let response: Response;
   try {
     response = await fetch('/api/owner-action', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         msg: args.message,
         signature: Array.from(args.signature),
