@@ -13,6 +13,12 @@ class SlowNear implements NearClient {
   async getOwnerNonce(): Promise<number> {
     return 0;
   }
+  async getOwnerVaultCount(): Promise<number> {
+    return 0;
+  }
+  async getDerivedPublicKey(): Promise<string> {
+    return "ed25519:11111111111111111111111111111111";
+  }
   async getVault(): Promise<VaultInfo | null> {
     return null;
   }

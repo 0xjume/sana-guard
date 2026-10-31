@@ -102,6 +102,7 @@ See `.env.example` for all configuration. Required variables:
 - `NEAR_NETWORK` — testnet or mainnet
 - `NEAR_RPC_URL` — https://rpc.testnet.near.org
 - `GUARD_CONTRACT_ID` — guard.djume.testnet
+- `MPC_CONTRACT_ID` — optional; `v1.signer-prod.testnet` on testnet, `v1.signer` on mainnet
 - `DATABASE_URL` — sqlite:./relay.db
 
 Security settings:

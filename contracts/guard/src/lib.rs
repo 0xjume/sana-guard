@@ -391,6 +391,12 @@ impl Guard {
         self.owner_nonce.get(&owner).copied().unwrap_or(0)
     }
 
+    /// Next per-owner vault index. Matches CreateVault: `owner_vault_count.get(owner).unwrap_or(0)`.
+    pub fn owner_vault_count(&self, owner_b58: String) -> u32 {
+        let owner = base58_decode(&owner_b58);
+        self.owner_vault_count.get(&owner).copied().unwrap_or(0)
+    }
+
     fn release_reservation(&mut self, request: &SignRequest) {
         if let Some(vault) = self.vaults.get_mut(&request.vault_id) {
             // Remove hash marker

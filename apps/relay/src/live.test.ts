@@ -26,6 +26,7 @@ describe.skipIf(!isLive)("Live NEAR integration (AddRecipient on testnet)", () =
       process.env.RELAY_NEAR_PRIVATE_KEY || "ed25519:test",
       "guard.djume.testnet"
     );
+    await client.init();
 
     const currentNonce = await client.getOwnerNonce(ownerPubkey);
     const nonce = currentNonce + 1;

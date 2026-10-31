@@ -25,29 +25,48 @@ export class NearClientImpl implements NearClient {
   private connection!: nearAPI.Near;
   private account!: nearAPI.Account;
   private readonly contractId: string;
+  private readonly mpcContractId: string;
   private readonly accountId: string;
   private readonly rpcUrl: string;
+  private readonly privateKey: string;
   private readonly submitMutex = new Mutex();
+  private initPromise: Promise<void> | undefined;
 
   constructor(
     private readonly networkId: string,
     rpcUrl: string,
     accountId: string,
     privateKey: string,
-    contractId: string
+    contractId: string,
+    mpcContractId = "v1.signer-prod.testnet"
   ) {
     this.contractId = contractId;
+    this.mpcContractId = mpcContractId;
     this.accountId = accountId;
     this.rpcUrl = rpcUrl;
-    this.initConnection(privateKey).catch((err) => {
-      logger.error({ err }, "Failed to initialize NEAR connection");
-      throw err;
-    });
+    this.privateKey = privateKey;
   }
 
-  private async initConnection(privateKey: string): Promise<void> {
+  /**
+   * Await keystore + RPC client setup before serving requests.
+   * Logs and rethrows on failure so the process can exit instead of listening half-ready.
+   */
+  async init(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initConnection();
+    }
+    try {
+      await this.initPromise;
+    } catch (err) {
+      this.initPromise = undefined;
+      logger.error({ err }, "Failed to initialize NEAR connection");
+      throw err;
+    }
+  }
+
+  private async initConnection(): Promise<void> {
     const keyStore = new keyStores.InMemoryKeyStore();
-    const keyPair = KeyPair.fromString(privateKey as `ed25519:${string}`);
+    const keyPair = KeyPair.fromString(this.privateKey as `ed25519:${string}`);
     await keyStore.setKey(this.networkId, this.accountId, keyPair);
 
     this.connection = await connect({
@@ -72,6 +91,35 @@ export class NearClientImpl implements NearClient {
       args: { owner_b58: ownerB58 },
     });
     return Number(result);
+  }
+
+  async getOwnerVaultCount(ownerB58: string): Promise<number> {
+    const result = await this.account.viewFunction({
+      contractId: this.contractId,
+      methodName: "owner_vault_count",
+      args: { owner_b58: ownerB58 },
+    });
+    return Number(result);
+  }
+
+  async getDerivedPublicKey(path: string, predecessor: string): Promise<string> {
+    const result: unknown = await this.account.viewFunction({
+      contractId: this.mpcContractId,
+      methodName: "derived_public_key",
+      args: { path, predecessor, domain_id: 1 },
+    });
+    if (typeof result === "string") {
+      return result;
+    }
+    if (
+      result &&
+      typeof result === "object" &&
+      "public_key" in result &&
+      typeof result.public_key === "string"
+    ) {
+      return result.public_key;
+    }
+    throw new Error("MPC derived_public_key returned unexpected value");
   }
 
   async getVault(vaultId: number): Promise<VaultInfo | null> {

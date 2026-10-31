@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { NearClientImpl } from "./client.js";
 
 const isLive = process.env.RELAY_LIVE === "1";
@@ -6,7 +6,7 @@ const isLive = process.env.RELAY_LIVE === "1";
 describe.skipIf(!isLive)("NearClientImpl (live view calls only)", () => {
   let client: NearClientImpl;
 
-  if (isLive) {
+  beforeAll(async () => {
     client = new NearClientImpl(
       "testnet",
       "https://rpc.testnet.near.org",
@@ -14,7 +14,8 @@ describe.skipIf(!isLive)("NearClientImpl (live view calls only)", () => {
       process.env.RELAY_NEAR_PRIVATE_KEY || "ed25519:unused",
       "guard.djume.testnet"
     );
-  }
+    await client.init();
+  });
 
   it("fetches owner nonce", async () => {
     const nonce = await client.getOwnerNonce(

@@ -8,6 +8,8 @@ import {
   verifySignature,
   extractOwner,
   getVaultId,
+  derivedKeyMatchesVaultAddress,
+  createVaultDerivationPath,
   type ParsedAdminMessage,
 } from "../validation.js";
 import {
@@ -365,6 +367,38 @@ export function createAdminRouter(
           { error: "Nonce too old", provided: parsedMsg.nonce, onChainNonce },
           400
         );
+      }
+
+      if (parsedMsg.action.type === "CreateVault") {
+        let derived: string;
+        let path: string;
+        try {
+          const ownerIndex = await nearClient.getOwnerVaultCount(owner);
+          path = createVaultDerivationPath(owner, ownerIndex);
+          derived = await nearClient.getDerivedPublicKey(
+            path,
+            config.guardContractId
+          );
+        } catch (error: unknown) {
+          log.error({ error }, "CreateVault MPC pre-check failed");
+          return c.json(
+            {
+              error: "Could not verify vault address",
+              code: "VAULT_ADDRESS_CHECK_FAILED",
+            },
+            503
+          );
+        }
+        if (!derivedKeyMatchesVaultAddress(derived, parsedMsg.action.vault_address)) {
+          log.warn({ path }, "CreateVault address does not match MPC derivation");
+          return c.json(
+            {
+              error: "Vault address does not match MPC derivation",
+              code: "VAULT_ADDRESS_MISMATCH",
+            },
+            400
+          );
+        }
       }
 
       const reserved = await reserveAdminRequest({

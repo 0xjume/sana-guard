@@ -101,6 +101,56 @@ function parseExactUint(value: string, field: string): number {
   return Number(value);
 }
 
+/** 1 <= nonce <= 2^53-1. Parsed as a decimal integer (u64-width string), not IEEE Number. */
+const MIN_NONCE = 1n;
+const MAX_SAFE_NONCE = BigInt(Number.MAX_SAFE_INTEGER);
+
+function parseNonce(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error("Invalid nonce");
+  }
+  const n = BigInt(value);
+  if (n < MIN_NONCE || n > MAX_SAFE_NONCE) {
+    throw new Error("Invalid nonce");
+  }
+  return Number(n);
+}
+
+const ED25519_PREFIX = "ed25519:";
+
+/** Compare MPC `derived_public_key` (`ed25519:<b58>`) to a CreateVault vault_address. */
+export function derivedKeyMatchesVaultAddress(
+  derived: string,
+  vaultAddressB58: string
+): boolean {
+  if (!derived.startsWith(ED25519_PREFIX)) {
+    return false;
+  }
+  let derivedBytes: Uint8Array;
+  let vaultBytes: Uint8Array;
+  try {
+    derivedBytes = bs58.decode(derived.slice(ED25519_PREFIX.length));
+    vaultBytes = bs58.decode(vaultAddressB58);
+  } catch {
+    return false;
+  }
+  if (derivedBytes.length !== 32 || vaultBytes.length !== 32) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < 32; i++) {
+    diff |= derivedBytes[i]! ^ vaultBytes[i]!;
+  }
+  return diff === 0;
+}
+
+export function createVaultDerivationPath(
+  ownerB58: string,
+  ownerIndex: number
+): string {
+  return `vault/${ownerB58}/${ownerIndex}`;
+}
+
 function parseExactBigInt(value: string, field: string): bigint {
   if (!/^\d+$/.test(value)) {
     throw new Error(`Invalid ${field}`);
@@ -128,7 +178,7 @@ export function parseAdminMessage(msg: string): ParsedAdminMessage {
   if (!vaultLine) throw new Error("Missing vault field");
   const vault = vaultLine === "null" ? null : parseExactUint(vaultLine, "vault");
 
-  const nonce = parseExactUint(requirePrefix(lines[4], "nonce: "), "nonce");
+  const nonce = parseNonce(requirePrefix(lines[4], "nonce: "));
   const expiry = parseExactBigInt(requirePrefix(lines[5], "expires: "), "expires");
   const actionLine = requirePrefix(lines[6], "action: ");
   if (!actionLine) throw new Error("Missing action field");

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseAdminMessage, verifySignature } from "./validation.js";
+import {
+  parseAdminMessage,
+  verifySignature,
+  derivedKeyMatchesVaultAddress,
+  createVaultDerivationPath,
+} from "./validation.js";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 
@@ -77,6 +82,31 @@ describe("parseAdminMessage", () => {
     ].join("\n");
     const parsed = parseAdminMessage(msg);
     expect(parsed.action.type).toBe("BackfillRecipients");
+  });
+
+  it("rejects nonce 0 and values above 2^53-1", () => {
+    const wrap = (nonce: string) =>
+      [
+        "SANA-GUARD-ADMIN-v1",
+        "network: near-testnet",
+        "contract: guard.djume.testnet",
+        "vault: 0",
+        `nonce: ${nonce}`,
+        "expires: 1234567890000000000",
+        'action: {"type":"Pause","vault_id":0}',
+      ].join("\n");
+
+    expect(() => parseAdminMessage(wrap("0"))).toThrow("Invalid nonce");
+    expect(() => parseAdminMessage(wrap("9007199254740992"))).toThrow(
+      "Invalid nonce"
+    );
+    expect(() => parseAdminMessage(wrap("18446744073709551615"))).toThrow(
+      "Invalid nonce"
+    );
+    expect(parseAdminMessage(wrap("1")).nonce).toBe(1);
+    expect(parseAdminMessage(wrap("9007199254740991")).nonce).toBe(
+      Number.MAX_SAFE_INTEGER
+    );
   });
 
   it("rejects nonce like 10abc", () => {
@@ -169,5 +199,26 @@ describe("verifySignature", () => {
     const msg = "test message";
 
     expect(verifySignature(msg, signature, "invalid-base58")).toBe(false);
+  });
+});
+
+describe("derivedKeyMatchesVaultAddress", () => {
+  it("matches after stripping ed25519: and decoding both sides", () => {
+    const key = nacl.sign.keyPair().publicKey;
+    const b58 = bs58.encode(key);
+    expect(derivedKeyMatchesVaultAddress(`ed25519:${b58}`, b58)).toBe(true);
+    expect(derivedKeyMatchesVaultAddress(b58, b58)).toBe(false);
+    expect(
+      derivedKeyMatchesVaultAddress(
+        `ed25519:${b58}`,
+        bs58.encode(nacl.sign.keyPair().publicKey)
+      )
+    ).toBe(false);
+  });
+
+  it("builds the same path the contract uses", () => {
+    expect(
+      createVaultDerivationPath("DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB", 0)
+    ).toBe("vault/DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB/0");
   });
 });

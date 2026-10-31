@@ -10,6 +10,7 @@ import type { Config } from "./config.js";
 import type { NearClient, NearTransaction, SubmitHooks, TxStatusResult, VaultInfo } from "./near/interface.js";
 import { PreSignError } from "./near/errors.js";
 import { CREATE_VAULT_DEPOSIT, parseNearToYocto } from "./constants.js";
+import { createVaultDerivationPath } from "./validation.js";
 
 function testConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -84,6 +85,9 @@ class MockNear implements NearClient {
   submitted: Array<{ msg: string; sig: number[]; deposit: string; gas: string }> = [];
   result: NearTransaction = { txHash: "testhash", success: true };
   viewCalls = 0;
+  ownerVaultCount = 0;
+  derivedPublicKey = "";
+  derivedPaths: string[] = [];
 
   async getBalance(): Promise<string> {
     this.viewCalls++;
@@ -92,6 +96,15 @@ class MockNear implements NearClient {
   async getOwnerNonce(_owner: string): Promise<number> {
     this.viewCalls++;
     return this.nonce;
+  }
+  async getOwnerVaultCount(_owner: string): Promise<number> {
+    this.viewCalls++;
+    return this.ownerVaultCount;
+  }
+  async getDerivedPublicKey(path: string, _predecessor: string): Promise<string> {
+    this.viewCalls++;
+    this.derivedPaths.push(path);
+    return this.derivedPublicKey;
   }
   async getVault(_id: number): Promise<VaultInfo | null> {
     this.viewCalls++;
@@ -148,6 +161,7 @@ describe("POST /v1/admin", () => {
     keyPair = nacl.sign.keyPair();
     owner = bs58.encode(keyPair.publicKey);
     near.vault = { ...near.vault!, owner };
+    near.derivedPublicKey = `ed25519:${owner}`;
     app = new Hono();
     app.route("/", createAdminRouter(near, db, testConfig()));
     app.route("/", createQuoteRouter());
@@ -337,6 +351,40 @@ describe("POST /v1/admin", () => {
     });
     expect(res.status).toBe(503);
     expect(near.submitted.length).toBe(0);
+  });
+
+  it("rejects CreateVault when MPC derived key does not match vault_address", async () => {
+    const otherKey = nacl.sign.keyPair();
+    near.derivedPublicKey = `ed25519:${bs58.encode(otherKey.publicKey)}`;
+    near.ownerVaultCount = 2;
+    const action = {
+      type: "CreateVault",
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [["SOL", "1"]],
+        daily_cap: [["SOL", "1"]],
+        programs: ["11111111111111111111111111111111"],
+        max_priority_fee_lamports: "0",
+        max_memo_len: 0,
+        expires_at_ns: "1",
+        loosen_delay_ns: "1",
+      },
+    };
+    const msg = makeAdminMsg({ vault: "null", nonce: 6, action });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-invite-token": "secret-invite",
+      },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("VAULT_ADDRESS_MISMATCH");
+    expect(near.submitted.length).toBe(0);
+    expect(near.derivedPaths).toEqual([createVaultDerivationPath(owner, 2)]);
+    expect(db.checkNonceInFlight(owner, 6)).toBe(false);
   });
 
   it("returns 403 for CreateVault without an invite token", async () => {

@@ -23,13 +23,25 @@ async function main() {
     "Starting Sana Guard Relay"
   );
 
+  const mpcContractId =
+    process.env.MPC_CONTRACT_ID ??
+    (config.nearNetwork === "mainnet" ? "v1.signer" : "v1.signer-prod.testnet");
+
   const nearClient = new NearClientImpl(
     config.nearNetwork,
     config.nearRpcUrl,
     config.relayAccountId,
     config.relayPrivateKey,
-    config.guardContractId
+    config.guardContractId,
+    mpcContractId
   );
+
+  try {
+    await nearClient.init();
+  } catch (err) {
+    logger.error({ err }, "NEAR connection setup failed; refusing to listen");
+    throw err;
+  }
 
   const db = new RelayDatabase(config.databaseUrl);
 

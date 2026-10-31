@@ -88,6 +88,7 @@ fn test_b1_vault_path_uses_per_owner_index() {
     let owner_b58 = bs58::encode(&owner_key).into_string();
     let vault_1_b58 = bs58::encode(&vault_key_1).into_string();
     let vault_2_b58 = bs58::encode(&vault_key_2).into_string();
+    assert_eq!(contract.owner_vault_count(owner_b58.clone()), 0);
 
     let policy = types::Policy {
         per_tx_limit: vec![],
@@ -113,6 +114,7 @@ fn test_b1_vault_path_uses_per_owner_index() {
     contract.execute_owner_action(owner_key, action1);
     let vault1 = contract.vaults.get(&0).unwrap();
     assert_eq!(vault1.path, format!("vault/{}/0", owner_b58));
+    assert_eq!(contract.owner_vault_count(owner_b58.clone()), 1);
 
     // Create second vault for same owner
     let action2 = owner::OwnerAction::CreateVault {
@@ -124,6 +126,7 @@ fn test_b1_vault_path_uses_per_owner_index() {
     contract.execute_owner_action(owner_key, action2);
     let vault2 = contract.vaults.get(&1).unwrap();
     assert_eq!(vault2.path, format!("vault/{}/1", owner_b58));
+    assert_eq!(contract.owner_vault_count(owner_b58.clone()), 2);
 }
 
 // B2 Tests: AddAgent with proper funding and access key
