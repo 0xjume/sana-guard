@@ -176,12 +176,24 @@ export type MessageVersion = 'legacy' | 'v0';
 export interface RequestSignParams {
   vaultId: number;
   message: Uint8Array;
+  /**
+   * 32-byte request id as 64 lowercase hex characters.
+   * Generated randomly when omitted. Must be unique (SG_E058 / SG_E059).
+   */
   idempotencyKey?: string;
   /**
    * lastValidBlockHeight from the same getLatestBlockhash() that produced
    * the message's recent blockhash. Required for broadcast/confirm.
    */
   lastValidBlockHeight?: number;
+}
+
+/**
+ * Successful MPC signature plus the request id used for request_sign.
+ */
+export interface SignResult {
+  signature: Uint8Array;
+  requestId: string;
 }
 
 /**

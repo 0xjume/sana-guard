@@ -1,3 +1,4 @@
+import { PublicKey } from '@solana/web3.js';
 import { OwnerAction, Ed25519Signer, SignedAdminMessage, Policy } from './types';
 import { SanaGuardError } from './errors';
 
@@ -157,17 +158,25 @@ function buildAdminMessage(
 }
 
 /**
- * Sign an admin message with an Ed25519 signer
+ * Vault header for SANA-GUARD-ADMIN-v1: null for CreateVault, otherwise action.vaultId.
+ */
+export function vaultHeaderFromAction(action: OwnerAction): number | null {
+  return action.type === 'CreateVault' ? null : action.vaultId;
+}
+
+/**
+ * Sign an admin message with an Ed25519 signer.
+ * The vault header is derived from the action (null for CreateVault).
  */
 export async function signAdminMessage(
   network: string,
   contract: string,
-  vault: number | null,
   nonce: number,
   expiryNs: bigint,
   action: OwnerAction,
   signer: Ed25519Signer
 ): Promise<SignedAdminMessage> {
+  const vault = vaultHeaderFromAction(action);
   const message = buildAdminMessage(network, contract, vault, nonce, expiryNs, action);
   const messageBytes = new TextEncoder().encode(message);
   const signature = await signer.sign(messageBytes);
@@ -222,7 +231,7 @@ export async function createVaultAction(
     policy: params.policy,
   };
 
-  return signAdminMessage(network, contract, null, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -245,7 +254,7 @@ export async function setPolicyAction(
     policy,
   };
 
-  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -268,7 +277,7 @@ export async function addRecipientAction(
     recipient,
   };
 
-  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -304,7 +313,7 @@ export async function addAgentAction(
     ...params,
   };
 
-  return signAdminMessage(network, contract, params.vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -325,7 +334,7 @@ export async function pauseAction(
     vaultId,
   };
 
-  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -346,7 +355,7 @@ export async function unpauseAction(
     vaultId,
   };
 
-  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -369,7 +378,7 @@ export async function releaseAction(
     reqId,
   };
 
-  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
 }
 
 /**
@@ -392,5 +401,102 @@ export async function backfillRecipientsAction(
     recipients,
   };
 
-  return signAdminMessage(network, contract, vaultId, nonce, expiryNs, action, signer);
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
+}
+
+/**
+ * Helper: RemoveAgent payload
+ */
+export async function removeAgentAction(
+  network: string,
+  contract: string,
+  vaultId: number,
+  nonce: number,
+  agent: string,
+  signer: Ed25519Signer,
+  ttlSeconds: number = 600
+): Promise<SignedAdminMessage> {
+  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+
+  const action: OwnerAction = {
+    type: 'RemoveAgent',
+    vaultId,
+    agent,
+  };
+
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
+}
+
+/**
+ * Helper: RemoveRecipient payload
+ */
+export async function removeRecipientAction(
+  network: string,
+  contract: string,
+  vaultId: number,
+  nonce: number,
+  recipient: string,
+  signer: Ed25519Signer,
+  ttlSeconds: number = 600
+): Promise<SignedAdminMessage> {
+  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+
+  const action: OwnerAction = {
+    type: 'RemoveRecipient',
+    vaultId,
+    recipient,
+  };
+
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
+}
+
+/**
+ * Helper: RegisterTokenAccount payload
+ */
+export async function registerTokenAccountAction(
+  network: string,
+  contract: string,
+  vaultId: number,
+  nonce: number,
+  ata: string,
+  mint: string,
+  decimals: number,
+  signer: Ed25519Signer,
+  ttlSeconds: number = 600
+): Promise<SignedAdminMessage> {
+  const expiryNs = BigInt(Date.now()) * BigInt(1_000_000) + BigInt(ttlSeconds) * BigInt(1_000_000_000);
+
+  const action: OwnerAction = {
+    type: 'RegisterTokenAccount',
+    vaultId,
+    ata,
+    mint,
+    decimals,
+  };
+
+  return signAdminMessage(network, contract, nonce, expiryNs, action, signer);
+}
+
+/**
+ * Allowlist a recipient's Associated Token Account for an SPL mint.
+ *
+ * `transfer()` checks the destination ATA against the recipient allowlist
+ * (`SG_E068`). Allowlisting the wallet is not enough — pass the ATA.
+ * The ATA must already exist; the SDK does not create it (`createAta: false`).
+ */
+export async function addTokenAccountRecipientAction(
+  network: string,
+  contract: string,
+  vaultId: number,
+  nonce: number,
+  recipient: PublicKey | string,
+  mint: PublicKey | string,
+  signer: Ed25519Signer,
+  ttlSeconds: number = 600
+): Promise<SignedAdminMessage> {
+  const { getAssociatedTokenAddress } = await import('@solana/spl-token');
+  const recipientPk = typeof recipient === 'string' ? new PublicKey(recipient) : recipient;
+  const mintPk = typeof mint === 'string' ? new PublicKey(mint) : mint;
+  const ata = await getAssociatedTokenAddress(mintPk, recipientPk);
+  return addRecipientAction(network, contract, vaultId, nonce, ata.toBase58(), signer, ttlSeconds);
 }

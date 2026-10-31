@@ -133,6 +133,17 @@ describe('Messages', () => {
       expect(() => encodeComputeUnitPriceData(U64_MAX + BigInt(1))).toThrow('u64 out of range');
     });
 
+    it('encodes transfer lamports without Number()', () => {
+      const lamports = BigInt('9007199254740993');
+      expect(Number(lamports)).toBe(9007199254740992);
+
+      const message = buildSolTransfer(from, to, lamports, blockhash, { version: 'v0' });
+      const exact = encodeU64Le(lamports);
+      const rounded = encodeU64Le(BigInt(Number(lamports)));
+      expect(Buffer.from(message).includes(exact)).toBe(true);
+      expect(Buffer.from(message).includes(rounded)).toBe(false);
+    });
+
     it('embeds the exact u64 price bytes in a transfer message', () => {
       const price = BigInt('9007199254740993');
       const message = buildSolTransfer(from, to, BigInt(1000), blockhash, {

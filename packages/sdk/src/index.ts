@@ -13,12 +13,15 @@ export type {
   TransferParams,
   MessageVersion,
   RequestSignParams,
+  SignResult,
   BroadcastResult,
 } from './types';
 
 // Errors
 export {
   SanaGuardError,
+  SanaGuardSignError,
+  toSignError,
   parseErrorCode,
   createSanaGuardError,
   getErrorMessage,
@@ -53,11 +56,16 @@ export {
   MIN_AGENT_FUNDING,
   MAX_AGENT_FUNDING,
   signAdminMessage,
+  vaultHeaderFromAction,
   calculateRequiredDeposit,
   createVaultAction,
   setPolicyAction,
   addRecipientAction,
+  addTokenAccountRecipientAction,
   addAgentAction,
+  removeAgentAction,
+  removeRecipientAction,
+  registerTokenAccountAction,
   pauseAction,
   unpauseAction,
   releaseAction,
@@ -67,7 +75,7 @@ export {
 export type { CreateVaultParams, AddAgentParams } from './admin';
 
 // Agent client
-export { AgentClient } from './client';
+export { AgentClient, validateIdempotencyKey } from './client';
 
 // Views
-export { Views } from './views';
+export { Views, parseSpend24hJson, parseU64Amount, parseJsonIntegersAsStrings } from './views';

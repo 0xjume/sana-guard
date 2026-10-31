@@ -5,7 +5,9 @@ import {
   getErrorMessage,
   isErrorCode,
   SanaGuardError,
+  SanaGuardSignError,
   createSanaGuardError,
+  toSignError,
   knownErrorCodes,
 } from '../errors';
 
@@ -73,6 +75,25 @@ describe('Errors', () => {
       expect(isErrorCode(error, 'SG_E001_SIZE')).toBe(true);
       expect(isErrorCode(error, 'SG_E002_UNSUPPORTED_VERSION')).toBe(false);
       expect(isErrorCode(new Error('Other'), 'SG_E001_SIZE')).toBe(false);
+    });
+  });
+
+  describe('SanaGuardSignError', () => {
+    it('carries requestId and remains an isErrorCode match', () => {
+      const error = new SanaGuardSignError('Vault is paused', 'ab'.repeat(32), 'SG_E055_VAULT_PAUSED');
+      expect(error).toBeInstanceOf(SanaGuardError);
+      expect(error.requestId).toBe('ab'.repeat(32));
+      expect(isErrorCode(error, 'SG_E055_VAULT_PAUSED')).toBe(true);
+    });
+
+    it('toSignError wraps contract panics without dropping requestId', () => {
+      const wrapped = toSignError(
+        new Error('Smart contract panicked: SG_E058_INVALID_REQ_ID'),
+        'cd'.repeat(32)
+      );
+      expect(wrapped).toBeInstanceOf(SanaGuardSignError);
+      expect(wrapped.requestId).toBe('cd'.repeat(32));
+      expect(wrapped.code).toBe('SG_E058_INVALID_REQ_ID');
     });
   });
 

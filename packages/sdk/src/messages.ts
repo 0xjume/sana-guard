@@ -131,7 +131,7 @@ export function buildSolTransfer(
     SystemProgram.transfer({
       fromPubkey: from,
       toPubkey: to,
-      lamports: Number(lamports),
+      lamports: BigInt(lamports),
     })
   );
 

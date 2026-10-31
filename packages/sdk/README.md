@@ -8,7 +8,7 @@ TypeScript SDK for [Sana Guard](https://github.com/0xjume/sana-guard) – policy
 
 - **Solana Message Building**: SystemProgram transfer, SPL Token transfer/transferChecked, ATA create-idempotent, ComputeBudget, Memo
 - **Agent Client**: `requestSign` with agent function-call key, local signature verification, and automatic broadcast
-- **Owner/Admin Client**: Build and sign owner admin messages (CreateVault, SetPolicy, AddRecipient, AddAgent, Pause/Unpause, Release)
+- **Owner/Admin Client**: Build and sign owner admin messages (CreateVault, SetPolicy, AddRecipient, AddTokenAccountRecipient, AddAgent, RemoveAgent, RemoveRecipient, RegisterTokenAccount, Pause/Unpause, Release)
 - **Views**: Query vaults, recipients, 24h spend, nonce, and derive vault addresses via MPC
 - **Typed Errors**: Map every `SG_E###` contract error code to a readable error class
 - **Tests**: Unit tests, golden fixtures, and opt-in live tests against `guard.djume.testnet`
@@ -71,7 +71,7 @@ A vault owner using an ed25519 wallet (e.g. Privy embedded Solana wallet) to sig
 
 ```typescript
 import { connect, keyStores } from 'near-api-js';
-import { createVaultAction, addRecipientAction, pauseAction, VAULT_STORAGE_COST } from '@sana-guard/sdk';
+import { createVaultAction, addRecipientAction, addTokenAccountRecipientAction, pauseAction, VAULT_STORAGE_COST, Views } from '@sana-guard/sdk';
 import { Ed25519Signer } from '@sana-guard/sdk';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
@@ -104,7 +104,8 @@ const relayAccount = await near.account('relay.djume.testnet');
 const ownerB58 = bs58.encode(ownerKeypair.publicKey);
 const vaultAddressB58 = 'Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU'; // Pre-computed via MPC
 
-const nonce = 1; // Fetch from contract: views.getNonce(ownerB58)
+const views = new Views(relayAccount, 'guard.djume.testnet');
+const nonce = (await views.getNonce(ownerB58)) + 1;
 
 const createVaultMsg = await createVaultAction(
   'near-testnet',
@@ -154,8 +155,9 @@ class AgentClient {
     vaultAddress: PublicKey
   );
 
-  // Request MPC signature for a Solana message
-  requestSign(params: RequestSignParams, gasAttached?: string): Promise<Uint8Array>;
+  // Request MPC signature for a Solana message.
+  // Success: { signature, requestId }. Failure: throws SanaGuardSignError with requestId.
+  requestSign(params: RequestSignParams, gasAttached?: string): Promise<SignResult>;
 
   // Request signature and broadcast immediately
   requestSignAndBroadcast(
@@ -172,6 +174,13 @@ class AgentClient {
   ): Promise<BroadcastResult>;
 }
 ```
+
+`transfer()` with `token` sends to the recipient's Associated Token Account and checks that **ATA address** against the vault recipient allowlist (`SG_E068`). Allowlisting the wallet is not enough.
+
+- Allowlist the ATA with `addTokenAccountRecipientAction(network, contract, vaultId, nonce, recipient, mint, signer)`.
+- The destination ATA must already exist. The SDK sets `createAta: false` and will not create it in the signed message.
+
+`idempotencyKey`, when provided, must be 64 lowercase hex characters (32 bytes). On any `requestSign` failure after a request id is allocated (timeout, contract panic, or `on_signed` returning null), the SDK throws `SanaGuardSignError` carrying `requestId` so you can poll `get_request` or submit `Release`.
 
 ### Views
 
@@ -204,18 +213,21 @@ class Views {
 signAdminMessage(
   network: string,
   contract: string,
-  vault: number | null,
   nonce: number,
   expiryNs: bigint,
   action: OwnerAction,
   signer: Ed25519Signer
-): Promise<SignedAdminMessage>;
+): Promise<SignedAdminMessage>; // vault header is derived from action.vaultId (null for CreateVault)
 
 // Helpers for each action type
 createVaultAction(network, contract, nonce, params, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 setPolicyAction(network, contract, vaultId, nonce, policy, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 addRecipientAction(network, contract, vaultId, nonce, recipient, signer, ttlSeconds?): Promise<SignedAdminMessage>;
+addTokenAccountRecipientAction(network, contract, vaultId, nonce, recipient, mint, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 addAgentAction(network, contract, nonce, params, signer, ttlSeconds?): Promise<SignedAdminMessage>;
+removeAgentAction(network, contract, vaultId, nonce, agent, signer, ttlSeconds?): Promise<SignedAdminMessage>;
+removeRecipientAction(network, contract, vaultId, nonce, recipient, signer, ttlSeconds?): Promise<SignedAdminMessage>;
+registerTokenAccountAction(network, contract, vaultId, nonce, ata, mint, decimals, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 pauseAction(network, contract, vaultId, nonce, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 unpauseAction(network, contract, vaultId, nonce, signer, ttlSeconds?): Promise<SignedAdminMessage>;
 releaseAction(network, contract, vaultId, nonce, reqId, signer, ttlSeconds?): Promise<SignedAdminMessage>;
@@ -303,6 +315,7 @@ See [errors.ts](./src/errors.ts) for the full mapping. Common codes:
 - `SG_E062_PER_TX_LIMIT_EXCEEDED`: Per-transaction limit exceeded
 - `SG_E064_DAILY_CAP_EXCEEDED`: 24-hour spend cap exceeded
 - `SG_E067_RECIPIENT_NOT_ALLOWED`: Recipient not in allowlist
+- `SG_E068_RECIPIENT_NOT_ALLOWED`: Token transfer recipient ATA not in allowlist
 - `SG_E074_PROGRAM_NOT_ALLOWED`: Program not in policy allowlist
 
 ## License

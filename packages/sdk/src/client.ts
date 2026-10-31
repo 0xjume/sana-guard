@@ -1,7 +1,7 @@
 import { PublicKey, Connection, SendOptions } from '@solana/web3.js';
 import { Account as NearAccount } from 'near-api-js';
-import { RequestSignParams, BroadcastResult, TransferParams } from './types';
-import { SanaGuardError, createSanaGuardError } from './errors';
+import { RequestSignParams, BroadcastResult, TransferParams, SignResult } from './types';
+import { SanaGuardError, createSanaGuardError, toSignError } from './errors';
 import {
   buildSolTransfer,
   buildTokenTransfer,
@@ -35,12 +35,44 @@ function parseSignResult(outcome: unknown): number[] {
     if (!json) {
       throw new SanaGuardError('Empty request_sign result');
     }
-    return JSON.parse(json) as number[];
+    const parsed = JSON.parse(json) as unknown;
+    if (parsed == null) {
+      throw new SanaGuardError('request_sign returned no signature');
+    }
+    return parsed as number[];
   }
-  if (Array.isArray(outcome) && outcome.length === 64) {
+  if (outcome == null) {
+    throw new SanaGuardError('request_sign returned no signature');
+  }
+  if (Array.isArray(outcome)) {
+    if (outcome.length !== 64) {
+      throw new SanaGuardError('Invalid MPC signature format');
+    }
     return outcome as number[];
   }
   throw createSanaGuardError(JSON.stringify(status ?? outcome));
+}
+
+/** Contract req_id_hex: 32 bytes as 64 lowercase hex characters (SG_E058). */
+const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * Validate an idempotency / request id before calling request_sign.
+ */
+export function validateIdempotencyKey(key: string): void {
+  if (!IDEMPOTENCY_KEY_RE.test(key)) {
+    throw new SanaGuardError(
+      'idempotencyKey must be 64 lowercase hex characters (32 bytes)'
+    );
+  }
+}
+
+function resolveRequestId(idempotencyKey?: string): string {
+  if (idempotencyKey === undefined) {
+    return crypto.randomBytes(32).toString('hex');
+  }
+  validateIdempotencyKey(idempotencyKey);
+  return idempotencyKey;
 }
 
 /**
@@ -62,22 +94,21 @@ export class AgentClient {
    *
    * @param params - Request parameters
    * @param gasAttached - Gas to attach (default 95 Tgas)
-   * @returns Ed25519 signature (64 bytes)
+   * @returns Ed25519 signature and the request id (for get_request / Release)
    */
   async requestSign(
     params: RequestSignParams,
     gasAttached: string = '95000000000000'
-  ): Promise<Uint8Array> {
+  ): Promise<SignResult> {
     const { vaultId, message, idempotencyKey } = params;
 
     assertNotV1Message(message);
 
-    const reqId = idempotencyKey || crypto.randomBytes(32).toString('hex');
+    const requestId = resolveRequestId(idempotencyKey);
     const messageB64 = Buffer.from(message).toString('base64');
 
     const account = this.nearAccount as unknown as FunctionCallAccount;
 
-    let result: number[];
     try {
       const outcome = await account.functionCall({
         contractId: this.guardContract,
@@ -85,30 +116,28 @@ export class AgentClient {
         args: {
           vault_id: vaultId,
           message_b64: messageB64,
-          req_id_hex: reqId,
+          req_id_hex: requestId,
         },
         gas: BigInt(gasAttached),
         attachedDeposit: BigInt(0),
       });
-      result = parseSignResult(outcome);
+      const result = parseSignResult(outcome);
+
+      if (!result || !Array.isArray(result) || result.length !== 64) {
+        throw new SanaGuardError('Invalid MPC signature format');
+      }
+
+      const signature = new Uint8Array(result);
+
+      const isValid = await verifyMessageSignature(signature, message, this.vaultAddress);
+      if (!isValid) {
+        throw new SanaGuardError('Signature verification failed');
+      }
+
+      return { signature, requestId };
     } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : error != null ? String(error) : 'Unknown error';
-      throw createSanaGuardError(errorMessage);
+      throw toSignError(error, requestId);
     }
-
-    if (!result || !Array.isArray(result) || result.length !== 64) {
-      throw new SanaGuardError('Invalid MPC signature format');
-    }
-
-    const signature = new Uint8Array(result);
-
-    const isValid = await verifyMessageSignature(signature, message, this.vaultAddress);
-    if (!isValid) {
-      throw new SanaGuardError('Signature verification failed');
-    }
-
-    return signature;
   }
 
   /**
@@ -129,7 +158,7 @@ export class AgentClient {
       );
     }
 
-    const signature = await this.requestSign(params, gasAttached);
+    const { signature } = await this.requestSign(params, gasAttached);
     const signedTx = assembleSignedTransaction(signature, params.message);
     const blockhash = extractRecentBlockhash(params.message);
 

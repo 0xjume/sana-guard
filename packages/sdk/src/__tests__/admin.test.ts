@@ -1,4 +1,14 @@
-import { signAdminMessage, calculateRequiredDeposit, VAULT_STORAGE_COST, AGENT_STORAGE_OVERHEAD } from '../admin';
+import {
+  signAdminMessage,
+  vaultHeaderFromAction,
+  calculateRequiredDeposit,
+  VAULT_STORAGE_COST,
+  AGENT_STORAGE_OVERHEAD,
+  removeAgentAction,
+  removeRecipientAction,
+  registerTokenAccountAction,
+  addTokenAccountRecipientAction,
+} from '../admin';
 import { Ed25519Signer, OwnerAction, Policy } from '../types';
 import { PublicKey } from '@solana/web3.js';
 
@@ -39,7 +49,7 @@ describe('Admin', () => {
 
       const expiryNs = BigInt(Date.now() * 1_000_000 + 600 * 1_000_000_000);
 
-      const signed = await signAdminMessage(network, contract, null, 1, expiryNs, action, signer);
+      const signed = await signAdminMessage(network, contract, 1, expiryNs, action, signer);
 
       // Check message structure
       expect(signed.message).toContain('SANA-GUARD-ADMIN-v1');
@@ -64,7 +74,7 @@ describe('Admin', () => {
 
       const expiryNs = BigInt(Date.now() * 1_000_000 + 600 * 1_000_000_000);
 
-      const signed = await signAdminMessage(network, contract, 0, 2, expiryNs, action, signer);
+      const signed = await signAdminMessage(network, contract, 2, expiryNs, action, signer);
 
       expect(signed.message).toContain('vault: 0');
       expect(signed.message).toContain('"type":"AddAgent"');
@@ -81,7 +91,7 @@ describe('Admin', () => {
 
       const expiryNs = BigInt(Date.now() * 1_000_000 + 600 * 1_000_000_000);
 
-      const signed = await signAdminMessage(network, contract, 0, 3, expiryNs, action, signer);
+      const signed = await signAdminMessage(network, contract, 3, expiryNs, action, signer);
 
       expect(signed.message).toContain('"type":"Pause"');
       expect(signed.message).toContain('"vault_id":0');
@@ -110,7 +120,7 @@ describe('Admin', () => {
 
       const expiryNs = BigInt(Date.now() * 1_000_000 + 600 * 1_000_000_000);
 
-      const signed = await signAdminMessage(network, contract, 0, 4, expiryNs, action, signer);
+      const signed = await signAdminMessage(network, contract, 4, expiryNs, action, signer);
 
       expect(signed.message).toContain('"type":"SetPolicy"');
       expect(signed.message).toContain('"per_tx_limit"');
@@ -184,7 +194,7 @@ describe('Admin', () => {
 
       const expiryNs = BigInt('1000000000000000000'); // Fixed for reproducibility
 
-      const signed = await signAdminMessage(network, contract, null, 1, expiryNs, action, signer);
+      const signed = await signAdminMessage(network, contract, 1, expiryNs, action, signer);
 
       // Expected format (7 lines):
       const lines = signed.message.split('\n');
@@ -205,6 +215,67 @@ describe('Admin', () => {
       
       // Check that mints are formatted as 'Sol' not 'SOL'
       expect(actionLine).not.toContain('"SOL"');
+    });
+  });
+
+  describe('vaultHeaderFromAction', () => {
+    it('uses null for CreateVault and vaultId for every other action', () => {
+      expect(vaultHeaderFromAction({
+        type: 'CreateVault',
+        owner: 'o',
+        vaultAddress: 'v',
+        policy: mockPolicy,
+      })).toBeNull();
+      expect(vaultHeaderFromAction({ type: 'Pause', vaultId: 7 })).toBe(7);
+      expect(vaultHeaderFromAction({ type: 'RemoveAgent', vaultId: 3, agent: 'a' })).toBe(3);
+    });
+  });
+
+  describe('exported admin helpers', () => {
+    it('builds RemoveAgent, RemoveRecipient and RegisterTokenAccount messages', async () => {
+      const removeAgent = await removeAgentAction(network, contract, 2, 5, 'agent.near', signer);
+      expect(removeAgent.message).toContain('vault: 2');
+      expect(removeAgent.message).toContain('"type":"RemoveAgent"');
+      expect(removeAgent.message).toContain('"agent":"agent.near"');
+
+      const removeRecipient = await removeRecipientAction(network, contract, 2, 6, 'Recipient111111111111111111111111111111111', signer);
+      expect(removeRecipient.message).toContain('"type":"RemoveRecipient"');
+      expect(removeRecipient.message).toContain('"recipient":"Recipient111111111111111111111111111111111"');
+
+      const register = await registerTokenAccountAction(
+        network,
+        contract,
+        2,
+        7,
+        'Ata111111111111111111111111111111111111111',
+        'Mint111111111111111111111111111111111111111',
+        6,
+        signer
+      );
+      expect(register.message).toContain('"type":"RegisterTokenAccount"');
+      expect(register.message).toContain('"ata":"Ata111111111111111111111111111111111111111"');
+      expect(register.message).toContain('"decimals":6');
+    });
+
+    it('addTokenAccountRecipientAction allowlists the recipient ATA, not the wallet', async () => {
+      const { getAssociatedTokenAddress } = await import('@solana/spl-token');
+      const recipient = new PublicKey('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB');
+      const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+      const ata = await getAssociatedTokenAddress(mint, recipient);
+
+      const signed = await addTokenAccountRecipientAction(
+        network,
+        contract,
+        0,
+        8,
+        recipient,
+        mint,
+        signer
+      );
+
+      expect(signed.message).toContain('"type":"AddRecipient"');
+      expect(signed.message).toContain(`"recipient":"${ata.toBase58()}"`);
+      expect(signed.message).not.toContain(`"recipient":"${recipient.toBase58()}"`);
     });
   });
 });

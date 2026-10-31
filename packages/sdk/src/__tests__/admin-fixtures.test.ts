@@ -65,7 +65,7 @@ describe('admin message exact-byte fixtures', () => {
       vaultAddress: fixture.owner,
       policy: { ...basePolicy },
     };
-    const signed = await signAdminMessage(network, contract, null, nonce, expiryNs, action, signer);
+    const signed = await signAdminMessage(network, contract, nonce, expiryNs, action, signer);
     const expected = caseByName('CreateVault');
     expect(signed.message).toBe(expected.message);
     expect(Buffer.from(signed.signature).toString('hex')).toBe(expected.signatureHex);
@@ -78,7 +78,7 @@ describe('admin message exact-byte fixtures', () => {
       vaultId: 0,
       policy: { ...basePolicy },
     };
-    const signed = await signAdminMessage(network, contract, 0, nonce, expiryNs, action, signer);
+    const signed = await signAdminMessage(network, contract, nonce, expiryNs, action, signer);
     const expected = caseByName('SetPolicy');
     expect(signed.message).toBe(expected.message);
     expect(Buffer.from(signed.signature).toString('hex')).toBe(expected.signatureHex);
@@ -91,7 +91,7 @@ describe('admin message exact-byte fixtures', () => {
       vaultId: 0,
       policy: { ...basePolicy, maxTotalPriorityFeeLamports: BigInt(250000) },
     };
-    const signed = await signAdminMessage(network, contract, 0, nonce, expiryNs, action, signer);
+    const signed = await signAdminMessage(network, contract, nonce, expiryNs, action, signer);
     const expected = caseByName('SetPolicyWithMaxTotalPriorityFee');
     expect(signed.message).toBe(expected.message);
     expect(Buffer.from(signed.signature).toString('hex')).toBe(expected.signatureHex);
@@ -104,7 +104,7 @@ describe('admin message exact-byte fixtures', () => {
       vaultId: 0,
       recipients: ['DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB'],
     };
-    const signed = await signAdminMessage(network, contract, 0, nonce, expiryNs, action, signer);
+    const signed = await signAdminMessage(network, contract, nonce, expiryNs, action, signer);
     const expected = caseByName('BackfillRecipients');
     expect(signed.message).toBe(expected.message);
     expect(Buffer.from(signed.signature).toString('hex')).toBe(expected.signatureHex);

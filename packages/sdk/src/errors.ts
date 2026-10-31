@@ -12,6 +12,37 @@ export class SanaGuardError extends Error {
 }
 
 /**
+ * Thrown when request_sign fails after a request id was allocated.
+ * Callers can poll get_request or submit Release with `requestId`.
+ */
+export class SanaGuardSignError extends SanaGuardError {
+  constructor(
+    message: string,
+    public readonly requestId: string,
+    code?: string,
+  ) {
+    super(message, code);
+    this.name = 'SanaGuardSignError';
+  }
+}
+
+/**
+ * Wrap any request_sign failure so the allocated request id is never dropped.
+ */
+export function toSignError(error: unknown, requestId: string): SanaGuardSignError {
+  if (error instanceof SanaGuardSignError) {
+    return error;
+  }
+  if (error instanceof SanaGuardError) {
+    return new SanaGuardSignError(error.message, requestId, error.code);
+  }
+  const message =
+    error instanceof Error ? error.message : error != null ? String(error) : 'Unknown error';
+  const mapped = createSanaGuardError(message);
+  return new SanaGuardSignError(mapped.message, requestId, mapped.code);
+}
+
+/**
  * Sana Guard contract error codes mapped from the contract
  */
 const ERROR_MESSAGES: Record<string, string> = {

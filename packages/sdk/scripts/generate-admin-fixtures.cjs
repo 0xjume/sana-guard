@@ -38,7 +38,6 @@ async function main() {
   const createVault = await signAdminMessage(
     network,
     contract,
-    null,
     nonce,
     expiryNs,
     {
@@ -53,7 +52,6 @@ async function main() {
   const setPolicy = await signAdminMessage(
     network,
     contract,
-    0,
     nonce,
     expiryNs,
     {
@@ -67,7 +65,6 @@ async function main() {
   const setPolicyWithMaxTotal = await signAdminMessage(
     network,
     contract,
-    0,
     nonce,
     expiryNs,
     {
@@ -84,7 +81,6 @@ async function main() {
   const backfill = await signAdminMessage(
     network,
     contract,
-    0,
     nonce,
     expiryNs,
     {

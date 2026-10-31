@@ -47,6 +47,66 @@ function parsePolicy(policy: any): Policy {
 }
 
 /**
+ * Quote integer tokens in JSON source text so u64 values survive as strings.
+ * String tokens are left unchanged so both `"123"` and `123` are accepted.
+ */
+export function parseJsonIntegersAsStrings(text: string): unknown {
+  const tokenRe = /"(?:\\.|[^"\\])*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+  const rewritten = text.replace(tokenRe, (token) => {
+    if (token.startsWith('"')) {
+      return token;
+    }
+    if (/^-?\d+$/.test(token)) {
+      return `"${token}"`;
+    }
+    return token;
+  });
+  return JSON.parse(rewritten);
+}
+
+/**
+ * Parse a u64 that may arrive as a string, number, or bigint.
+ */
+export function parseU64Amount(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    if (!/^(0|[1-9]\d*)$/.test(value)) {
+      throw new SanaGuardError(`Invalid u64 amount: ${value}`);
+    }
+    return BigInt(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new SanaGuardError(`Invalid u64 amount: ${value}`);
+    }
+    return BigInt(value);
+  }
+  throw new SanaGuardError(`Invalid u64 amount: ${String(value)}`);
+}
+
+/**
+ * Parse get_spend_24h raw JSON text without losing precision on u64 numbers.
+ */
+export function parseSpend24hJson(text: string): Array<{ mint: string; amount: bigint }> {
+  const result = parseJsonIntegersAsStrings(text);
+  if (!Array.isArray(result)) {
+    throw new SanaGuardError('Invalid get_spend_24h result');
+  }
+  return result.map((item) => {
+    if (!Array.isArray(item) || item.length < 2) {
+      throw new SanaGuardError('Invalid get_spend_24h entry');
+    }
+    const mint = item[0];
+    if (typeof mint !== 'string') {
+      throw new SanaGuardError('Invalid get_spend_24h mint');
+    }
+    return { mint, amount: parseU64Amount(item[1]) };
+  });
+}
+
+/**
  * Sana Guard Views
  * 
  * Read-only queries to the NEAR contract
@@ -130,12 +190,14 @@ export class Views {
    * Get 24-hour spend totals for a vault
    */
   async getSpend24h(vaultId: number): Promise<Array<{ mint: string; amount: bigint }>> {
-    const result: any = await (this.contract as any).get_spend_24h({ vault_id: vaultId });
+    const text: string = await this.nearAccount.viewFunction({
+      contractId: this.guardContract,
+      methodName: 'get_spend_24h',
+      args: { vault_id: vaultId },
+      parse: (bytes: Uint8Array) => Buffer.from(bytes).toString('utf8'),
+    });
 
-    return result.map((item: any) => ({
-      mint: item[0],
-      amount: BigInt(item[1]),
-    }));
+    return parseSpend24hJson(text);
   }
 
   /**
