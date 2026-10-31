@@ -76,20 +76,6 @@ export function checkInviteGate(
   return { allowed: true };
 }
 
-function isJsonParseError(error: unknown): boolean {
-  if (error instanceof SyntaxError) return true;
-  if (!(error instanceof Error)) return false;
-  const msg = error.message.toLowerCase();
-  return (
-    error.name === "SyntaxError" ||
-    (msg.includes("json") &&
-      (msg.includes("parse") ||
-        msg.includes("unexpected") ||
-        msg.includes("invalid") ||
-        msg.includes("malformed")))
-  );
-}
-
 function parseOnChainError(error: unknown): string {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
     const sgMatch = error.message.match(/SG_E\d+_[A-Z_]+/);
@@ -225,7 +211,16 @@ export function createAdminRouter(
     const nowMs = Date.now();
 
     try {
-      const body = await c.req.json();
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        log.warn("Malformed JSON body");
+        return c.json(
+          { error: "Invalid JSON body", code: "INVALID_JSON" },
+          400
+        );
+      }
       const parsed = adminRequestSchema.parse(body);
       const msg = parsed.msg;
       const signature = new Uint8Array(parsed.signature);
@@ -536,13 +531,6 @@ export function createAdminRouter(
         }
       });
     } catch (error: unknown) {
-      if (isJsonParseError(error)) {
-        log.warn({ error }, "Malformed JSON body");
-        return c.json(
-          { error: "Invalid JSON body", code: "INVALID_JSON" },
-          400
-        );
-      }
       log.error({ error }, "Request processing failed");
       if (error instanceof z.ZodError) {
         return c.json({ error: "Invalid request" }, 400);

@@ -27,7 +27,12 @@ const ZERO_DEPOSIT_ACTIONS = new Set([
 export function createQuoteRouter(config?: Config) {
   const app = new Hono();
   const limiter = createReadRateLimit(
-    config ?? { trustProxy: false, trustProxyHops: 1, clientIpHeader: undefined }
+    config ?? {
+      trustProxy: false,
+      trustProxyHops: 1,
+      clientIpHeader: undefined,
+      rateLimitIpv6Prefix: 64,
+    }
   );
 
   app.get("/v1/quote/:action", limiter, async (c) => {

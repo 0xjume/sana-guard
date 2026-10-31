@@ -4,7 +4,7 @@ import type { Config } from "../config.js";
 
 type ProxyConfig = Pick<
   Config,
-  "trustProxy" | "trustProxyHops" | "clientIpHeader"
+  "trustProxy" | "trustProxyHops" | "clientIpHeader" | "rateLimitIpv6Prefix"
 >;
 
 interface RateLimitEntry {
@@ -65,6 +65,99 @@ export function getClientIp(
   return env?.incoming?.socket?.remoteAddress || "unknown";
 }
 
+function expandIpv6(ip: string): number[] | undefined {
+  let s = ip.trim();
+  if (s.startsWith("[") && s.endsWith("]")) {
+    s = s.slice(1, -1);
+  }
+  const zone = s.indexOf("%");
+  if (zone !== -1) {
+    s = s.slice(0, zone);
+  }
+
+  const v4tail = s.match(/:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4tail) {
+    const octets = v4tail[1]!.split(".").map((n) => Number(n));
+    if (octets.length !== 4 || octets.some((n) => n > 255)) {
+      return undefined;
+    }
+    const hi = ((octets[0]! << 8) | octets[1]!).toString(16);
+    const lo = ((octets[2]! << 8) | octets[3]!).toString(16);
+    s = `${s.slice(0, -v4tail[1]!.length)}${hi}:${lo}`;
+  }
+
+  if (s.includes("::")) {
+    const [left = "", right = ""] = s.split("::");
+    const parse = (part: string) =>
+      part === "" ? [] : part.split(":").map((g) => parseInt(g, 16));
+    const l = parse(left);
+    const r = parse(right);
+    if (l.some((n) => Number.isNaN(n)) || r.some((n) => Number.isNaN(n))) {
+      return undefined;
+    }
+    if (l.length + r.length >= 8) return undefined;
+    return [...l, ...Array<number>(8 - l.length - r.length).fill(0), ...r];
+  }
+
+  const groups = s.split(":").map((g) => parseInt(g, 16));
+  if (
+    groups.length !== 8 ||
+    groups.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff)
+  ) {
+    return undefined;
+  }
+  return groups;
+}
+
+function ipv4MappedAddress(ip: string): string | undefined {
+  const groups = expandIpv6(ip);
+  if (!groups) return undefined;
+  if (
+    groups[0] === 0 &&
+    groups[1] === 0 &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0xffff
+  ) {
+    const a = (groups[6]! >> 8) & 0xff;
+    const b = groups[6]! & 0xff;
+    const c = (groups[7]! >> 8) & 0xff;
+    const d = groups[7]! & 0xff;
+    return `${a}.${b}.${c}.${d}`;
+  }
+  return undefined;
+}
+
+function maskIpv6(groups: number[], prefix: number): number[] {
+  const bits = Math.min(128, Math.max(0, prefix));
+  return groups.map((group, i) => {
+    const start = i * 16;
+    if (start >= bits) return 0;
+    if (start + 16 <= bits) return group;
+    const keep = bits - start;
+    return group & ((0xffff << (16 - keep)) & 0xffff);
+  });
+}
+
+/** Bucket key: IPv4 per address; IPv4-mapped IPv6 → IPv4; other IPv6 → prefix. */
+export function rateLimitKey(ip: string, ipv6Prefix: number): string {
+  const trimmed = ip.trim();
+  if (isIP(trimmed) === 4) {
+    return trimmed;
+  }
+  if (isIP(trimmed) === 6) {
+    const mapped = ipv4MappedAddress(trimmed);
+    if (mapped) return mapped;
+    const groups = expandIpv6(trimmed);
+    if (!groups) return trimmed;
+    const masked = maskIpv6(groups, ipv6Prefix);
+    const hex = masked.map((g) => g.toString(16).padStart(4, "0")).join(":");
+    return `${hex}/${ipv6Prefix}`;
+  }
+  return trimmed;
+}
+
 function sweep(map: Map<string, RateLimitEntry>, now: number): void {
   for (const [ip, entry] of map.entries()) {
     if (now > entry.resetAt) {
@@ -89,13 +182,14 @@ export function createRateLimit(
       trustProxyHops: config.trustProxyHops,
       clientIpHeader: config.clientIpHeader,
     });
+    const key = rateLimitKey(ip, config.rateLimitIpv6Prefix);
     const now = Date.now();
     sweep(map, now);
 
-    let entry = map.get(ip);
+    let entry = map.get(key);
     if (!entry || now > entry.resetAt) {
       entry = { count: 0, resetAt: now + WINDOW_MS };
-      map.set(ip, entry);
+      map.set(key, entry);
     }
 
     if (entry.count >= limit) {

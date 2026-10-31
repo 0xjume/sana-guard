@@ -42,6 +42,7 @@ const testConfig: Config = {
   adminGateEnabled: true,
   trustProxy: false,
   trustProxyHops: 1,
+  rateLimitIpv6Prefix: 64,
 };
 
 describe("Gas constants", () => {
