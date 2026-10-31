@@ -462,6 +462,43 @@ fn get_key(keys: &[u8], index: u8) -> Result<[u8; 32], &'static str> {
     Ok(key)
 }
 
+/// Compute units the runtime grants per instruction when no SetComputeUnitLimit is present.
+const DEFAULT_COMPUTE_UNITS_PER_IX: u64 = 200_000;
+/// Runtime ceiling on a transaction's compute unit limit.
+const MAX_COMPUTE_UNIT_LIMIT: u64 = 1_400_000;
+
+/// Priority fee in lamports the vault pays for these instructions.
+///
+/// The fee is charged on the requested compute unit limit, not on usage. Without an explicit
+/// SetComputeUnitLimit the runtime default applies, which this over-estimates by counting every
+/// instruction at the full per-instruction default (newer runtimes grant builtins less).
+pub fn priority_fee_lamports(instructions: &[ParsedInstruction]) -> Result<u64, &'static str> {
+    let mut limit: Option<u64> = None;
+    let mut price: Option<u64> = None;
+    for ix in instructions {
+        match ix {
+            ParsedInstruction::ComputeBudgetSetLimit { limit: l } => limit = Some(*l as u64),
+            ParsedInstruction::ComputeBudgetSetPrice { micro_lamports } => {
+                price = Some(*micro_lamports)
+            }
+            _ => {}
+        }
+    }
+    let Some(price) = price else {
+        return Ok(0);
+    };
+    let limit = limit.unwrap_or_else(|| {
+        (instructions.len() as u64 * DEFAULT_COMPUTE_UNITS_PER_IX).min(MAX_COMPUTE_UNIT_LIMIT)
+    });
+    // Solana rounds up: (limit * price + 999_999) / 1_000_000
+    Ok(limit
+        .checked_mul(price)
+        .ok_or("SG_E049_OVERFLOW")?
+        .checked_add(999_999)
+        .ok_or("SG_E049_OVERFLOW")?
+        / 1_000_000)
+}
+
 pub fn calculate_spend(
     instructions: &[ParsedInstruction],
     vault_address: &[u8; 32],
@@ -528,17 +565,11 @@ pub fn calculate_spend(
         }
     }
 
-    if let (Some(limit), Some(price)) = (compute_limit, compute_price) {
-        // Solana rounds up: (limit * price + 999_999) / 1_000_000
-        let priority_fee = (limit as u64)
-            .checked_mul(price)
-            .ok_or("SG_E049_OVERFLOW")?
-            .checked_add(999_999)
-            .ok_or("SG_E049_OVERFLOW")?
-            / 1_000_000;
-
+    if compute_price.is_some() {
         // Add 5000 lamport base fee per signature (1 signature per tx)
-        let total_fee = priority_fee.checked_add(5_000).ok_or("SG_E050_OVERFLOW")?;
+        let total_fee = priority_fee_lamports(instructions)?
+            .checked_add(5_000)
+            .ok_or("SG_E050_OVERFLOW")?;
 
         *spend_map.entry(Mint::Sol).or_insert(0) = spend_map
             .get(&Mint::Sol)

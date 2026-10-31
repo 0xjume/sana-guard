@@ -90,9 +90,12 @@ Write tools return `{ requestId, idempotencyKey, signature, explorer, status, ne
 | `SG_E074_PROGRAM_NOT_ALLOWED` | Program not allowlisted | Stop |
 | `SG_E076_VAULT_NOT_ACTIVE` | Vault not Active | Stop |
 | `SG_E077_AGENT_EXISTS` | Agent name already taken | Owner-side only; you cannot AddAgent |
+| `SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH` | Total priority fee over policy max | Lower or drop the compute unit price |
 | `SANA_GUARD_MAX_PER_CALL` | Server ceiling | Stop; not a contract error |
 | `SANA_GUARD_MAINNET_REFUSED` | Mainnet not enabled | Stop |
 | `SANA_GUARD_UNACCOUNTABLE_TX` | Could not account for every fund movement | Stop; do not retry a different encoding |
+| `SANA_GUARD_IDEMPOTENCY_KEY_REUSED` | Key already used for a different transfer; nothing was signed | Use a new key for a new transfer |
+| `SANA_GUARD_BLOCKHASH_EXPIRED` | Transaction blockhash expired; nothing was signed | Rebuild with a fresh blockhash |
 
 If a write fails after a `requestId` / `idempotencyKey` was allocated — including broadcast or confirm failure after the NEAR `request_sign` already ran — the error includes `idempotencyKey`, `requestId` (when known), and the NEAR `nearTxHash` when the function call produced one. Poll `sana_guard_get_request` with that key. Do not submit a second request. Tell the owner they can Release if the request is stuck.
 
@@ -129,7 +132,7 @@ Agent: "The destination ATA is not allowlisted. Allowlisting the wallet is not e
 
 ```
 Agent write tool → alreadyExists / SG_E059_DUPLICATE_REQ_ID
-Agent: sana_guard_get_request { requestId } → return the original status/signature. Do not retry.
+Agent: sana_guard_get_request { requestId } → original status, Solana signature (base58), explorer. Do not retry.
 ```
 
 Do not suggest workarounds. Do not ask the user to loosen policy on your behalf. Do not log keys.

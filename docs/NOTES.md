@@ -154,11 +154,11 @@ Refs: `/home/box/solana-refs/solana-dev-skill/skills/solana-dev/references/conce
 | SPL Token | same | TransferChecked | u8 `12` + u64 amount + u8 decimals | [source (w), mint, dest (w), owner (s)] |
 | ATA | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` | CreateIdempotent | u8 `1` (or empty = Create) | [payer (s,w), ata (w), wallet, mint, system, token program] |
 | ComputeBudget | `ComputeBudget111111111111111111111111111111` | SetComputeUnitLimit `2` u32 / SetComputeUnitPrice `3` u64 µlamports | – | none |
-| Memo v2 | `MemoSq4gqABAXKb96qnH8TufNbR35NAkW8wK6xWmSLjU` (v1 `Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo`) | utf8 bytes | signer accounts only |
+| Memo | `Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo` (**Memo v1**. The guard constant is named `MEMO_V2_PROGRAM` but holds this v1 address; do not "correct" the contract without a coordinated deploy. Real Memo v2 is `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr` and is **not** allowlisted.) | utf8 bytes | signer accounts only |
 | Token-2022 | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | – | **rejected in MVP** (transfer hooks/fees) | |
 
   - **Signed-tx limit:** 1232 bytes *including* shortvec(sigs) + 64 bytes per sig, so a single-signer message must be ≤ 1167 bytes.
-  - The Memo v2 id and the SPL/ATA/ComputeBudget discriminators were **not re-checked against code this session**. Day-2 task: assert them with fixtures built by `@solana-program/system` and `@solana-program/token` and by omni-transaction.
+  - Memo: the contract `MEMO_V2_PROGRAM` bytes decode to Memo **v1** (`Memo1Uhk…`). The MCP/SDK must use that same address (`MEMO_PROGRAM` in the SDK). The previously listed Memo v2 id `MemoSq4gqABAXKb96qnH8TufNbR35NAkW8wK6xWmSLjU` was garbled (real v2 is `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`) and is not what the guard accepts.
 
 ## 5. Owner auth (Privy)
 
