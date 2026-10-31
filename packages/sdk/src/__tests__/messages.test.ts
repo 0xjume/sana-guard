@@ -6,6 +6,8 @@ import {
   encodeU64Le,
   encodeComputeUnitPriceData,
   extractRecentBlockhash,
+  encodeCompactU16,
+  MEMO_PROGRAM,
   U64_MAX,
 } from '../messages';
 import { SanaGuardError } from '../errors';
@@ -159,6 +161,33 @@ describe('Messages', () => {
     it('reads the blockhash compiled into the message', () => {
       const message = buildSolTransfer(from, to, BigInt(1000), blockhash, { version: 'v0' });
       expect(extractRecentBlockhash(message)).toBe(blockhash);
+    });
+  });
+
+  describe('MEMO_PROGRAM', () => {
+    it('is Memo v1 (the address the guard contract actually allowlists)', () => {
+      expect(MEMO_PROGRAM.toBase58()).toBe('Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo');
+    });
+  });
+
+  describe('encodeCompactU16 (Solana short_vec)', () => {
+    it('uses one or two bytes below 16384', () => {
+      expect([...encodeCompactU16(0)]).toEqual([0]);
+      expect([...encodeCompactU16(127)]).toEqual([127]);
+      expect([...encodeCompactU16(128)]).toEqual([0x80, 0x01]);
+      expect([...encodeCompactU16(16383)]).toEqual([0xff, 0x7f]);
+    });
+
+    it('uses canonical 7-bit continuation bytes for values >= 16384', () => {
+      // 16384 = 1 << 14 → [0x80, 0x80, 0x01], not the non-canonical [0xc0, 0x00, 0x01]
+      expect([...encodeCompactU16(16384)]).toEqual([0x80, 0x80, 0x01]);
+      expect([...encodeCompactU16(16384)]).not.toEqual([0xc0, 0x00, 0x01]);
+      expect([...encodeCompactU16(65535)]).toEqual([0xff, 0xff, 0x03]);
+    });
+
+    it('rejects values outside u16', () => {
+      expect(() => encodeCompactU16(-1)).toThrow(SanaGuardError);
+      expect(() => encodeCompactU16(65536)).toThrow(SanaGuardError);
     });
   });
 

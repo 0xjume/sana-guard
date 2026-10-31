@@ -72,26 +72,25 @@ function memoInstruction(memo: string, maxMemoLen: number): TransactionInstructi
 }
 
 /**
- * Compact-u16 encoding for Solana message format
+ * Compact-u16 / short_vec encoding for Solana message format.
+ * 7 payload bits per byte, 0x80 continuation, at most 3 bytes.
+ * Matches `solana_short_vec::encode_len` / the contract `read_compact_u16`.
  */
-function encodeCompactU16(n: number): Buffer {
+export function encodeCompactU16(n: number): Buffer {
   if (n < 0 || n > 65535) {
     throw new SanaGuardError('Compact-u16 out of range');
   }
 
-  if (n < 0x80) {
-    return Buffer.from([n]);
-  } else if (n < 0x4000) {
-    return Buffer.from([
-      (n & 0x7f) | 0x80,
-      (n >> 7) & 0xff,
-    ]);
-  } else {
-    return Buffer.from([
-      (n & 0x3f) | 0xc0,
-      (n >> 6) & 0xff,
-      (n >> 14) & 0xff,
-    ]);
+  const bytes: number[] = [];
+  let rem = n;
+  while (true) {
+    let elem = rem & 0x7f;
+    rem >>= 7;
+    if (rem === 0) {
+      bytes.push(elem);
+      return Buffer.from(bytes);
+    }
+    bytes.push(elem | 0x80);
   }
 }
 

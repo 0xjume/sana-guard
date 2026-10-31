@@ -14,6 +14,7 @@ import { parseAmountString } from "./amounts.js";
 import { toolError, toolOk } from "./errors.js";
 import { checkTransfer } from "./policyCheck.js";
 import { checkSignMessage } from "./outflow.js";
+import { solanaSignatureBase58 } from "./signature.js";
 import { decodeBase64Tx } from "./tx.js";
 import type { GuardRuntime } from "./runtime.js";
 
@@ -60,7 +61,18 @@ function writeFailure(error: unknown, idempotencyKey: string) {
   return toolError(error, { idempotencyKey, requestId: idempotencyKey });
 }
 
-function existingRequestResult(requestId: string, request: SignRequestView) {
+function requestSignatureFields(runtime: GuardRuntime, signature?: string) {
+  const solanaSig = solanaSignatureBase58(signature);
+  if (!solanaSig) {
+    return {};
+  }
+  return {
+    signature: solanaSig,
+    explorer: explorerFor(runtime, solanaSig),
+  };
+}
+
+function existingRequestResult(runtime: GuardRuntime, requestId: string, request: SignRequestView) {
   return toolOk({
     ok: true,
     alreadyExists: true,
@@ -72,9 +84,9 @@ function existingRequestResult(requestId: string, request: SignRequestView) {
     agent: request.agent,
     msgHash: request.msgHash,
     status: request.status,
-    signature: request.signature,
     createdNs: request.createdNs.toString(),
     spend: request.spend.map((row) => ({ mint: row.mint, amount: row.amount.toString() })),
+    ...requestSignatureFields(runtime, request.signature),
   });
 }
 
@@ -95,7 +107,7 @@ export function createToolHandlers(runtime: GuardRuntime) {
     if (!request) {
       return undefined;
     }
-    return existingRequestResult(idempotencyKey, request);
+    return existingRequestResult(runtime, idempotencyKey, request);
   }
 
   return {
@@ -355,9 +367,9 @@ export function createToolHandlers(runtime: GuardRuntime) {
           agent: request.agent,
           msgHash: request.msgHash,
           status: request.status,
-          signature: request.signature,
           createdNs: request.createdNs.toString(),
           spend: request.spend.map((row) => ({ mint: row.mint, amount: row.amount.toString() })),
+          ...requestSignatureFields(runtime, request.signature),
         });
       } catch (error) {
         return toolError(error);

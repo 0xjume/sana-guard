@@ -39,6 +39,7 @@ export {
   MEMO_PROGRAM,
   U64_MAX,
   encodeU64Le,
+  encodeCompactU16,
   encodeComputeUnitPriceData,
   setComputeUnitPriceInstruction,
   buildSolTransfer,

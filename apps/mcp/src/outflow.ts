@@ -3,15 +3,13 @@ import bs58 from "bs58";
 import {
   ATA_PROGRAM,
   COMPUTE_BUDGET_PROGRAM,
+  MEMO_PROGRAM,
   SYSTEM_PROGRAM,
   TOKEN_PROGRAM,
   type VaultView,
 } from "@sana-guard/sdk";
 import { SERVER_MAX_CODE, UNACCOUNTABLE_CODE } from "./errors.js";
 import { findLimit, normalizeSpendMint, spentFor, type CheckReason } from "./policyCheck.js";
-
-/** Memo v2 — the only memo program the contract parser accepts. */
-export const MEMO_V2_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
 const ATA_RENT_LAMPORTS = 2_039_280n;
 const SIGNATURE_BASE_FEE = 5_000n;
@@ -299,7 +297,8 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
       return fail("SG_E034_CB_UNSUPPORTED", "Unsupported ComputeBudget instruction");
     }
 
-    if (keysEqual(program, MEMO_V2_PROGRAM)) {
+    // Same address the guard allowlists (`MEMO_V2_PROGRAM` in the contract is Memo v1).
+    if (keysEqual(program, MEMO_PROGRAM)) {
       try {
         new TextDecoder("utf-8", { fatal: true }).decode(ix.data);
       } catch {

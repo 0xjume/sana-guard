@@ -5,7 +5,13 @@ import {
   SystemProgram,
 } from "@solana/web3.js";
 import { createTransferInstruction, createTransferCheckedInstruction } from "@solana/spl-token";
-import { buildSolTransfer, buildTokenTransfer, SYSTEM_PROGRAM, TOKEN_PROGRAM } from "@sana-guard/sdk";
+import {
+  MEMO_PROGRAM,
+  buildSolTransfer,
+  buildTokenTransfer,
+  SYSTEM_PROGRAM,
+  TOKEN_PROGRAM,
+} from "@sana-guard/sdk";
 import { describe, expect, it } from "vitest";
 import { SERVER_MAX_CODE } from "./errors.js";
 import { accountVaultOutflow, checkSignMessage } from "./outflow.js";
@@ -158,6 +164,40 @@ describe("accountVaultOutflow", () => {
       return;
     }
     expect(result.spend[0]).toEqual({ mint: mint.toBase58(), amount: 7n });
+  });
+
+  it("accepts an SDK memo (Memo v1, same as the guard constant)", () => {
+    expect(MEMO_PROGRAM.toBase58()).toBe("Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo");
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      memo: "payout",
+    });
+    const result = accountVaultOutflow(message, vaultAddress);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.programs).toContain(MEMO_PROGRAM.toBase58());
+  });
+
+  it("rejects the real Memo v2 program as unaccountable", () => {
+    const memoV2 = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+    const ix = new TransactionInstruction({
+      keys: [],
+      programId: memoV2,
+      data: Buffer.from("payout"),
+    });
+    const compiled = new TransactionMessage({
+      payerKey: vaultAddress,
+      recentBlockhash: blockhash,
+      instructions: [ix],
+    }).compileToV0Message();
+    const result = accountVaultOutflow(compiled.serialize(), vaultAddress);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe("SG_E018_UNKNOWN_PROGRAM");
   });
 });
 
