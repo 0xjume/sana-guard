@@ -15,6 +15,7 @@ import { parseAmountString } from "./amounts.js";
 import { BLOCKHASH_EXPIRED_CODE, KEY_REUSED_CODE, toolError, toolOk, whyForCode } from "./errors.js";
 import { checkTransfer } from "./policyCheck.js";
 import { checkSignMessage } from "./outflow.js";
+import { solanaSignatureBase58 } from "./signature.js";
 import { decodeBase64Tx } from "./tx.js";
 import type { GuardRuntime } from "./runtime.js";
 
@@ -61,7 +62,18 @@ function writeFailure(error: unknown, idempotencyKey: string) {
   return toolError(error, { idempotencyKey, requestId: idempotencyKey });
 }
 
-function existingRequestResult(requestId: string, request: SignRequestView) {
+function requestSignatureFields(runtime: GuardRuntime, signature?: string) {
+  const solanaSig = solanaSignatureBase58(signature);
+  if (!solanaSig) {
+    return {};
+  }
+  return {
+    signature: solanaSig,
+    explorer: explorerFor(runtime, solanaSig),
+  };
+}
+
+function existingRequestResult(runtime: GuardRuntime, requestId: string, request: SignRequestView) {
   return toolOk({
     ok: true,
     alreadyExists: true,
@@ -73,9 +85,9 @@ function existingRequestResult(requestId: string, request: SignRequestView) {
     agent: request.agent,
     msgHash: request.msgHash,
     status: request.status,
-    signature: request.signature,
     createdNs: request.createdNs.toString(),
     spend: request.spend.map((row) => ({ mint: row.mint, amount: row.amount.toString() })),
+    ...requestSignatureFields(runtime, request.signature),
   });
 }
 
@@ -120,7 +132,21 @@ export function createToolHandlers(runtime: GuardRuntime) {
         true
       );
     }
-    return existingRequestResult(idempotencyKey, request);
+    return existingRequestResult(runtime, idempotencyKey, request);
+  }
+
+  async function precheckBuiltMessage(message: Uint8Array) {
+    const { vault, spend24h, recipients } = await loadPolicyContext();
+    return checkSignMessage({
+      message,
+      vaultAddress: runtime.vaultAddress,
+      vault,
+      spend24h,
+      recipients,
+      nowNs: runtime.nowNs(),
+      maxLamportsPerCall: runtime.config.maxLamportsPerCall,
+      maxTokenAmountPerCall: runtime.config.maxTokenAmountPerCall,
+    });
   }
 
   /** Same single-mint spend as an SDK-built transfer (no compute budget instructions). */
@@ -263,8 +289,13 @@ export function createToolHandlers(runtime: GuardRuntime) {
           new PublicKey(args.to),
           amount,
           blockhash,
-          { version: "v0", memo: args.memo }
+          // Let the outflow path emit SG_E073 / SG_E074; do not fail in the SDK builder first.
+          { version: "v0", memo: args.memo, maxMemoLen: 65535 }
         );
+        const preSign = await precheckBuiltMessage(message);
+        if (!preSign.wouldPass) {
+          return toolOk(preSign, true);
+        }
         const broadcast = await runtime.client.requestSignAndBroadcast({
           vaultId,
           message,
@@ -316,8 +347,12 @@ export function createToolHandlers(runtime: GuardRuntime) {
           fromTokenAccount,
           toTokenAccount,
           blockhash,
-          { version: "v0", createAta: false, memo: args.memo }
+          { version: "v0", createAta: false, memo: args.memo, maxMemoLen: 65535 }
         );
+        const preSign = await precheckBuiltMessage(message);
+        if (!preSign.wouldPass) {
+          return toolOk(preSign, true);
+        }
         const broadcast = await runtime.client.requestSignAndBroadcast({
           vaultId,
           message,
@@ -362,17 +397,7 @@ export function createToolHandlers(runtime: GuardRuntime) {
             true
           );
         }
-        const { vault, spend24h, recipients } = await loadPolicyContext();
-        const pre = await checkSignMessage({
-          message,
-          vaultAddress: runtime.vaultAddress,
-          vault,
-          spend24h,
-          recipients,
-          nowNs: runtime.nowNs(),
-          maxLamportsPerCall: runtime.config.maxLamportsPerCall,
-          maxTokenAmountPerCall: runtime.config.maxTokenAmountPerCall,
-        });
+        const pre = await precheckBuiltMessage(message);
         if (!pre.wouldPass) {
           return toolOk(pre, true);
         }
@@ -408,9 +433,9 @@ export function createToolHandlers(runtime: GuardRuntime) {
           agent: request.agent,
           msgHash: request.msgHash,
           status: request.status,
-          signature: request.signature,
           createdNs: request.createdNs.toString(),
           spend: request.spend.map((row) => ({ mint: row.mint, amount: row.amount.toString() })),
+          ...requestSignatureFields(runtime, request.signature),
         });
       } catch (error) {
         return toolError(error);

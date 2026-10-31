@@ -132,7 +132,7 @@ Agent: "The destination ATA is not allowlisted. Allowlisting the wallet is not e
 
 ```
 Agent write tool → alreadyExists / SG_E059_DUPLICATE_REQ_ID
-Agent: sana_guard_get_request { requestId } → return the original status/signature. Do not retry.
+Agent: sana_guard_get_request { requestId } → original status, Solana signature (base58), explorer. Do not retry.
 ```
 
 Do not suggest workarounds. Do not ask the user to loosen policy on your behalf. Do not log keys.
