@@ -99,3 +99,84 @@ jobs:
 
       - name: SDK test
         run: pnpm --filter @sana-guard/sdk test
+
+  # Separate from the typescript job so SDK steps stay isolated.
+  relay:
+    name: Relay (lint, typecheck, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --filter @sana-guard/relay lint
+
+      - name: Type check
+        run: pnpm --filter @sana-guard/relay typecheck
+
+      - name: Test
+        run: LOG_LEVEL=error pnpm --filter @sana-guard/relay test
+
+  # Isolated from the typescript job (SDK) and from the relay unit job.
+  relay-docker:
+    name: Relay (docker build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build relay image
+        run: docker build -f apps/relay/Dockerfile -t sana-guard-relay .
+
+      - name: Run image and curl /v1/health
+        run: |
+          set -euo pipefail
+          # Throwaway key, generated in this job. Never committed.
+          KEY=$(docker run --rm --entrypoint node sana-guard-relay --input-type=module -e \
+            "import { KeyPair } from 'near-api-js'; process.stdout.write(KeyPair.fromRandom('ed25519').toString());")
+          docker run -d --name sana-relay-ci -p 127.0.0.1:3000:3000 \
+            -e RELAY_ACCOUNT_ID=relay.ci.testnet \
+            -e RELAY_NEAR_PRIVATE_KEY="$KEY" \
+            -e DATABASE_URL=sqlite:/tmp/relay.db \
+            -e LOG_LEVEL=error \
+            -e NEAR_RPC_URL=http://127.0.0.1:9 \
+            sana-guard-relay
+          unset KEY
+          trap 'docker logs sana-relay-ci || true; docker stop sana-relay-ci >/dev/null || true' EXIT
+          ok=0
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /tmp/relay-health.json -w "%{http_code}" http://127.0.0.1:3000/v1/health || true)
+            if [ "$code" = "200" ] || [ "$code" = "503" ]; then
+              echo "health HTTP $code"
+              python3 - "$code" <<'PY'
+          import json, sys
+          code = sys.argv[1]
+          body = json.load(open("/tmp/relay-health.json"))
+          status = body.get("status")
+          assert status in ("healthy", "degraded", "unhealthy"), body
+          if status == "unhealthy":
+              assert code == "503", code
+              assert isinstance(body.get("error"), str) and body["error"], body
+          else:
+              assert code in ("200", "503"), code
+              assert "relayBalanceNear" in body, body
+              assert "relayBalanceFloor" in body, body
+              assert body.get("network") in ("testnet", "mainnet"), body
+              assert isinstance(body.get("guardContract"), str) and body["guardContract"], body
+          print("health body ok:", body)
+          PY
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ok" = "1"
