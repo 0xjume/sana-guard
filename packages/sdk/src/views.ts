@@ -1,6 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
-import { Contract, Account as NearAccount } from 'near-api-js';
-import { VaultView, SignRequestView, Policy, VaultState } from './types';
+import { Account as NearAccount } from 'near-api-js';
+import { VaultView, SignRequestView, SignRequestStatus, Policy, VaultState, Mint } from './types';
 import { SanaGuardError } from './errors';
 
 const VAULT_STATES: readonly VaultState[] = ['PendingVerification', 'Active'];
@@ -12,34 +12,69 @@ function parseVaultState(state: unknown): VaultState {
   throw new SanaGuardError(`Invalid or missing vault state: ${String(state)}`);
 }
 
+// Raw JSON shapes returned by the contract's view methods (snake_case, u64 as string or number).
+type RawU64 = string | number;
+type RawMint = 'Sol' | { Spl: number[] };
+
+interface RawPolicy {
+  per_tx_limit: Array<[RawMint, RawU64]>;
+  daily_cap: Array<[RawMint, RawU64]>;
+  programs: string[];
+  max_priority_fee_lamports: RawU64;
+  max_total_priority_fee_lamports?: RawU64 | null;
+  max_memo_len: number;
+  expires_at_ns: RawU64;
+  loosen_delay_ns: RawU64;
+}
+
+interface RawVaultView {
+  owner: string;
+  vault_address: string;
+  path: string;
+  agents: string[];
+  policy: RawPolicy;
+  pending_loosen?: { policy: RawPolicy; effective_ns: RawU64 } | null;
+  paused: boolean;
+  state: unknown;
+}
+
+interface RawSignRequestView {
+  vault_id: number;
+  agent: string;
+  msg_hash: string;
+  spend: Array<[string, RawU64]>;
+  hour: number;
+  status: SignRequestStatus;
+  signature?: string | null;
+  created_ns: RawU64;
+}
+
+function parseMint(mint: RawMint): Mint {
+  return mint === 'Sol'
+    ? { type: 'sol' }
+    : { type: 'spl', address: new PublicKey(Buffer.from(mint.Spl)) };
+}
+
 /**
  * Parse a policy from the contract JSON format
  */
-function parsePolicy(policy: any): Policy {
+function parsePolicy(policy: RawPolicy): Policy {
   return {
-    perTxLimit: policy.per_tx_limit.map((item: any) => {
-      const [mint, amount] = item;
-      return {
-        mint: typeof mint === 'string' && mint === 'Sol'
-          ? { type: 'sol' as const }
-          : { type: 'spl' as const, address: new PublicKey(Buffer.from(mint.Spl)) },
-        amount: BigInt(amount),
-      };
-    }),
-    dailyCap: policy.daily_cap.map((item: any) => {
-      const [mint, amount] = item;
-      return {
-        mint: typeof mint === 'string' && mint === 'Sol'
-          ? { type: 'sol' as const }
-          : { type: 'spl' as const, address: new PublicKey(Buffer.from(mint.Spl)) },
-        amount: BigInt(amount),
-      };
-    }),
+    perTxLimit: policy.per_tx_limit.map(([mint, amount]) => ({
+      mint: parseMint(mint),
+      amount: BigInt(amount),
+    })),
+    dailyCap: policy.daily_cap.map(([mint, amount]) => ({
+      mint: parseMint(mint),
+      amount: BigInt(amount),
+    })),
     programs: policy.programs,
     maxPriorityFeeLamports: BigInt(policy.max_priority_fee_lamports),
-    maxTotalPriorityFeeLamports: policy.max_total_priority_fee_lamports !== undefined && policy.max_total_priority_fee_lamports !== null
-      ? BigInt(policy.max_total_priority_fee_lamports)
-      : undefined,
+    maxTotalPriorityFeeLamports:
+      policy.max_total_priority_fee_lamports !== undefined &&
+      policy.max_total_priority_fee_lamports !== null
+        ? BigInt(policy.max_total_priority_fee_lamports)
+        : undefined,
     maxMemoLen: policy.max_memo_len,
     expiresAtNs: BigInt(policy.expires_at_ns),
     loosenDelayNs: BigInt(policy.loosen_delay_ns),
@@ -108,64 +143,52 @@ export function parseSpend24hJson(text: string): Array<{ mint: string; amount: b
 
 /**
  * Sana Guard Views
- * 
+ *
  * Read-only queries to the NEAR contract
  */
-export class Views {
-  private contract: Contract;
+function parseVaultView(raw: RawVaultView): VaultView {
+  return {
+    owner: raw.owner,
+    vaultAddress: raw.vault_address,
+    path: raw.path,
+    agents: raw.agents,
+    policy: parsePolicy(raw.policy),
+    pendingLoosen: raw.pending_loosen
+      ? {
+          policy: parsePolicy(raw.pending_loosen.policy),
+          effectiveNs: BigInt(raw.pending_loosen.effective_ns),
+        }
+      : undefined,
+    paused: raw.paused,
+    state: parseVaultState(raw.state),
+  };
+}
 
+export class Views {
   constructor(
     private readonly nearAccount: NearAccount,
     private readonly guardContract: string
-  ) {
-    this.contract = new Contract(nearAccount, guardContract, {
-      viewMethods: [
-        'get_vault',
-        'get_policy',
-        'get_request',
-        'get_spend_24h',
-        'get_recipients',
-        'list_vaults',
-        'supported_programs',
-        'owner_nonce',
-      ],
-      changeMethods: [],
-      useLocalViewExecution: false,
-    });
+  ) {}
+
+  private view<T>(methodName: string, args: Record<string, unknown> = {}): Promise<T> {
+    return this.nearAccount.viewFunction({ contractId: this.guardContract, methodName, args });
   }
 
   /**
    * Get vault by ID
    */
   async getVault(vaultId: number): Promise<VaultView | null> {
-    const result: any = await (this.contract as any).get_vault({ vault_id: vaultId });
-
-    if (!result) {
-      return null;
-    }
-
-    return {
-      owner: result.owner,
-      vaultAddress: result.vault_address,
-      path: result.path,
-      agents: result.agents,
-      policy: parsePolicy(result.policy),
-      pendingLoosen: result.pending_loosen
-        ? {
-            policy: parsePolicy(result.pending_loosen.policy),
-            effectiveNs: BigInt(result.pending_loosen.effective_ns),
-          }
-        : undefined,
-      paused: result.paused,
-      state: parseVaultState(result.state),
-    };
+    const result = await this.view<RawVaultView | null>('get_vault', { vault_id: vaultId });
+    return result ? parseVaultView(result) : null;
   }
 
   /**
    * Get sign request by hex ID
    */
   async getRequest(reqIdHex: string): Promise<SignRequestView | null> {
-    const result: any = await (this.contract as any).get_request({ req_id_hex: reqIdHex });
+    const result = await this.view<RawSignRequestView | null>('get_request', {
+      req_id_hex: reqIdHex,
+    });
 
     if (!result) {
       return null;
@@ -175,13 +198,10 @@ export class Views {
       vaultId: result.vault_id,
       agent: result.agent,
       msgHash: result.msg_hash,
-      spend: result.spend.map((item: any) => ({
-        mint: item[0],
-        amount: BigInt(item[1]),
-      })),
+      spend: result.spend.map(([mint, amount]) => ({ mint, amount: BigInt(amount) })),
       hour: result.hour,
       status: result.status,
-      signature: result.signature,
+      signature: result.signature ?? undefined,
       createdNs: BigInt(result.created_ns),
     };
   }
@@ -204,15 +224,14 @@ export class Views {
    * Get owner nonce (for signing admin messages)
    */
   async getNonce(ownerB58: string): Promise<number> {
-    const result: any = await (this.contract as any).owner_nonce({ owner_b58: ownerB58 });
-    return result;
+    return this.view<number>('owner_nonce', { owner_b58: ownerB58 });
   }
 
   /**
    * Get recipients for a vault
    */
   async getRecipients(vaultId: number, fromIndex?: number, limit?: number): Promise<string[]> {
-    const result: any = await (this.contract as any).get_recipients({
+    const result = await this.view<string[] | null>('get_recipients', {
       vault_id: vaultId,
       from_index: fromIndex,
       limit,
@@ -223,40 +242,24 @@ export class Views {
   /**
    * List vaults with pagination
    */
-  async listVaults(from?: number, limit?: number): Promise<Array<{ id: number; vault: VaultView }>> {
-    const result: any = await (this.contract as any).list_vaults({ from, limit });
-
-    return result.map((item: any) => ({
-      id: item[0],
-      vault: {
-        owner: item[1].owner,
-        vaultAddress: item[1].vault_address,
-        path: item[1].path,
-        agents: item[1].agents,
-        policy: parsePolicy(item[1].policy),
-        pendingLoosen: item[1].pending_loosen
-          ? {
-              policy: parsePolicy(item[1].pending_loosen.policy),
-              effectiveNs: BigInt(item[1].pending_loosen.effective_ns),
-            }
-          : undefined,
-        paused: item[1].paused,
-        state: parseVaultState(item[1].state),
-      },
-    }));
+  async listVaults(
+    from?: number,
+    limit?: number
+  ): Promise<Array<{ id: number; vault: VaultView }>> {
+    const result = await this.view<Array<[number, RawVaultView]>>('list_vaults', { from, limit });
+    return result.map(([id, vault]) => ({ id, vault: parseVaultView(vault) }));
   }
 
   /**
    * Get supported programs
    */
   async supportedPrograms(): Promise<string[]> {
-    const result: any = await (this.contract as any).supported_programs();
-    return result;
+    return this.view<string[]>('supported_programs');
   }
 
   /**
    * Derive vault address via MPC derived_public_key
-   * 
+   *
    * @param mpcContract - MPC signer contract (e.g. v1.signer-prod.testnet)
    * @param ownerPublicKey - Owner's Solana public key (base58)
    * @param vaultIndex - Vault index (from owner_vault_count)
@@ -271,16 +274,10 @@ export class Views {
   ): Promise<PublicKey> {
     const path = `vault/${ownerPublicKey}/${vaultIndex}`;
 
-    const mpc = new Contract(this.nearAccount, mpcContract, {
-      viewMethods: ['derived_public_key'],
-      changeMethods: [],
-      useLocalViewExecution: false,
-    });
-
-    const result: any = await (mpc as any).derived_public_key({
-      path,
-      predecessor: this.guardContract,
-      domain_id: mpcDomainId,
+    const result: unknown = await this.nearAccount.viewFunction({
+      contractId: mpcContract,
+      methodName: 'derived_public_key',
+      args: { path, predecessor: this.guardContract, domain_id: mpcDomainId },
     });
 
     if (!result || typeof result !== 'string' || !result.startsWith('ed25519:')) {
