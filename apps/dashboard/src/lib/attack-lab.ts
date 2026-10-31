@@ -1,25 +1,28 @@
+import { PublicKey, TransactionInstruction, TransactionMessage } from '@solana/web3.js';
 import {
-  PublicKey,
-  SystemProgram,
-  TransactionInstruction,
-  TransactionMessage,
-} from '@solana/web3.js';
+  ATA_PROGRAM,
+  MEMO_PROGRAM,
+  SYSTEM_PROGRAM,
+  TOKEN_PROGRAM,
+  buildSolTransfer,
+  encodeCompactU16,
+  encodeU64Le,
+} from '@sana-guard/sdk';
 import bs58 from 'bs58';
-import { buildSolTransfer, encodeCompactU16, TOKEN_PROGRAM, type Policy } from '@sana-guard/sdk';
+import type { Policy } from '@sana-guard/sdk';
+import { evaluateSignPayload, rejectionCode } from './guard-policy-eval';
 
 export type AttackKind =
   | 'over_per_tx_limit'
   | 'non_allowlisted_recipient'
   | 'disallowed_program'
-  | 'oversized_priority_fee'
-  | 'replay_idempotency';
+  | 'oversized_priority_fee';
 
 export const ATTACK_KINDS: AttackKind[] = [
   'over_per_tx_limit',
   'non_allowlisted_recipient',
   'disallowed_program',
   'oversized_priority_fee',
-  'replay_idempotency',
 ];
 
 export const ATTACK_LABELS: Record<AttackKind, string> = {
@@ -27,7 +30,6 @@ export const ATTACK_LABELS: Record<AttackKind, string> = {
   non_allowlisted_recipient: 'Non-allowlisted recipient',
   disallowed_program: 'Disallowed program',
   oversized_priority_fee: 'Oversized priority fee',
-  replay_idempotency: 'Replay idempotency key',
 };
 
 export const ATTACK_EXPECTED: Record<AttackKind, string> = {
@@ -35,25 +37,34 @@ export const ATTACK_EXPECTED: Record<AttackKind, string> = {
   non_allowlisted_recipient: 'SG_E067_RECIPIENT_NOT_ALLOWED',
   disallowed_program: 'SG_E074_PROGRAM_NOT_ALLOWED',
   oversized_priority_fee: 'SG_E072_PRIORITY_FEE_TOO_HIGH',
-  replay_idempotency: 'SG_E059_DUPLICATE_REQ_ID',
 };
 
 export const BURN_ADDRESS = '1nc1nerator11111111111111111111111111111111';
+const DUMMY_MINT = 'So11111111111111111111111111111111111111112';
+
+const PROBE_PROGRAMS = [TOKEN_PROGRAM.toBase58(), ATA_PROGRAM.toBase58(), MEMO_PROGRAM.toBase58()];
 
 export function solPerTxLimit(policy: Policy): bigint {
   const row = policy.perTxLimit.find((item) => item.mint.type === 'sol');
   return row?.amount ?? 0n;
 }
 
-export function pickDisallowedProgram(policy: Policy): string {
-  if (!policy.programs.includes(TOKEN_PROGRAM.toBase58())) {
-    return TOKEN_PROGRAM.toBase58();
-  }
-  return 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+/**
+ * Contract E072 is `micro_lamports > max_priority_fee_lamports * 1_000_000`
+ * (policy.rs), not a derived (cap+1)*1e6/limit price. The latter is ~71k vs 1e11
+ * for a 100k-lamport cap and would be signed.
+ */
+export function oversizedPriorityFeePrice(policy: Policy): bigint {
+  return policy.maxPriorityFeeLamports * 1_000_000n + 1n;
 }
 
-export function replayIdempotencyKey(): string {
-  return 'aa'.repeat(32);
+export function pickDisallowedProgram(policy: Policy): string {
+  const allowed = new Set(policy.programs);
+  const probe = PROBE_PROGRAMS.find((program) => !allowed.has(program));
+  if (!probe) {
+    throw new Error('Every supported probe program is already allowlisted');
+  }
+  return probe;
 }
 
 function serializeLegacyMessage(message: ReturnType<TransactionMessage['compileToLegacyMessage']>) {
@@ -63,7 +74,7 @@ function serializeLegacyMessage(message: ReturnType<TransactionMessage['compileT
     message.header.numReadonlyUnsignedAccounts,
   ]);
   const keysLength = encodeCompactU16(message.staticAccountKeys.length);
-  const keys = Buffer.concat(message.staticAccountKeys.map((key) => key.toBuffer()));
+  const keys = Buffer.concat(message.staticAccountKeys.map((item) => item.toBuffer()));
   const blockhash = Buffer.from(bs58.decode(message.recentBlockhash));
   const ixLen = encodeCompactU16(message.compiledInstructions.length);
   const ixBufs = message.compiledInstructions.map((ix) => {
@@ -82,25 +93,73 @@ function serializeLegacyMessage(message: ReturnType<TransactionMessage['compileT
   return Buffer.concat([header, keysLength, keys, blockhash, ixLen, ...ixBufs]);
 }
 
-export function buildProgramProbeMessage(
+function compileLegacy(
   from: PublicKey,
-  to: PublicKey,
-  program: PublicKey,
-  recentBlockhash: string
+  recentBlockhash: string,
+  instructions: TransactionInstruction[]
 ): Uint8Array {
   const message = new TransactionMessage({
     payerKey: from,
     recentBlockhash,
-    instructions: [
-      SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports: 1n }),
-      new TransactionInstruction({
-        keys: [{ pubkey: from, isSigner: true, isWritable: true }],
-        programId: program,
-        data: Buffer.from([0]),
-      }),
-    ],
+    instructions,
   }).compileToLegacyMessage();
   return serializeLegacyMessage(message);
+}
+
+function tokenTransferCheckedIx(from: PublicKey, to: PublicKey, mint: PublicKey) {
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: from, isSigner: false, isWritable: true },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: to, isSigner: false, isWritable: true },
+      { pubkey: from, isSigner: true, isWritable: false },
+    ],
+    programId: TOKEN_PROGRAM,
+    data: Buffer.concat([Buffer.from([12]), encodeU64Le(1n), Buffer.from([6])]),
+  });
+}
+
+function ataCreateIx(from: PublicKey, ata: PublicKey, wallet: PublicKey, mint: PublicKey) {
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: from, isSigner: true, isWritable: true },
+      { pubkey: ata, isSigner: false, isWritable: true },
+      { pubkey: wallet, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: ATA_PROGRAM,
+    data: Buffer.from([1]),
+  });
+}
+
+function memoIx() {
+  return new TransactionInstruction({
+    keys: [],
+    programId: MEMO_PROGRAM,
+    data: Buffer.from('x'),
+  });
+}
+
+export function buildDisallowedProgramMessage(
+  from: PublicKey,
+  to: PublicKey,
+  policy: Policy,
+  recentBlockhash: string
+): Uint8Array {
+  const program = pickDisallowedProgram(policy);
+  const mint = new PublicKey(DUMMY_MINT);
+  if (program === TOKEN_PROGRAM.toBase58()) {
+    return compileLegacy(from, recentBlockhash, [tokenTransferCheckedIx(from, to, mint)]);
+  }
+  if (program === ATA_PROGRAM.toBase58()) {
+    return compileLegacy(from, recentBlockhash, [ataCreateIx(from, to, from, mint)]);
+  }
+  if (program === MEMO_PROGRAM.toBase58()) {
+    return compileLegacy(from, recentBlockhash, [memoIx()]);
+  }
+  throw new Error(`Unsupported probe program ${program}`);
 }
 
 export function buildAttackMessage(args: {
@@ -123,17 +182,24 @@ export function buildAttackMessage(args: {
   }
 
   if (args.kind === 'disallowed_program') {
-    const program = new PublicKey(pickDisallowedProgram(args.policy));
     const to = new PublicKey(args.allowlistedRecipient ?? BURN_ADDRESS);
-    return buildProgramProbeMessage(from, to, program, args.recentBlockhash);
+    return buildDisallowedProgramMessage(from, to, args.policy, args.recentBlockhash);
   }
 
   const to = new PublicKey(args.allowlistedRecipient ?? BURN_ADDRESS);
-  const cap = args.policy.maxPriorityFeeLamports;
-  const units = 1_400_000;
-  const price = ((cap + 1n) * 1_000_000n) / BigInt(units) + 1n;
   return buildSolTransfer(from, to, 1n, args.recentBlockhash, {
-    computeUnitLimit: units,
-    computeUnitPrice: price,
+    computeUnitPrice: oversizedPriorityFeePrice(args.policy),
   });
+}
+
+export function expectedRejectionForMessage(
+  kind: AttackKind,
+  message: Uint8Array,
+  args: { vaultAddress: string; policy: Policy; recipients: string[] }
+): string {
+  const code = rejectionCode(evaluateSignPayload(message, args));
+  if (!code) {
+    throw new Error(`${kind} payload would be accepted by the contract policy checks`);
+  }
+  return code;
 }

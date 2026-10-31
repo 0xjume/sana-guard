@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Policy } from '@sana-guard/sdk';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
-import { useInviteToken } from '@/hooks/use-invite-token';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { formatDurationNs } from '@/lib/format';
 import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/lib/policy';
@@ -29,7 +28,6 @@ export function PolicyEditor({
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
-  const invite = useInviteToken();
   const [values, setValues] = useState<PolicyFormValues>(() => formFromPolicy(policy));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<GuardActionError | null>(null);
@@ -41,11 +39,11 @@ export function PolicyEditor({
 
   const nextPolicy = useMemo(() => {
     try {
-      return policyFromForm(values);
+      return policyFromForm(values, policy);
     } catch {
       return null;
     }
-  }, [values]);
+  }, [values, policy]);
 
   const reasons = nextPolicy ? policyLoosenReasons(nextPolicy, policy) : [];
   const stricter = nextPolicy ? isPolicyStricter(nextPolicy, policy) : false;
@@ -58,11 +56,10 @@ export function PolicyEditor({
     setError(null);
     setTxHash(null);
     try {
-      const result = await ownerActionHelpers(
-        session.owner,
-        session.signer,
-        invite.token
-      ).setPolicy(vaultId, nextPolicy);
+      const result = await ownerActionHelpers(session.owner, session.signer).setPolicy(
+        vaultId,
+        nextPolicy
+      );
       if (result.success) {
         setTxHash(result.txHash);
         onUpdated?.();
@@ -135,6 +132,12 @@ export function PolicyEditor({
           <input className="field mt-1" type="datetime-local" {...field('expiresAtLocal')} />
         </label>
       </div>
+      {policy.perTxLimit.some((item) => item.mint.type !== 'sol') ||
+      policy.dailyCap.some((item) => item.mint.type !== 'sol') ? (
+        <p className="text-xs text-parchment-400">
+          Existing SPL token limits are preserved on save. This editor only changes the SOL rows.
+        </p>
+      ) : null}
       <fieldset>
         <legend className="text-xs text-parchment-400">Allowed programs</legend>
         <div className="mt-2 flex flex-wrap gap-3">

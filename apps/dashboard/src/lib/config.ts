@@ -10,7 +10,7 @@ export interface PublicDashboardConfig {
   mpcDomainId: number;
   relayUrl: string;
   solanaRpcUrl: string;
-  defaultInviteToken: string | null;
+  configError: string | null;
 }
 
 function trim(value: string | undefined): string | null {
@@ -18,20 +18,29 @@ function trim(value: string | undefined): string | null {
   return next ? next : null;
 }
 
-export function loadPublicConfig(): PublicDashboardConfig {
-  const nearNetwork = (trim(process.env.NEXT_PUBLIC_NEAR_NETWORK) ?? 'testnet') as NearNetwork;
+export function loadPublicConfig(env: NodeJS.ProcessEnv = process.env): PublicDashboardConfig {
+  const requested = trim(env.NEXT_PUBLIC_NEAR_NETWORK) ?? 'testnet';
+  const nearNetwork: NearNetwork = requested === 'mainnet' ? 'mainnet' : 'testnet';
+  const guardContract = trim(env.NEXT_PUBLIC_GUARD_CONTRACT);
+  const nearRpcUrl = trim(env.NEXT_PUBLIC_NEAR_RPC);
+
+  let configError: string | null = null;
+  if (nearNetwork === 'mainnet' && (!guardContract || !nearRpcUrl)) {
+    configError =
+      'Mainnet requires NEXT_PUBLIC_GUARD_CONTRACT and NEXT_PUBLIC_NEAR_RPC. Testnet defaults are not used.';
+  }
+
   return {
-    privyAppId: trim(process.env.NEXT_PUBLIC_PRIVY_APP_ID),
-    privyClientId: trim(process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID),
-    nearNetwork: nearNetwork === 'mainnet' ? 'mainnet' : 'testnet',
-    guardContract: trim(process.env.NEXT_PUBLIC_GUARD_CONTRACT) ?? 'guard.djume.testnet',
-    nearRpcUrl: trim(process.env.NEXT_PUBLIC_NEAR_RPC) ?? 'https://rpc.testnet.near.org',
-    mpcContract: trim(process.env.NEXT_PUBLIC_MPC_CONTRACT) ?? 'v1.signer-prod.testnet',
-    mpcDomainId: Number(trim(process.env.NEXT_PUBLIC_MPC_DOMAIN_ID) ?? '1'),
-    relayUrl:
-      trim(process.env.NEXT_PUBLIC_RELAY_URL) ?? 'https://relay-production-665a.up.railway.app',
-    solanaRpcUrl: trim(process.env.NEXT_PUBLIC_SOLANA_RPC) ?? 'https://api.devnet.solana.com',
-    defaultInviteToken: trim(process.env.NEXT_PUBLIC_INVITE_TOKEN),
+    privyAppId: trim(env.NEXT_PUBLIC_PRIVY_APP_ID),
+    privyClientId: trim(env.NEXT_PUBLIC_PRIVY_CLIENT_ID),
+    nearNetwork,
+    guardContract: guardContract ?? (nearNetwork === 'mainnet' ? '' : 'guard.djume.testnet'),
+    nearRpcUrl: nearRpcUrl ?? (nearNetwork === 'mainnet' ? '' : 'https://rpc.testnet.near.org'),
+    mpcContract: trim(env.NEXT_PUBLIC_MPC_CONTRACT) ?? 'v1.signer-prod.testnet',
+    mpcDomainId: Number(trim(env.NEXT_PUBLIC_MPC_DOMAIN_ID) ?? '1'),
+    relayUrl: trim(env.NEXT_PUBLIC_RELAY_URL) ?? 'https://relay-production-665a.up.railway.app',
+    solanaRpcUrl: trim(env.NEXT_PUBLIC_SOLANA_RPC) ?? 'https://api.devnet.solana.com',
+    configError,
   };
 }
 

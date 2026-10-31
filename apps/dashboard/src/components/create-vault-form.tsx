@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
-import { useInviteToken } from '@/hooks/use-invite-token';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig, solanaExplorerAddressUrl } from '@/lib/config';
 import { createViews } from '@/lib/near';
@@ -14,7 +13,6 @@ import type { GuardActionError } from '@/lib/errors';
 
 export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
   const session = useOwnerSession();
-  const invite = useInviteToken();
   const [busy, setBusy] = useState(false);
   const [derived, setDerived] = useState<string | null>(null);
   const [error, setError] = useState<GuardActionError | null>(null);
@@ -56,11 +54,10 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
       );
       setDerived(address.toBase58());
       const policy = policyFromForm(defaults);
-      const result = await ownerActionHelpers(
-        session.owner,
-        session.signer,
-        invite.token
-      ).createVault(address.toBase58(), policy);
+      const result = await ownerActionHelpers(session.owner, session.signer).createVault(
+        address.toBase58(),
+        policy
+      );
       if (result.success) {
         setTxHash(result.txHash);
         onCreated?.();
@@ -81,7 +78,8 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
       <p className="mt-2 text-sm text-parchment-400">
         Derives the next MPC Solana address for this owner, then submits a signed{' '}
         <code>CreateVault</code> through the relay (0.5 NEAR storage, paid by the relay).
-        CreateVault is invite-gated on the public relay.
+        CreateVault is invite-gated on the public relay. This app attaches <code>INVITE_TOKEN</code>{' '}
+        on the server; it is never shipped to the browser.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button" className="btn-ghost" onClick={() => void derive()} disabled={busy}>

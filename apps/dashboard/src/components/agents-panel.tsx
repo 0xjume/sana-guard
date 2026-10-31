@@ -4,7 +4,6 @@ import { useState } from 'react';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
-import { useInviteToken } from '@/hooks/use-invite-token';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { nearToYocto } from '@/lib/format';
 import { ActionResult } from './action-result';
@@ -20,7 +19,6 @@ export function AgentsPanel({
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
-  const invite = useInviteToken();
   const [name, setName] = useState('agent1');
   const [funding, setFunding] = useState('0.15');
   const [secret, setSecret] = useState<string | null>(null);
@@ -43,7 +41,7 @@ export function AgentsPanel({
     setError(null);
     setTxHash(null);
     try {
-      const result = await ownerActionHelpers(session.owner, session.signer, invite.token).addAgent(
+      const result = await ownerActionHelpers(session.owner, session.signer).addAgent(
         vaultId,
         name.trim(),
         publicKey,
@@ -69,11 +67,10 @@ export function AgentsPanel({
     setBusy(true);
     setError(null);
     try {
-      const result = await ownerActionHelpers(
-        session.owner,
-        session.signer,
-        invite.token
-      ).removeAgent(vaultId, agent);
+      const result = await ownerActionHelpers(session.owner, session.signer).removeAgent(
+        vaultId,
+        agent
+      );
       if (result.success) {
         setTxHash(result.txHash);
         onUpdated?.();

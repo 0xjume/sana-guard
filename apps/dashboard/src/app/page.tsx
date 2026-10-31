@@ -12,6 +12,13 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
+      {publicConfig.configError ? (
+        <section className="panel border-rust-400/40">
+          <p className="kicker">Configuration</p>
+          <h1 className="mt-2 text-2xl font-semibold text-parchment-100">Mainnet refused</h1>
+          <p className="mt-3 text-sm text-parchment-400">{publicConfig.configError}</p>
+        </section>
+      ) : null}
       {!publicConfig.privyAppId ? <MissingConfig /> : null}
       <section className="panel">
         <p className="kicker">Owner console</p>
@@ -26,8 +33,12 @@ export default function HomePage() {
         </p>
       </section>
       <NetworkStatus />
-      <VaultList refreshKey={refreshKey} />
-      <CreateVaultForm onCreated={() => setRefreshKey((value) => value + 1)} />
+      {publicConfig.configError ? null : (
+        <>
+          <VaultList refreshKey={refreshKey} />
+          <CreateVaultForm onCreated={() => setRefreshKey((value) => value + 1)} />
+        </>
+      )}
     </div>
   );
 }

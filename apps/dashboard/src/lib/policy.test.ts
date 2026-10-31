@@ -2,7 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import type { Policy } from '@sana-guard/sdk';
 import { isPolicyStricter, mintKey, policyLoosenReasons } from './policy';
-import { policyFromForm, formFromPolicy } from './policy-form';
+import { policyFromForm, formFromPolicy, isBase58Pubkey } from './policy-form';
 
 const solMint = { type: 'sol' as const };
 const splMint = { type: 'spl' as const, address: new PublicKey(new Uint8Array(32).fill(7)) };
@@ -75,6 +75,16 @@ describe('policy stricter / loosen', () => {
   });
 });
 
+describe('pubkey validation', () => {
+  it('accepts canonical 32-byte base58 and rejects anything else', () => {
+    expect(isBase58Pubkey('11111111111111111111111111111111')).toBe(true);
+    expect(isBase58Pubkey('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB')).toBe(true);
+    expect(isBase58Pubkey('')).toBe(false);
+    expect(isBase58Pubkey('hello')).toBe(false);
+    expect(isBase58Pubkey('0x1111111111111111111111111111111111111111')).toBe(false);
+  });
+});
+
 describe('policy form encoding', () => {
   it('round-trips SOL amounts and optional total fee cap', () => {
     const values = formFromPolicy(policy());
@@ -87,5 +97,26 @@ describe('policy form encoding', () => {
     });
     expect(encoded.perTxLimit[0]?.amount).toBe(50_000_000n);
     expect(encoded.maxTotalPriorityFeeLamports).toBe(200_000n);
+  });
+
+  it('preserves SPL and unknown limit rows when only SOL fields are edited', () => {
+    const current = policy({
+      perTxLimit: [
+        { mint: solMint, amount: 50_000_000n },
+        { mint: splMint, amount: 999n },
+      ],
+      dailyCap: [
+        { mint: solMint, amount: 100_000_000n },
+        { mint: splMint, amount: 2_000n },
+      ],
+      loosenDelayNs: 3_661_000_000_000n,
+    });
+    const values = formFromPolicy(current);
+    const encoded = policyFromForm({ ...values, solPerTx: '0.01' }, current);
+    expect(encoded.perTxLimit.find((item) => item.mint.type === 'spl')?.amount).toBe(999n);
+    expect(encoded.dailyCap.find((item) => item.mint.type === 'spl')?.amount).toBe(2_000n);
+    expect(encoded.perTxLimit.find((item) => item.mint.type === 'sol')?.amount).toBe(10_000_000n);
+    expect(encoded.loosenDelayNs).toBe(3_661_000_000_000n);
+    expect(isPolicyStricter(encoded, current)).toBe(true);
   });
 });

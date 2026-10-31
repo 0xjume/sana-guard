@@ -1,9 +1,32 @@
-import { PublicKey } from '@solana/web3.js';
-import type { Policy } from '@sana-guard/sdk';
+import bs58 from 'bs58';
+import type { Mint, Policy } from '@sana-guard/sdk';
 import { hoursToNs, nsToHours, solToLamports, lamportsToSol } from './format';
 import { defaultCreatePolicyForm, type PolicyFormValues } from './policy';
 
-export function policyFromForm(values: PolicyFormValues): Policy {
+function mergeSolAmount(
+  rows: Array<{ mint: Mint; amount: bigint }>,
+  solAmount: bigint
+): Array<{ mint: Mint; amount: bigint }> {
+  let found = false;
+  const next = rows.map((row) => {
+    if (row.mint.type !== 'sol') {
+      return row;
+    }
+    found = true;
+    return { mint: row.mint, amount: solAmount };
+  });
+  if (!found) {
+    next.unshift({ mint: { type: 'sol' }, amount: solAmount });
+  }
+  return next;
+}
+
+/**
+ * Encode the editor form. Pass `current` when editing so SPL / unknown limit
+ * rows and unchanged integer timestamps are preserved. Reconstructing only the
+ * SOL fields would drop token limits (a silent tightening).
+ */
+export function policyFromForm(values: PolicyFormValues, current?: Policy): Policy {
   const expiresMs = new Date(values.expiresAtLocal).getTime();
   if (!Number.isFinite(expiresMs)) {
     throw new Error('Set a valid expiry date');
@@ -12,17 +35,38 @@ export function policyFromForm(values: PolicyFormValues): Policy {
   if (!Number.isInteger(maxMemoLen) || maxMemoLen < 0 || maxMemoLen > 65535) {
     throw new Error('max_memo_len must be an integer 0–65535');
   }
+  const baseline = current ? formFromPolicy(current) : null;
   const maxPriority = BigInt(values.maxPriorityFeeLamports || '0');
   const totalRaw = values.maxTotalPriorityFeeLamports.trim();
+  const expiresAtNs =
+    current && baseline && values.expiresAtLocal === baseline.expiresAtLocal
+      ? current.expiresAtNs
+      : BigInt(expiresMs) * 1_000_000n;
+  const loosenDelayNs =
+    current && baseline && values.loosenDelayHours === baseline.loosenDelayHours
+      ? current.loosenDelayNs
+      : hoursToNs(values.loosenDelayHours);
+
   return {
-    perTxLimit: [{ mint: { type: 'sol' }, amount: solToLamports(values.solPerTx) }],
-    dailyCap: [{ mint: { type: 'sol' }, amount: solToLamports(values.solDaily) }],
+    ...(current ?? {}),
+    perTxLimit: mergeSolAmount(current?.perTxLimit ?? [], solToLamports(values.solPerTx)),
+    dailyCap: mergeSolAmount(current?.dailyCap ?? [], solToLamports(values.solDaily)),
     programs: values.programs,
-    maxPriorityFeeLamports: maxPriority,
-    maxTotalPriorityFeeLamports: totalRaw ? BigInt(totalRaw) : undefined,
+    maxPriorityFeeLamports:
+      current && baseline && values.maxPriorityFeeLamports === baseline.maxPriorityFeeLamports
+        ? current.maxPriorityFeeLamports
+        : maxPriority,
+    maxTotalPriorityFeeLamports:
+      current &&
+      baseline &&
+      values.maxTotalPriorityFeeLamports === baseline.maxTotalPriorityFeeLamports
+        ? current.maxTotalPriorityFeeLamports
+        : totalRaw
+          ? BigInt(totalRaw)
+          : undefined,
     maxMemoLen,
-    expiresAtNs: BigInt(expiresMs) * 1_000_000n,
-    loosenDelayNs: hoursToNs(values.loosenDelayHours),
+    expiresAtNs,
+    loosenDelayNs,
   };
 }
 
@@ -46,9 +90,12 @@ export function formFromPolicy(policy: Policy): PolicyFormValues {
 }
 
 export function isBase58Pubkey(value: string): boolean {
+  if (!/^[1-9A-HJ-NP-Za-km-z]+$/.test(value)) {
+    return false;
+  }
   try {
-    const key = new PublicKey(value);
-    return key.toBase58() === value || key.toBytes().length === 32;
+    const decoded = bs58.decode(value);
+    return decoded.length === 32 && bs58.encode(decoded) === value;
   } catch {
     return false;
   }

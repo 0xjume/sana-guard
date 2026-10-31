@@ -21,6 +21,7 @@ describe('format', () => {
   it('rejects invalid SOL amounts', () => {
     expect(() => solToLamports('-1')).toThrow(/non-negative/);
     expect(() => solToLamports('abc')).toThrow(/non-negative/);
+    expect(() => solToLamports('1.0000000001')).toThrow(/9 decimal/);
   });
 
   it('converts NEAR and yocto', () => {
@@ -31,6 +32,8 @@ describe('format', () => {
   it('formats durations and delay hours', () => {
     expect(hoursToNs('1')).toBe(3_600_000_000_000n);
     expect(nsToHours(3_600_000_000_000n)).toBe('1');
+    expect(nsToHours(3_661_000_000_000n)).toBe('1.016944444');
+    expect(hoursToNs(nsToHours(3_600_000_000_000n))).toBe(3_600_000_000_000n);
     expect(formatDurationNs(3_600_000_000_000n)).toBe('1h');
     expect(formatDurationNs(0n)).toBe('0s');
   });

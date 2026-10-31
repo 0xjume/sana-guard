@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseEventJsonLog, parseNearblocksTransactions } from './activity';
+import { activityFromTxns, parseEventJsonLog, parseNearblocksTransactions } from './activity';
 
 describe('activity parsing', () => {
   it('parses nested NEP-297 Sana Guard events', () => {
@@ -34,5 +34,14 @@ describe('activity parsing', () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.txHash).toBe('tx1');
     expect(items[0]?.vaultId).toBe(0);
+  });
+
+  it('marks an empty NearBlocks txn list as no history source', () => {
+    expect(activityFromTxns([])).toEqual({
+      items: [],
+      source: 'nearblocks',
+      degraded: true,
+      reason: 'no history source',
+    });
   });
 });

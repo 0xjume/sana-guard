@@ -42,17 +42,25 @@ export function ActivityFeed({ vaultId }: { vaultId: number }) {
       <p className="kicker">Activity</p>
       <div className="mt-2 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Recent sign attempts</h2>
-        {degraded ? <StatusBadge tone="warn">Indexer degraded</StatusBadge> : null}
+        {degraded ? (
+          <StatusBadge tone="warn">
+            {reason === 'no history source' ? 'no history source' : 'Indexer degraded'}
+          </StatusBadge>
+        ) : null}
       </div>
       <p className="mt-2 text-sm text-parchment-400">
         Pulled from the public NearBlocks testnet account history for {publicConfig.guardContract}.
-        The relay has no activity endpoint. Empty or degraded results are expected if the indexer
-        lags.
+        The relay has no activity endpoint. An empty indexer response is shown as{' '}
+        <strong>no history source</strong>, not as an empty vault.
       </p>
       {reason ? <p className="mt-3 text-xs text-brass-400">{reason}</p> : null}
       <ol className="mt-4 space-y-3">
         {items.length === 0 ? (
-          <li className="text-sm text-parchment-400">No indexed events for this vault yet.</li>
+          <li className="text-sm text-parchment-400">
+            {degraded
+              ? 'No history source. NearBlocks returned no transactions for this contract.'
+              : 'No indexed events for this vault yet.'}
+          </li>
         ) : null}
         {items.map((item, index) => (
           <li

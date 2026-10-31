@@ -16,6 +16,9 @@ export function solToLamports(sol: string): bigint {
     throw new Error('Enter a non-negative SOL amount');
   }
   const [wholeRaw, fracRaw = ''] = trimmed.split('.');
+  if (fracRaw.length > 9) {
+    throw new Error('SOL amount has more than 9 decimal places');
+  }
   const frac = (fracRaw + '000000000').slice(0, 9);
   return BigInt(wholeRaw) * LAMPORTS_PER_SOL + BigInt(frac);
 }
@@ -76,18 +79,34 @@ export function formatDurationNs(ns: bigint): string {
   return parts.join(' ');
 }
 
+const NS_PER_HOUR = 3_600_000_000_000n;
+
 export function hoursToNs(hours: string): bigint {
-  const value = Number(hours);
-  if (!Number.isFinite(value) || value < 0) {
+  const trimmed = hours.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
     throw new Error('Enter a non-negative delay in hours');
   }
-  return BigInt(Math.round(value * 3_600)) * 1_000_000_000n;
+  const [wholeRaw, fracRaw = ''] = trimmed.split('.');
+  if (fracRaw.length > 9) {
+    throw new Error('Delay has more than 9 decimal places');
+  }
+  const frac = (fracRaw + '000000000').slice(0, 9);
+  const hoursScaled = BigInt(wholeRaw) * 1_000_000_000n + BigInt(frac);
+  return hoursScaled * 3_600n;
 }
 
 export function nsToHours(ns: bigint): string {
-  const hours = Number(ns) / 3_600_000_000_000;
-  if (!Number.isFinite(hours)) {
+  if (ns <= 0n) {
     return '0';
   }
-  return String(Math.round(hours * 1000) / 1000);
+  const whole = ns / NS_PER_HOUR;
+  const rem = ns % NS_PER_HOUR;
+  if (rem === 0n) {
+    return whole.toString();
+  }
+  const frac = ((rem * 1_000_000_000n) / NS_PER_HOUR)
+    .toString()
+    .padStart(9, '0')
+    .replace(/0+$/, '');
+  return `${whole}.${frac}`;
 }

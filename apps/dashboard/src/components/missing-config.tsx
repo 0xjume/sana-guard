@@ -20,7 +20,8 @@ export function MissingConfig() {
           <code>NEXT_PUBLIC_PRIVY_CLIENT_ID</code>) in Vercel / <code>.env.local</code>.
         </li>
         <li>
-          Add the Vercel URL to the relay <code>CORS_ORIGINS</code> list and redeploy the relay.
+          Set server-only <code>INVITE_TOKEN</code> if the relay still gates CreateVault / AddAgent.
+          The browser never receives that token; <code>POST /api/owner-action</code> attaches it.
         </li>
       </ol>
       <dl className="mt-6 grid gap-3 text-xs sm:grid-cols-2">

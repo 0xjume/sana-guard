@@ -25,7 +25,6 @@ async function nextNonce(owner: string): Promise<number> {
 export async function runOwnerAction(args: {
   owner: string;
   signer: Ed25519Signer;
-  inviteToken?: string;
   build: (nonce: number) => Promise<{ message: string; signature: Uint8Array }>;
 }): Promise<RelayAdminResult> {
   const nonce = await nextNonce(args.owner);
@@ -34,11 +33,10 @@ export async function runOwnerAction(args: {
     message: signed.message,
     signature: signed.signature,
     owner: args.owner,
-    inviteToken: args.inviteToken,
   });
 }
 
-export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteToken?: string) {
+export function ownerActionHelpers(owner: string, signer: Ed25519Signer) {
   const network = adminNetworkTag(publicConfig.nearNetwork);
   const contract = publicConfig.guardContract;
 
@@ -47,7 +45,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) =>
           createVaultAction(network, contract, nonce, { owner, vaultAddress, policy }, signer),
       });
@@ -56,7 +53,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) => setPolicyAction(network, contract, vaultId, nonce, policy, signer),
       });
     },
@@ -64,7 +60,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) => pauseAction(network, contract, vaultId, nonce, signer),
       });
     },
@@ -72,7 +67,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) => unpauseAction(network, contract, vaultId, nonce, signer),
       });
     },
@@ -80,7 +74,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) => addRecipientAction(network, contract, vaultId, nonce, recipient, signer),
       });
     },
@@ -88,7 +81,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) =>
           removeRecipientAction(network, contract, vaultId, nonce, recipient, signer),
       });
@@ -97,7 +89,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) =>
           addAgentAction(
             network,
@@ -112,7 +103,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) => removeAgentAction(network, contract, vaultId, nonce, agent, signer),
       });
     },
@@ -120,7 +110,6 @@ export function ownerActionHelpers(owner: string, signer: Ed25519Signer, inviteT
       return runOwnerAction({
         owner,
         signer,
-        inviteToken,
         build: (nonce) =>
           registerTokenAccountAction(
             network,

@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
-import { useInviteToken } from '@/hooks/use-invite-token';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { isBase58Pubkey } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
@@ -18,7 +17,6 @@ export function RecipientsPanel({
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
-  const invite = useInviteToken();
   const [value, setValue] = useState('');
   const [ata, setAta] = useState('');
   const [mint, setMint] = useState('');
@@ -72,7 +70,7 @@ export function RecipientsPanel({
               disabled={busy || !session.signer}
               onClick={() =>
                 void run(() =>
-                  ownerActionHelpers(session.owner!, session.signer!, invite.token).removeRecipient(
+                  ownerActionHelpers(session.owner!, session.signer!).removeRecipient(
                     vaultId,
                     recipient
                   )
@@ -97,7 +95,7 @@ export function RecipientsPanel({
           disabled={busy || !isBase58Pubkey(value) || !session.signer}
           onClick={() =>
             void run(() =>
-              ownerActionHelpers(session.owner!, session.signer!, invite.token).addRecipient(
+              ownerActionHelpers(session.owner!, session.signer!).addRecipient(
                 vaultId,
                 value.trim()
               )
@@ -133,7 +131,7 @@ export function RecipientsPanel({
         disabled={busy || !session.signer || !isBase58Pubkey(ata) || !isBase58Pubkey(mint)}
         onClick={() =>
           void run(() =>
-            ownerActionHelpers(session.owner!, session.signer!, invite.token).registerTokenAccount(
+            ownerActionHelpers(session.owner!, session.signer!).registerTokenAccount(
               vaultId,
               ata.trim(),
               mint.trim(),

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Owner dashboard for Sana Guard vaults",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

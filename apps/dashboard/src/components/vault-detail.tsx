@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Policy, VaultView } from '@sana-guard/sdk';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
-import { useInviteToken } from '@/hooks/use-invite-token';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig, solanaExplorerAddressUrl } from '@/lib/config';
 import { formatDurationNs, formatTimestampNs, lamportsToSol, nsToDate } from '@/lib/format';
@@ -86,7 +85,6 @@ function PolicySummary({ policy }: { policy: Policy }) {
 
 export function VaultDetail({ vaultId }: { vaultId: number }) {
   const session = useOwnerSession();
-  const invite = useInviteToken();
   const [vault, setVault] = useState<VaultView | null>(null);
   const [recipients, setRecipients] = useState<string[]>([]);
   const [spend, setSpend] = useState<Array<{ mint: string; amount: bigint }>>([]);
@@ -145,6 +143,16 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
       setBusy(false);
     }
   };
+
+  if (publicConfig.configError) {
+    return (
+      <section className="panel border-rust-400/40">
+        <p className="kicker">Configuration</p>
+        <h1 className="mt-2 text-2xl font-semibold">Mainnet refused</h1>
+        <p className="mt-3 text-sm text-parchment-400">{publicConfig.configError}</p>
+      </section>
+    );
+  }
 
   if (error && !vault) {
     return (
@@ -216,9 +224,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
                 disabled={busy}
                 onClick={() =>
                   void run(() =>
-                    ownerActionHelpers(session.owner!, session.signer!, invite.token).unpause(
-                      vaultId
-                    )
+                    ownerActionHelpers(session.owner!, session.signer!).unpause(vaultId)
                   )
                 }
               >
@@ -230,9 +236,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
                 className="btn-danger"
                 disabled={busy}
                 onClick={() =>
-                  void run(() =>
-                    ownerActionHelpers(session.owner!, session.signer!, invite.token).pause(vaultId)
-                  )
+                  void run(() => ownerActionHelpers(session.owner!, session.signer!).pause(vaultId))
                 }
               >
                 Pause (kill switch)
@@ -245,7 +249,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
                 disabled={busy}
                 onClick={() =>
                   void run(() =>
-                    ownerActionHelpers(session.owner!, session.signer!, invite.token).setPolicy(
+                    ownerActionHelpers(session.owner!, session.signer!).setPolicy(
                       vaultId,
                       clonePolicy(vault.policy)
                     )

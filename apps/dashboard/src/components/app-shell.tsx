@@ -1,17 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
 import { publicConfig } from '@/lib/config';
-import { useInviteToken } from '@/hooks/use-invite-token';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { CopyButton } from './copy-button';
 import { StatusBadge } from './status-badge';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const session = useOwnerSession();
-  const invite = useInviteToken();
-  const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
     <div className="min-h-screen">
@@ -55,30 +51,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 Sign in
               </button>
             ) : null}
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => setInviteOpen((open) => !open)}
-            >
-              Invite token
-            </button>
           </div>
         </div>
-        {inviteOpen ? (
-          <div className="border-t border-ink-600 bg-ink-800 px-4 py-3">
-            <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center">
-              <label className="text-xs text-parchment-400 sm:w-40">Relay X-Invite-Token</label>
-              <input
-                className="field"
-                type="password"
-                autoComplete="off"
-                value={invite.token}
-                onChange={(event) => invite.save(event.target.value)}
-                placeholder="Required for CreateVault / AddAgent when the relay gate is on"
-              />
-            </div>
-          </div>
-        ) : null}
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>

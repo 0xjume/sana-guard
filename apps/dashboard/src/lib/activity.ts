@@ -194,6 +194,25 @@ export function parseNearblocksTransactions(
   return items;
 }
 
+export function activityFromTxns(
+  txns: NearblocksTxn[],
+  vaultId?: number
+): { items: ActivityItem[]; source: string; degraded: boolean; reason?: string } {
+  if (txns.length === 0) {
+    return {
+      items: [],
+      source: 'nearblocks',
+      degraded: true,
+      reason: 'no history source',
+    };
+  }
+  return {
+    items: parseNearblocksTransactions(txns, vaultId).slice(0, 40),
+    source: 'nearblocks',
+    degraded: false,
+  };
+}
+
 export async function fetchVaultActivity(args: {
   accountId: string;
   vaultId?: number;
@@ -218,11 +237,7 @@ export async function fetchVaultActivity(args: {
     }
     const body = (await response.json()) as { txns?: NearblocksTxn[]; data?: NearblocksTxn[] };
     const txns = body.txns ?? body.data ?? [];
-    return {
-      items: parseNearblocksTransactions(txns, args.vaultId).slice(0, 40),
-      source: 'nearblocks',
-      degraded: false,
-    };
+    return activityFromTxns(txns, args.vaultId);
   } catch (error) {
     return {
       items: [],
