@@ -1,5 +1,13 @@
 import { PublicKey } from "@solana/web3.js";
-import { SYSTEM_PROGRAM, SanaGuardSignError, buildSolTransfer, type VaultView } from "@sana-guard/sdk";
+import { getAssociatedTokenAddress } from "@solana/spl-token";
+import {
+  MEMO_PROGRAM,
+  SYSTEM_PROGRAM,
+  TOKEN_PROGRAM,
+  SanaGuardSignError,
+  buildSolTransfer,
+  type VaultView,
+} from "@sana-guard/sdk";
 import bs58 from "bs58";
 import { describe, expect, it, vi } from "vitest";
 import { SERVER_MAX_CODE } from "./errors.js";
@@ -12,9 +20,10 @@ const mpcSigBase58 = bs58.encode(mpcSigBytes);
 
 const recipient = "DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB";
 const vaultAddress = new PublicKey("Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU");
+const splMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
-function vault(): VaultView {
-  return {
+function vault(overrides: Partial<VaultView> = {}): VaultView {
+  const base: VaultView = {
     owner: "owner",
     vaultAddress: vaultAddress.toBase58(),
     path: "vault/x/0",
@@ -30,6 +39,14 @@ function vault(): VaultView {
     },
     paused: false,
     state: "Active",
+  };
+  return {
+    ...base,
+    ...overrides,
+    policy: {
+      ...base.policy,
+      ...overrides.policy,
+    },
   };
 }
 
@@ -319,5 +336,154 @@ describe("tool handlers", () => {
     const body = parse(await handlers.getPolicy());
     expect(body.remaining).toEqual(body.rolling24h);
     expect((body.remaining as Array<{ remaining24h: string }>)[0]?.remaining24h).toBe("99000000");
+  });
+
+  it("transfer_sol with memo refuses locally (SG_E074) when Memo v1 is not allowlisted", async () => {
+    const rt = runtime();
+    const handlers = createToolHandlers(rt);
+    const result = await handlers.transferSol({
+      to: recipient,
+      amount: "1000",
+      memo: "payout",
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result).reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "SG_E074_PROGRAM_NOT_ALLOWED" })])
+    );
+    expect(rt.client.requestSignAndBroadcast).not.toHaveBeenCalled();
+  });
+
+  it("transfer_sol with memo refuses locally (SG_E073) when the memo exceeds maxMemoLen", async () => {
+    const rt = runtime({
+      views: {
+        getVault: vi.fn(async () =>
+          vault({
+            policy: {
+              ...vault().policy,
+              programs: [SYSTEM_PROGRAM.toBase58(), MEMO_PROGRAM.toBase58()],
+              maxMemoLen: 8,
+            },
+          })
+        ),
+        getSpend24h: vi.fn(async () => [{ mint: "SOL", amount: 1_000_000n }]),
+        getRecipients: vi.fn(async () => [recipient]),
+        getRequest: vi.fn(async () => null),
+      },
+    });
+    const handlers = createToolHandlers(rt);
+    const result = await handlers.transferSol({
+      to: recipient,
+      amount: "1000",
+      memo: "this-memo-is-way-too-long",
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result).reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "SG_E073_MEMO_TOO_LONG" })])
+    );
+    expect(rt.client.requestSignAndBroadcast).not.toHaveBeenCalled();
+  });
+
+  it("transfer_sol with a short allowlisted memo signs", async () => {
+    const rt = runtime({
+      views: {
+        getVault: vi.fn(async () =>
+          vault({
+            policy: {
+              ...vault().policy,
+              programs: [SYSTEM_PROGRAM.toBase58(), MEMO_PROGRAM.toBase58()],
+            },
+          })
+        ),
+        getSpend24h: vi.fn(async () => [{ mint: "SOL", amount: 1_000_000n }]),
+        getRecipients: vi.fn(async () => [recipient]),
+        getRequest: vi.fn(async () => null),
+      },
+    });
+    const handlers = createToolHandlers(rt);
+    const body = parse(await handlers.transferSol({ to: recipient, amount: "1000", memo: "ok" }));
+    expect(body.ok).toBe(true);
+    expect(body.signature).toBe("SoLsig111");
+    expect(rt.client.requestSignAndBroadcast).toHaveBeenCalled();
+  });
+
+  it("transfer_spl with memo refuses locally (SG_E074) when Memo v1 is not allowlisted", async () => {
+    const destAta = await getAssociatedTokenAddress(splMint, new PublicKey(recipient));
+    const rt = runtime({
+      views: {
+        getVault: vi.fn(async () =>
+          vault({
+            policy: {
+              ...vault().policy,
+              programs: [SYSTEM_PROGRAM.toBase58(), TOKEN_PROGRAM.toBase58()],
+              perTxLimit: [
+                { mint: { type: "sol" }, amount: 50_000_000n },
+                { mint: { type: "spl", address: splMint }, amount: 1_000_000n },
+              ],
+              dailyCap: [
+                { mint: { type: "sol" }, amount: 100_000_000n },
+                { mint: { type: "spl", address: splMint }, amount: 5_000_000n },
+              ],
+            },
+          })
+        ),
+        getSpend24h: vi.fn(async () => []),
+        getRecipients: vi.fn(async () => [destAta.toBase58()]),
+        getRequest: vi.fn(async () => null),
+      },
+    });
+    const handlers = createToolHandlers(rt);
+    const result = await handlers.transferSpl({
+      to: recipient,
+      mint: splMint.toBase58(),
+      amount: "10",
+      decimals: 6,
+      memo: "payout",
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result).reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "SG_E074_PROGRAM_NOT_ALLOWED" })])
+    );
+    expect(rt.client.requestSignAndBroadcast).not.toHaveBeenCalled();
+  });
+
+  it("transfer_spl with memo refuses locally (SG_E073) when the memo exceeds maxMemoLen", async () => {
+    const destAta = await getAssociatedTokenAddress(splMint, new PublicKey(recipient));
+    const rt = runtime({
+      views: {
+        getVault: vi.fn(async () =>
+          vault({
+            policy: {
+              ...vault().policy,
+              programs: [SYSTEM_PROGRAM.toBase58(), TOKEN_PROGRAM.toBase58(), MEMO_PROGRAM.toBase58()],
+              maxMemoLen: 8,
+              perTxLimit: [
+                { mint: { type: "sol" }, amount: 50_000_000n },
+                { mint: { type: "spl", address: splMint }, amount: 1_000_000n },
+              ],
+              dailyCap: [
+                { mint: { type: "sol" }, amount: 100_000_000n },
+                { mint: { type: "spl", address: splMint }, amount: 5_000_000n },
+              ],
+            },
+          })
+        ),
+        getSpend24h: vi.fn(async () => []),
+        getRecipients: vi.fn(async () => [destAta.toBase58()]),
+        getRequest: vi.fn(async () => null),
+      },
+    });
+    const handlers = createToolHandlers(rt);
+    const result = await handlers.transferSpl({
+      to: recipient,
+      mint: splMint.toBase58(),
+      amount: "10",
+      decimals: 6,
+      memo: "this-memo-is-way-too-long",
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result).reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "SG_E073_MEMO_TOO_LONG" })])
+    );
+    expect(rt.client.requestSignAndBroadcast).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,7 @@ export type AccountedOutflow = {
   programs: string[];
   transfers: OutflowTransfer[];
   spend: OutflowSpend[];
+  memos: string[];
 };
 
 export type UnaccountedOutflow = {
@@ -152,6 +153,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
   const feePayer = accountKeys[0]!;
   const programs: string[] = [];
   const transfers: OutflowTransfer[] = [];
+  const memos: string[] = [];
   const spendMap = new Map<string, bigint>();
   let computeLimit: number | undefined;
   let computePrice: bigint | undefined;
@@ -300,7 +302,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
     // Same address the guard allowlists (`MEMO_V2_PROGRAM` in the contract is Memo v1).
     if (keysEqual(program, MEMO_PROGRAM)) {
       try {
-        new TextDecoder("utf-8", { fatal: true }).decode(ix.data);
+        memos.push(new TextDecoder("utf-8", { fatal: true }).decode(ix.data));
       } catch {
         return fail("SG_E035_MEMO_INVALID_UTF8", "Memo text is not valid UTF-8");
       }
@@ -329,6 +331,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
     programs,
     transfers,
     spend: [...spendMap.entries()].map(([mint, amount]) => ({ mint, amount })),
+    memos,
   };
 }
 
@@ -394,6 +397,16 @@ export async function checkSignMessage(opts: {
       reasons.push({
         code: "SG_E074_PROGRAM_NOT_ALLOWED",
         message: `Program ${program} is not in the vault program allowlist`,
+      });
+    }
+  }
+
+  for (const memo of outflow.memos) {
+    const byteLen = Buffer.from(memo, "utf-8").length;
+    if (byteLen > vault.policy.maxMemoLen) {
+      reasons.push({
+        code: "SG_E073_MEMO_TOO_LONG",
+        message: `Memo text exceeds max length (${byteLen} > ${vault.policy.maxMemoLen})`,
       });
     }
   }

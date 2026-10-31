@@ -178,6 +178,7 @@ describe("accountVaultOutflow", () => {
       return;
     }
     expect(result.programs).toContain(MEMO_PROGRAM.toBase58());
+    expect(result.memos).toEqual(["payout"]);
   });
 
   it("rejects the real Memo v2 program as unaccountable", () => {
@@ -230,5 +231,67 @@ describe("checkSignMessage", () => {
     });
     expect(result.wouldPass).toBe(true);
     expect(result.spend?.[0]?.amount).toBe("1000");
+  });
+
+  it("refuses a memo when Memo v1 is not on the vault program allowlist (SG_E074)", async () => {
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      memo: "payout",
+    });
+    const result = await checkSignMessage({
+      message,
+      vaultAddress,
+      vault: vault(),
+      recipients: [recipient.toBase58()],
+      spend24h: [],
+      nowNs: 1n,
+    });
+    expect(result.wouldPass).toBe(false);
+    expect(result.reasons.map((row) => row.code)).toContain("SG_E074_PROGRAM_NOT_ALLOWED");
+  });
+
+  it("refuses a memo longer than policy maxMemoLen (SG_E073)", async () => {
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      memo: "this-memo-is-way-too-long",
+      maxMemoLen: 65535,
+    });
+    const result = await checkSignMessage({
+      message,
+      vaultAddress,
+      vault: vault({
+        policy: {
+          ...vault().policy,
+          programs: [SYSTEM_PROGRAM.toBase58(), MEMO_PROGRAM.toBase58()],
+          maxMemoLen: 8,
+        },
+      }),
+      recipients: [recipient.toBase58()],
+      spend24h: [],
+      nowNs: 1n,
+    });
+    expect(result.wouldPass).toBe(false);
+    expect(result.reasons.map((row) => row.code)).toContain("SG_E073_MEMO_TOO_LONG");
+  });
+
+  it("passes a short memo when Memo v1 is allowlisted", async () => {
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      memo: "ok",
+    });
+    const result = await checkSignMessage({
+      message,
+      vaultAddress,
+      vault: vault({
+        policy: {
+          ...vault().policy,
+          programs: [SYSTEM_PROGRAM.toBase58(), MEMO_PROGRAM.toBase58()],
+        },
+      }),
+      recipients: [recipient.toBase58()],
+      spend24h: [],
+      nowNs: 1n,
+    });
+    expect(result.wouldPass).toBe(true);
   });
 });

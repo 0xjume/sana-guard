@@ -110,6 +110,20 @@ export function createToolHandlers(runtime: GuardRuntime) {
     return existingRequestResult(runtime, idempotencyKey, request);
   }
 
+  async function precheckBuiltMessage(message: Uint8Array) {
+    const { vault, spend24h, recipients } = await loadPolicyContext();
+    return checkSignMessage({
+      message,
+      vaultAddress: runtime.vaultAddress,
+      vault,
+      spend24h,
+      recipients,
+      nowNs: runtime.nowNs(),
+      maxLamportsPerCall: runtime.config.maxLamportsPerCall,
+      maxTokenAmountPerCall: runtime.config.maxTokenAmountPerCall,
+    });
+  }
+
   return {
     async status() {
       try {
@@ -242,8 +256,13 @@ export function createToolHandlers(runtime: GuardRuntime) {
           new PublicKey(args.to),
           amount,
           blockhash,
-          { version: "v0", memo: args.memo }
+          // Let the outflow path emit SG_E073 / SG_E074; do not fail in the SDK builder first.
+          { version: "v0", memo: args.memo, maxMemoLen: 65535 }
         );
+        const preSign = await precheckBuiltMessage(message);
+        if (!preSign.wouldPass) {
+          return toolOk(preSign, true);
+        }
         const broadcast = await runtime.client.requestSignAndBroadcast({
           vaultId,
           message,
@@ -295,8 +314,12 @@ export function createToolHandlers(runtime: GuardRuntime) {
           fromTokenAccount,
           toTokenAccount,
           blockhash,
-          { version: "v0", createAta: false, memo: args.memo }
+          { version: "v0", createAta: false, memo: args.memo, maxMemoLen: 65535 }
         );
+        const preSign = await precheckBuiltMessage(message);
+        if (!preSign.wouldPass) {
+          return toolOk(preSign, true);
+        }
         const broadcast = await runtime.client.requestSignAndBroadcast({
           vaultId,
           message,
@@ -322,17 +345,7 @@ export function createToolHandlers(runtime: GuardRuntime) {
         }
         const message = decodeBase64Tx(args.transactionBase64);
         extractRecentBlockhash(message);
-        const { vault, spend24h, recipients } = await loadPolicyContext();
-        const pre = await checkSignMessage({
-          message,
-          vaultAddress: runtime.vaultAddress,
-          vault,
-          spend24h,
-          recipients,
-          nowNs: runtime.nowNs(),
-          maxLamportsPerCall: runtime.config.maxLamportsPerCall,
-          maxTokenAmountPerCall: runtime.config.maxTokenAmountPerCall,
-        });
+        const pre = await precheckBuiltMessage(message);
         if (!pre.wouldPass) {
           return toolOk(pre, true);
         }
