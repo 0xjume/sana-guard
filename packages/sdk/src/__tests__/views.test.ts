@@ -24,9 +24,9 @@ describe('parseSpend24hJson', () => {
     expect(parsed).toEqual([{ mint: 'Sol', amount: BigInt(unsafe) }]);
   });
 
-  it('accepts string-encoded u64 amounts', () => {
-    const parsed = parseSpend24hJson(`[["Sol", "${unsafe}"]]`);
-    expect(parsed).toEqual([{ mint: 'Sol', amount: BigInt(unsafe) }]);
+  it('accepts string-encoded u64 amounts (current contract U64 form)', () => {
+    const parsed = parseSpend24hJson(`[["SOL", "${unsafe}"]]`);
+    expect(parsed).toEqual([{ mint: 'SOL', amount: BigInt(unsafe) }]);
   });
 
   it('accepts safe JSON numbers and zero', () => {

@@ -90,7 +90,7 @@ fn sol_spent(contract: &Guard) -> u64 {
         .get_spend_24h(0)
         .into_iter()
         .find(|(m, _)| m == "SOL")
-        .map(|(_, a)| a)
+        .map(|(_, a)| a.0)
         .unwrap_or(0)
 }
 
@@ -307,4 +307,38 @@ fn test_duplicate_callback_is_ignored() {
     );
     assert!(sig.is_none());
     assert!(matches!(status(&contract, req_id), Status::Failed));
+}
+
+/// `get_spend_24h` must serialize lamport totals as JSON strings (`U64`)
+/// so JS consumers do not lose precision above `Number.MAX_SAFE_INTEGER`.
+#[test]
+fn test_get_spend_24h_json_amounts_are_strings() {
+    let mut contract = setup(vec![SYSTEM_PROGRAM]);
+    let hour = NOW / HOUR_NS;
+    // One past Number.MAX_SAFE_INTEGER (2^53). A raw JSON number would round.
+    let unsafe_u64: u64 = 9_007_199_254_740_993;
+    {
+        let vault = contract.vaults.get_mut(&0).unwrap();
+        vault
+            .bucket_spend
+            .insert(hour, vec![(Mint::Sol, unsafe_u64)]);
+    }
+
+    let view = contract.get_spend_24h(0);
+    assert_eq!(view.len(), 1);
+    assert_eq!(view[0].0, "SOL");
+    let amount_u64 = view[0].1 .0;
+    assert_eq!(amount_u64, unsafe_u64);
+
+    let json = near_sdk::serde_json::to_value(&view).expect("serialize spend view");
+    let amount = &json[0][1];
+    assert!(
+        amount.is_string(),
+        "U64 must serialize as a JSON string, got {amount}"
+    );
+    assert_eq!(amount.as_str().unwrap(), "9007199254740993");
+    assert!(
+        !amount.is_number(),
+        "lamport amount must not be a JSON number"
+    );
 }
