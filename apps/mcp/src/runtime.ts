@@ -27,6 +27,7 @@ export interface SolanaReads {
   getBalance(address: PublicKey): Promise<bigint>;
   getTokenBalance(owner: PublicKey, mint: PublicKey): Promise<bigint>;
   getLatestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }>;
+  isBlockhashValid(blockhash: string): Promise<boolean>;
   getMintDecimals(mint: PublicKey): Promise<number>;
   getBlockHeight(): Promise<number>;
 }
@@ -90,6 +91,9 @@ export async function createRuntime(config: GuardConfig = loadConfig()): Promise
       },
       async getLatestBlockhash() {
         return connection.getLatestBlockhash("confirmed");
+      },
+      async isBlockhashValid(blockhash) {
+        return (await connection.isBlockhashValid(blockhash, { commitment: "confirmed" })).value;
       },
       async getMintDecimals(mint) {
         const mintInfo = await getMint(connection, mint);

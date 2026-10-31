@@ -110,6 +110,14 @@ impl Guard {
             Err(e) => env::panic_str(e),
         };
 
+        if let Some(cap) = &vault.policy.max_total_priority_fee_lamports {
+            // calculate_spend already rejected duplicate compute budget instructions
+            let priority_fee = priority_fee_lamports(&parsed.instructions).unwrap_or(u64::MAX);
+            if priority_fee > cap.0 {
+                env::panic_str("SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH");
+            }
+        }
+
         for (mint, amount) in &spend {
             let limit_found = vault
                 .policy

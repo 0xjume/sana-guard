@@ -20,6 +20,8 @@ export interface StructuredError {
 export const SERVER_MAX_CODE = "SANA_GUARD_MAX_PER_CALL";
 export const MAINNET_REFUSED_CODE = "SANA_GUARD_MAINNET_REFUSED";
 export const UNACCOUNTABLE_CODE = "SANA_GUARD_UNACCOUNTABLE_TX";
+export const KEY_REUSED_CODE = "SANA_GUARD_IDEMPOTENCY_KEY_REUSED";
+export const BLOCKHASH_EXPIRED_CODE = "SANA_GUARD_BLOCKHASH_EXPIRED";
 
 export interface ErrorContext {
   idempotencyKey?: string;
@@ -53,6 +55,8 @@ const WHY: Record<string, string> = {
     "A program in this transaction is not on the vault program allowlist.",
   SG_E076_VAULT_NOT_ACTIVE: "The vault is not Active (still pending verification).",
   SG_E077_AGENT_EXISTS: "That agent account name is already registered.",
+  SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH:
+    "The transaction's total priority fee exceeds the vault policy maximum.",
   SG_E018_UNKNOWN_PROGRAM:
     "A program in this transaction is not supported. The server cannot account for its fund movement.",
   SG_E043_MINT_UNKNOWN:
@@ -63,6 +67,10 @@ const WHY: Record<string, string> = {
     "Mainnet is disabled unless SANA_GUARD_ALLOW_MAINNET=true.",
   [UNACCOUNTABLE_CODE]:
     "The server cannot fully account for every instruction that may move funds. Only allowlisted programs with known transfer/transferChecked/system transfer encodings are signed.",
+  [KEY_REUSED_CODE]:
+    "This idempotencyKey was already used for a different transfer. Nothing was signed. Use a new key for a new transfer.",
+  [BLOCKHASH_EXPIRED_CODE]:
+    "The transaction's recent blockhash has expired. Nothing was signed. Rebuild it with a fresh blockhash.",
   SANA_GUARD_ERROR: "An unexpected Sana Guard error occurred.",
 };
 

@@ -13,6 +13,10 @@ import { findLimit, normalizeSpendMint, spentFor, type CheckReason } from "./pol
 
 const ATA_RENT_LAMPORTS = 2_039_280n;
 const SIGNATURE_BASE_FEE = 5_000n;
+/** Mirrors the contract: runtime default CU per instruction when no setLimit is present. */
+const DEFAULT_COMPUTE_UNITS_PER_IX = 200_000n;
+const MAX_COMPUTE_UNIT_LIMIT = 1_400_000n;
+const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 export type OutflowTransfer = {
   kind: "sol" | "spl";
@@ -32,6 +36,8 @@ export type AccountedOutflow = {
   programs: string[];
   transfers: OutflowTransfer[];
   spend: OutflowSpend[];
+  /** Priority fee in lamports (excluding the base signature fee). */
+  priorityFee: bigint;
   memos: string[];
 };
 
@@ -315,9 +321,22 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
     );
   }
 
-  if (computeLimit !== undefined && computePrice !== undefined) {
-    const product = BigInt(computeLimit) * computePrice;
-    const priorityFee = (product + 999_999n) / 1_000_000n;
+  // Same rule as the contract's priority_fee_lamports: a price without a limit is charged on the
+  // runtime default limit, so it must count too.
+  let priorityFee = 0n;
+  if (computePrice !== undefined) {
+    const defaultLimit = BigInt(instructions.length) * DEFAULT_COMPUTE_UNITS_PER_IX;
+    const limit =
+      computeLimit !== undefined
+        ? BigInt(computeLimit)
+        : defaultLimit < MAX_COMPUTE_UNIT_LIMIT
+          ? defaultLimit
+          : MAX_COMPUTE_UNIT_LIMIT;
+    const product = limit * computePrice + 999_999n;
+    if (product > U64_MAX) {
+      return fail("SG_E049_OVERFLOW", "Priority fee overflows u64");
+    }
+    priorityFee = product / 1_000_000n;
     const totalFee = priorityFee + SIGNATURE_BASE_FEE;
     const overflow = addSpend("SOL", totalFee, "SG_E050_OVERFLOW");
     if (overflow) {
@@ -331,6 +350,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
     programs,
     transfers,
     spend: [...spendMap.entries()].map(([mint, amount]) => ({ mint, amount })),
+    priorityFee,
     memos,
   };
 }
@@ -421,6 +441,14 @@ export async function checkSignMessage(opts: {
             : `Destination ATA ${transfer.to} is not on the recipient allowlist (allowlist the ATA, not just the wallet)`,
       });
     }
+  }
+
+  const maxTotalFee = vault.policy.maxTotalPriorityFeeLamports;
+  if (maxTotalFee !== undefined && outflow.priorityFee > maxTotalFee) {
+    reasons.push({
+      code: "SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH",
+      message: `Priority fee ${outflow.priorityFee} exceeds policy max ${maxTotalFee} lamports`,
+    });
   }
 
   for (const row of outflow.spend) {
