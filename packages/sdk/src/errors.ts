@@ -98,7 +98,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   SG_E049_OVERFLOW: 'Priority fee calculation overflow',
   SG_E050_OVERFLOW: 'Priority fee addition overflow',
 
-  // Request validation errors (051-075)
+  // Request validation errors (051-077)
   SG_E051_GLOBAL_PAUSED: 'Contract is globally paused',
   SG_E052_AGENT_NOT_REGISTERED: 'Agent account not registered with any vault',
   SG_E053_VAULT_MISMATCH: 'Agent is not registered to this vault',
@@ -125,6 +125,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   SG_E074_PROGRAM_NOT_ALLOWED: 'Program not in policy allowlist',
   SG_E075_INVALID_POLICY_PROGRAM: 'Policy program not in supported list or invalid format',
   SG_E076_VAULT_NOT_ACTIVE: 'Vault is not in Active state',
+  SG_E077_AGENT_EXISTS: 'Agent account name is already registered',
 };
 
 /**

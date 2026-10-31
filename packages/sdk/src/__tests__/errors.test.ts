@@ -51,6 +51,7 @@ describe('Errors', () => {
       expect(getErrorMessage('SG_E051_GLOBAL_PAUSED')).toBe('Contract is globally paused');
       expect(getErrorMessage('SG_E035_MEMO_INVALID_UTF8')).toBe('Memo text is not valid UTF-8');
       expect(getErrorMessage('SG_E076_VAULT_NOT_ACTIVE')).toBe('Vault is not in Active state');
+      expect(getErrorMessage('SG_E077_AGENT_EXISTS')).toBe('Agent account name is already registered');
       expect(getErrorMessage('SG_E999_UNKNOWN')).toContain('Unknown error');
     });
   });
@@ -115,6 +116,7 @@ describe('Errors', () => {
 
       expect(contractCodes.size).toBeGreaterThan(0);
       expect(contractCodes.has('SG_E076_VAULT_NOT_ACTIVE')).toBe(true);
+      expect(contractCodes.has('SG_E077_AGENT_EXISTS')).toBe(true);
 
       const mapped = new Set(knownErrorCodes());
       const missing = [...contractCodes].filter((code) => !mapped.has(code)).sort();

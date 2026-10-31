@@ -35,6 +35,8 @@ mod tests_followup_f1_f4;
 
 #[cfg(test)]
 mod tests_migration;
+#[cfg(test)]
+mod tests_refund_bugs;
 
 #[cfg(test)]
 mod test_helpers;
@@ -46,7 +48,6 @@ use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
 use events::*;
-use owner::VAULT_STORAGE_COST;
 use parser::*;
 use storage::*;
 use types::*;
@@ -208,13 +209,16 @@ impl Guard {
         &mut self,
         vault_id: u32,
         agent_name: String,
+        original_caller: AccountId,
+        deposit_amount: NearToken,
         #[callback_result] result: Result<(), PromiseError>,
     ) {
+        let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
+            .parse()
+            .unwrap();
+
         if result.is_ok() {
             if let Some(vault) = self.vaults.get_mut(&vault_id) {
-                let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
-                    .parse()
-                    .unwrap();
                 vault.agents.push(agent_id.clone());
                 self.agent_to_vault.insert(agent_id.clone(), vault_id);
                 emit_event(Event::AgentAdded {
@@ -222,66 +226,82 @@ impl Guard {
                     agent: agent_id.to_string(),
                 });
             }
+        } else {
+            // Nothing is written before success. Do not touch vault.agents or
+            // agent_to_vault: a failed create_account for a name that is already
+            // live (or belongs to another vault) must not unregister it.
+            env::log_str(&format!(
+                "agent creation failed for {}, refunding deposit",
+                agent_name
+            ));
+            #[allow(unused_must_use)]
+            {
+                Promise::new(original_caller).transfer(deposit_amount);
+            }
         }
     }
 
+    #[private]
     pub fn on_vault_verified(
         &mut self,
         vault_id: u32,
+        original_caller: AccountId,
+        deposit_amount: NearToken,
         #[callback_result] result: Result<String, PromiseError>,
     ) {
         let vault = match self.vaults.get_mut(&vault_id) {
             Some(v) => v,
             None => {
                 env::log_str(&format!("vault {} not found for verification", vault_id));
+                #[allow(unused_must_use)]
+                {
+                    Promise::new(original_caller).transfer(deposit_amount);
+                }
                 return;
             }
         };
 
         match result {
-            Ok(derived_key_b58) => {
-                let derived_key_bytes = base58_decode(&derived_key_b58);
-                if derived_key_bytes == vault.vault_address {
-                    // Address matches - activate vault
-                    vault.state = VaultState::Active;
-                    emit_event(Event::VaultCreated {
-                        vault_id,
-                        owner: base58_encode(&vault.owner),
-                        vault_address: base58_encode(&vault.vault_address),
-                    });
-                } else {
-                    // Address mismatch - remove vault and refund
-                    env::log_str(&format!(
-                        "vault address mismatch: expected {} got {}",
-                        base58_encode(&vault.vault_address),
-                        derived_key_b58
-                    ));
-                    self.vaults.remove(&vault_id);
-                    emit_event(Event::VaultVerificationFailed {
-                        vault_id,
-                        reason: "address_mismatch".to_string(),
-                    });
-                    // Refund vault creation deposit
-                    #[allow(unused_must_use)]
-                    {
-                        Promise::new(env::predecessor_account_id())
-                            .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+            Ok(derived_key_json) => {
+                // v1.signer-prod.testnet derived_public_key returns a JSON string
+                // "ed25519:<b58>" (near-sdk PublicKey / dtos::PublicKey).
+                match parse_mpc_ed25519_key(&derived_key_json) {
+                    Some(derived_key_bytes) if derived_key_bytes == vault.vault_address => {
+                        vault.state = VaultState::Active;
+                        emit_event(Event::VaultCreated {
+                            vault_id,
+                            owner: base58_encode(&vault.owner),
+                            vault_address: base58_encode(&vault.vault_address),
+                        });
+                    }
+                    _ => {
+                        env::log_str(&format!(
+                            "vault address mismatch: expected {} got {}",
+                            base58_encode(&vault.vault_address),
+                            derived_key_json
+                        ));
+                        self.vaults.remove(&vault_id);
+                        emit_event(Event::VaultVerificationFailed {
+                            vault_id,
+                            reason: "address_mismatch".to_string(),
+                        });
+                        #[allow(unused_must_use)]
+                        {
+                            Promise::new(original_caller).transfer(deposit_amount);
+                        }
                     }
                 }
             }
             Err(e) => {
-                // MPC call failed - remove vault and refund
                 env::log_str(&format!("MPC call failed: {:?}", e));
                 self.vaults.remove(&vault_id);
                 emit_event(Event::VaultVerificationFailed {
                     vault_id,
                     reason: "mpc_call_failed".to_string(),
                 });
-                // Refund vault creation deposit
                 #[allow(unused_must_use)]
                 {
-                    Promise::new(env::predecessor_account_id())
-                        .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                    Promise::new(original_caller).transfer(deposit_amount);
                 }
             }
         }
@@ -446,9 +466,21 @@ fn base58_encode(bytes: &[u8]) -> String {
     bs58::encode(bytes).into_string()
 }
 
+fn try_base58_decode(s: &str) -> Option<[u8; 32]> {
+    let bytes = bs58::decode(s).into_vec().ok()?;
+    bytes.try_into().ok()
+}
+
+/// Parse the JSON string returned by MPC `derived_public_key`.
+/// Live shape (v1.signer-prod.testnet, domain 1): `"ed25519:<b58>"`.
+/// Missing/wrong prefix or non-32-byte base58 is a mismatch.
+fn parse_mpc_ed25519_key(s: &str) -> Option<[u8; 32]> {
+    let b58 = s.strip_prefix("ed25519:")?;
+    try_base58_decode(b58)
+}
+
 fn base58_decode(s: &str) -> [u8; 32] {
-    let bytes = bs58::decode(s).into_vec().expect("invalid base58");
-    bytes.try_into().expect("wrong length")
+    try_base58_decode(s).expect("invalid base58")
 }
 
 #[allow(dead_code)]

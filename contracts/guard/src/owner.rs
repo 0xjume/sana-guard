@@ -13,7 +13,7 @@ const AGENT_ACCESS_KEY_ALLOWANCE: u128 = 250_000_000_000_000_000_000_000; // 0.2
 
 // Approximate storage costs in yoctoNEAR (at 10^19 yocto per byte)
 pub(crate) const VAULT_STORAGE_COST: u128 = 500_000_000_000_000_000_000_000; // ~0.5 NEAR for vault storage
-const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
+pub(crate) const AGENT_STORAGE_OVERHEAD: u128 = 50_000_000_000_000_000_000_000; // ~0.05 NEAR overhead
 
 #[derive(Deserialize)]
 #[serde(crate = "near_sdk::serde")]
@@ -127,6 +127,10 @@ impl Guard {
             }
         }
 
+        // Cheap AddAgent checks before requiring the 0.2 NEAR deposit, so a
+        // duplicate name or bad funding fails without attaching funds.
+        self.precheck_add_agent(&parsed.action);
+
         // Validate attached deposit for actions that consume contract resources
         let attached = env::attached_deposit().as_yoctonear();
         let required = Self::calculate_required_deposit(&parsed.action);
@@ -148,6 +152,31 @@ impl Guard {
         self.owner_nonce.insert(owner_pubkey, parsed.nonce);
 
         self.execute_owner_action(owner_pubkey, parsed.action)
+    }
+
+    fn precheck_add_agent(&self, action: &OwnerAction) {
+        let OwnerAction::AddAgent {
+            name, gas_funding, ..
+        } = action
+        else {
+            return;
+        };
+
+        let funding = gas_funding.0;
+        if funding < MIN_AGENT_FUNDING {
+            env::panic_str("gas_funding below minimum");
+        }
+        if funding > MAX_AGENT_FUNDING {
+            env::panic_str("gas_funding above maximum");
+        }
+
+        let agent_id: AccountId = format!("{}.{}", name, env::current_account_id())
+            .parse()
+            .unwrap_or_else(|_| env::panic_str("invalid agent name"));
+
+        if self.agent_to_vault.get(&agent_id).is_some() {
+            env::panic_str("SG_E077_AGENT_EXISTS");
+        }
     }
 
     fn calculate_required_deposit(action: &OwnerAction) -> u128 {
@@ -271,7 +300,10 @@ impl Guard {
                 let vault = Vault::new(vault_id, owner, vault_address_bytes, path.clone(), policy);
                 self.vaults.insert(vault_id, vault);
 
-                // Call MPC to verify the derived public key
+                // MPC v1.signer-prod.testnet ABI:
+                //   derived_public_key(path: String, predecessor: Option<AccountId>,
+                //                      domain_id: Option<DomainId>) -> PublicKey
+                // JSON args: {"path","predecessor","domain_id"}. Return: "ed25519:<b58>".
                 #[derive(near_sdk::serde::Serialize)]
                 #[serde(crate = "near_sdk::serde")]
                 struct DerivedKeyArgs {
@@ -300,7 +332,14 @@ impl Guard {
                         .then(
                             Self::ext(env::current_account_id())
                                 .with_static_gas(Gas::from_tgas(10))
-                                .on_vault_verified(vault_id),
+                                .on_vault_verified(
+                                    vault_id,
+                                    env::predecessor_account_id(),
+                                    // Only the remaining vault deposit. Excess was already
+                                    // refunded in handle_owner_action; passing attached_deposit()
+                                    // here would refund more than the caller sent.
+                                    NearToken::from_yoctonear(VAULT_STORAGE_COST),
+                                ),
                         );
                 }
 
@@ -333,20 +372,13 @@ impl Guard {
                     .parse()
                     .expect("invalid agent name");
 
-                // F3d: Refund excess deposits
-                let required_deposit = funding + AGENT_STORAGE_OVERHEAD;
-                let attached = env::attached_deposit().as_yoctonear();
-                if attached < required_deposit {
-                    env::panic_str("insufficient attached deposit");
+                if self.agent_to_vault.get(&agent_id).is_some() {
+                    env::panic_str("SG_E077_AGENT_EXISTS");
                 }
-                if attached > required_deposit {
-                    let refund = attached - required_deposit;
-                    #[allow(unused_must_use)]
-                    {
-                        Promise::new(env::predecessor_account_id())
-                            .transfer(NearToken::from_yoctonear(refund));
-                    }
-                }
+
+                // Excess deposit is already refunded in handle_owner_action.
+                // Prepaid gas for AddAgent: at least 50 Tgas works live
+                // (create_account + access key + 15 Tgas on_agent_created).
 
                 let _ = Promise::new(agent_id.clone())
                     .create_account()
@@ -362,8 +394,14 @@ impl Guard {
                     )
                     .then(
                         Self::ext(env::current_account_id())
-                            .with_static_gas(Gas::from_tgas(5))
-                            .on_agent_created(vault_id, name.clone()),
+                            .with_static_gas(Gas::from_tgas(15))
+                            .on_agent_created(
+                                vault_id,
+                                name.clone(),
+                                env::predecessor_account_id(),
+                                // Remaining deposit after the generic excess refund.
+                                NearToken::from_yoctonear(funding + AGENT_STORAGE_OVERHEAD),
+                            ),
                     );
 
                 format!("agent {} creation initiated", name)
