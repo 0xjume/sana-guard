@@ -5,23 +5,147 @@ use crate::*;
 mod parser_tests {
     use super::*;
 
+    /// Solana short_vec / compact-u16 encoder (same loop as `ShortU16::serialize`).
+    fn encode_short_u16(val: u16) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut rem_val = val;
+        loop {
+            let mut elem = (rem_val & 0x7f) as u8;
+            rem_val >>= 7;
+            if rem_val == 0 {
+                out.push(elem);
+                break;
+            }
+            elem |= 0x80;
+            out.push(elem);
+        }
+        out
+    }
+
     #[test]
-    fn test_compact_u16_decode() {
-        // Single byte encodings (0-127)
-        assert_eq!(read_compact_u16(&[0x00]).unwrap(), (0, 1));
-        assert_eq!(read_compact_u16(&[0x7f]).unwrap(), (127, 1));
+    fn test_compact_u16_canonical_table() {
+        let cases: &[(u16, &[u8])] = &[
+            (0x0000, &[0x00]),
+            (0x007f, &[0x7f]),
+            (0x0080, &[0x80, 0x01]),
+            (0x00ff, &[0xff, 0x01]),
+            (0x0100, &[0x80, 0x02]),
+            (0x3fff, &[0xff, 0x7f]),
+            (0x4000, &[0x80, 0x80, 0x01]),
+            (0x7fff, &[0xff, 0xff, 0x01]),
+            (0xffff, &[0xff, 0xff, 0x03]),
+        ];
+        for &(value, bytes) in cases {
+            assert_eq!(
+                encode_short_u16(value),
+                bytes,
+                "encoder mismatch for {value:#x}"
+            );
+            assert_eq!(
+                read_compact_u16(bytes).unwrap(),
+                (value, bytes.len()),
+                "decode mismatch for {value:#x}"
+            );
+        }
+    }
 
-        // Two byte encodings
-        assert_eq!(read_compact_u16(&[0x80, 0x01]).unwrap(), (128, 2));
-        assert_eq!(read_compact_u16(&[0x80, 0x02]).unwrap(), (256, 2));
-        assert_eq!(read_compact_u16(&[0xbf, 0x7f]).unwrap(), (16319, 2)); // max 2-byte
+    #[test]
+    fn test_compact_u16_rejects_non_canonical_and_overflow() {
+        // Alias / non-canonical (trailing zero continuation bytes)
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x00]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x80, 0x00]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0xff, 0x00]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0xff, 0x80, 0x00]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x81, 0x00]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0xff, 0xff, 0x00]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
 
-        // Three byte encoding
-        assert_eq!(read_compact_u16(&[0xc0, 0x00, 0x01]).unwrap(), (16384, 3));
+        // Truncated
+        assert_eq!(read_compact_u16(&[]).unwrap_err(), "SG_E036_COMPACT_EMPTY");
+        assert_eq!(
+            read_compact_u16(&[0x80]).unwrap_err(),
+            "SG_E037_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x80]).unwrap_err(),
+            "SG_E037_COMPACT_TRUNCATED"
+        );
 
-        // Error on truncated multi-byte
-        assert!(read_compact_u16(&[0x80]).is_err());
-        assert!(read_compact_u16(&[0xc0, 0x00]).is_err());
+        // Overflow and continuation on the third byte
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x80, 0x04]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x80, 0x06]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0x80, 0x80, 0x80]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+        assert_eq!(
+            read_compact_u16(&[0xff, 0xff, 0x04]).unwrap_err(),
+            "SG_E038_COMPACT_TRUNCATED"
+        );
+    }
+
+    #[test]
+    fn test_compact_u16_roundtrip_all_u16() {
+        for value in 0u16..=u16::MAX {
+            let encoded = encode_short_u16(value);
+            let (decoded, consumed) = read_compact_u16(&encoded)
+                .unwrap_or_else(|e| panic!("decode {value} from {encoded:?} failed: {e}"));
+            assert_eq!(decoded, value, "round-trip value");
+            assert_eq!(consumed, encoded.len(), "round-trip length for {value}");
+        }
+    }
+
+    /// Memo data length 200 = 0xC8. Canonical encoding is `[0xc8, 0x01]`.
+    /// The old `first & 0x40` check treated this as a 3-byte compact-u16 and
+    /// diverged from Solana (the first payload byte was consumed as the third
+    /// compact byte).
+    #[test]
+    fn test_memo_data_len_200_matches_solana() {
+        let vault = [1u8; 32];
+        let memo_text = vec![b'M'; 200];
+        assert_eq!(encode_short_u16(200), vec![0xc8, 0x01]);
+
+        let mut msg = vec![1, 0, 2, 3];
+        msg.extend_from_slice(&vault);
+        msg.extend_from_slice(&MEMO_V2_PROGRAM);
+        msg.extend_from_slice(&SYSTEM_PROGRAM);
+        msg.extend_from_slice(&[0u8; 32]);
+        msg.push(1);
+        msg.push(1);
+        msg.push(0);
+        msg.extend_from_slice(&[0xc8, 0x01]);
+        msg.extend_from_slice(&memo_text);
+
+        let parsed = parse_solana_message(&msg).expect("200-byte memo must parse like Solana");
+        match &parsed.instructions[0] {
+            ParsedInstruction::Memo { text } => {
+                assert_eq!(text.as_bytes(), memo_text.as_slice());
+            }
+            other => panic!("expected Memo, got {other:?}"),
+        }
     }
 
     #[test]

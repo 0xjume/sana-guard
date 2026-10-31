@@ -407,36 +407,46 @@ fn parse_memo_instruction(data: &[u8]) -> Result<ParsedInstruction, &'static str
     })
 }
 
+/// Solana short_vec / compact-u16. Matches `solana_short_vec::decode_shortu16_len`
+/// / `visit_byte`: 7 payload bits per byte, `0x80` continuation, at most 3 bytes,
+/// reject alias encodings (trailing zero continuation bytes), overflow, and a
+/// continuation bit on the third byte.
 pub(crate) fn read_compact_u16(bytes: &[u8]) -> Result<(u16, usize), &'static str> {
     if bytes.is_empty() {
         return Err("SG_E036_COMPACT_EMPTY");
     }
 
-    let first = bytes[0];
+    let mut val: u16 = 0;
+    for nth_byte in 0..3 {
+        let Some(&elem) = bytes.get(nth_byte) else {
+            return Err("SG_E037_COMPACT_TRUNCATED");
+        };
 
-    if first & 0x80 == 0 {
-        return Ok((first as u16, 1));
+        // Non-canonical alias: extra bytes whose payload is zero (e.g. 0x80 0x00).
+        if elem == 0 && nth_byte != 0 {
+            return Err("SG_E038_COMPACT_TRUNCATED");
+        }
+
+        let elem_val = u32::from(elem & 0x7f);
+        let elem_done = elem & 0x80 == 0;
+
+        if nth_byte == 2 && !elem_done {
+            return Err("SG_E038_COMPACT_TRUNCATED");
+        }
+
+        let shift = (nth_byte as u32).saturating_mul(7);
+        let shifted = elem_val
+            .checked_shl(shift)
+            .ok_or("SG_E038_COMPACT_TRUNCATED")?;
+        let new_val = u32::from(val) | shifted;
+        val = u16::try_from(new_val).map_err(|_| "SG_E038_COMPACT_TRUNCATED")?;
+
+        if elem_done {
+            return Ok((val, nth_byte + 1));
+        }
     }
 
-    if bytes.len() < 2 {
-        return Err("SG_E037_COMPACT_TRUNCATED");
-    }
-
-    let second = bytes[1];
-
-    if first & 0x40 == 0 {
-        let value = ((first & 0x7f) as u16) | ((second as u16) << 7);
-        return Ok((value, 2));
-    }
-
-    if bytes.len() < 3 {
-        return Err("SG_E038_COMPACT_TRUNCATED");
-    }
-
-    let third = bytes[2];
-
-    let value = ((first & 0x3f) as u16) | ((second as u16) << 6) | ((third as u16) << 14);
-    Ok((value, 3))
+    Err("SG_E038_COMPACT_TRUNCATED")
 }
 
 fn get_key(keys: &[u8], index: u8) -> Result<[u8; 32], &'static str> {
