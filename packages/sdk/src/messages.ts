@@ -77,6 +77,9 @@ function memoInstruction(memo: string, maxMemoLen: number): TransactionInstructi
  * Matches `solana_short_vec::encode_len` / the contract `read_compact_u16`.
  */
 export function encodeCompactU16(n: number): Buffer {
+  if (!Number.isInteger(n)) {
+    throw new SanaGuardError(`Compact-u16 must be an integer, got ${n}`);
+  }
   if (n < 0 || n > 65535) {
     throw new SanaGuardError('Compact-u16 out of range');
   }

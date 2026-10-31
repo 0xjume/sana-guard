@@ -47,6 +47,8 @@ const WHY: Record<string, string> = {
   SG_E068_RECIPIENT_NOT_ALLOWED:
     "The SPL destination ATA is not on the vault allowlist. Allowlist the ATA, not just the wallet.",
   SG_E069_MINT_NOT_IN_POLICY: "This SPL mint is not in the vault policy.",
+  SG_E073_MEMO_TOO_LONG:
+    "The memo exceeds the vault policy max_memo_len (UTF-8 bytes).",
   SG_E074_PROGRAM_NOT_ALLOWED:
     "A program in this transaction is not on the vault program allowlist.",
   SG_E076_VAULT_NOT_ACTIVE: "The vault is not Active (still pending verification).",

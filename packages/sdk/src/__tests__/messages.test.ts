@@ -188,6 +188,16 @@ describe('Messages', () => {
     it('rejects values outside u16', () => {
       expect(() => encodeCompactU16(-1)).toThrow(SanaGuardError);
       expect(() => encodeCompactU16(65536)).toThrow(SanaGuardError);
+      expect(() => encodeCompactU16(-1)).toThrow('Compact-u16 out of range');
+      expect(() => encodeCompactU16(65536)).toThrow('Compact-u16 out of range');
+    });
+
+    it('rejects non-integers', () => {
+      expect(() => encodeCompactU16(1.5)).toThrow(SanaGuardError);
+      expect(() => encodeCompactU16(1.5)).toThrow('Compact-u16 must be an integer');
+      expect(() => encodeCompactU16(Number.NaN)).toThrow(SanaGuardError);
+      expect(() => encodeCompactU16(Number.NaN)).toThrow('Compact-u16 must be an integer');
+      expect(() => encodeCompactU16(Number.POSITIVE_INFINITY)).toThrow('Compact-u16 must be an integer');
     });
   });
 
