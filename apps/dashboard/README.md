@@ -19,7 +19,7 @@ Login, create vault, policy edits, agents, and the kill switch stay disabled unt
 - Privy login (Solana embedded wallets + optional external Solana wallets)
 - Vault list for the signed-in owner
 - Vault detail: address + QR, SOL balance (devnet RPC), policy, pending loosen countdown, agents, recipients
-- Owner actions via the SDK + `/api/owner-action` + relay: create vault, set policy, add/remove agent, add/remove recipient, register token account, pause/unpause. The route verifies a Privy access token, checks the payload owner is a linked Solana wallet, optionally enforces `OWNER_ALLOWLIST`, and rate-limits per owner and trusted IP.
+- Owner actions via the SDK + `/api/owner-action` + relay: create vault, set policy, add/remove agent, add/remove recipient, register token account, pause/unpause. The route verifies a Privy access token, requires a linked Solana wallet, and rate-limits per owner. `INVITE_TOKEN` requires `OWNER_ALLOWLIST`.
 - Policy editor preserves SPL / unedited fields and shows whether a change is an **immediate tightening** or a **delayed loosen**
 - Cancel pending loosen by re-submitting the current policy (the contract treats an equal policy as stricter and clears `pending_loosen`). There is no dedicated cancel method.
 - Activity feed from NearBlocks testnet account history (empty indexer responses are **no history source**, not a silent empty vault)
@@ -68,14 +68,14 @@ Requires Node.js 20+.
 | `NEXT_PUBLIC_SOLANA_RPC` | client | `https://api.devnet.solana.com` |
 | `PRIVY_APP_SECRET` | server | Required to enable `/api/owner-action`. Verifies Privy access tokens (JWKS or `PRIVY_VERIFICATION_KEY`) and loads linked wallets |
 | `PRIVY_VERIFICATION_KEY` | server | Optional ES256 PEM so JWT verify can skip a JWKS fetch |
-| `OWNER_ALLOWLIST` | server | Optional comma-separated owner pubkeys. When set, others get 403 |
-| `INVITE_TOKEN` | server | Relay invite gate. Attached after Privy auth. Unset = forward without it. Never `NEXT_PUBLIC_` |
+| `OWNER_ALLOWLIST` | server | Comma-separated owner pubkeys. **Required when `INVITE_TOKEN` is set** |
+| `INVITE_TOKEN` | server | Relay invite gate. Attached after Privy auth. Requires `OWNER_ALLOWLIST`. Never `NEXT_PUBLIC_` |
 | `DEMO_AGENT_ACCOUNT_ID` | server | Attack Lab agent account |
 | `DEMO_AGENT_PRIVATE_KEY` | server | Attack Lab `ed25519:` key. Never commit |
 | `DEMO_AGENT_VAULT_ID` | server | Pinned Attack Lab vault. Required to enable |
 | `ATTACK_LAB_TOKEN` | server | Required header for Attack Lab POST. Disabled if unset |
 
-`POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. It then requires `Authorization: Bearer <Privy access token>`, the signed payload's owner to be a Solana wallet linked to that user, and (when set) `OWNER_ALLOWLIST`. Rate limits use `x-vercel-forwarded-for` / `x-real-ip` only — not client `x-forwarded-for`. `INVITE_TOKEN` is attached only when set; otherwise the relay decides.
+`POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. If `INVITE_TOKEN` is set, `OWNER_ALLOWLIST` is required (otherwise 503) so the invite cannot be used by every Privy user. The route requires `Authorization: Bearer <Privy access token>` and the payload owner to be a **Solana** wallet linked to that user (`chain_type === solana`). On Vercel (`VERCEL=1`), rate-limit IPs come from `x-vercel-forwarded-for` / `x-real-ip`. Off Vercel those headers are ignored and IPs share a `local` bucket; per-owner limits still apply. Never trust client `x-forwarded-for`.
 
 ## Vercel deploy
 

@@ -106,19 +106,26 @@ describe('owner gate', () => {
 });
 
 describe('trusted client IP', () => {
-  it('prefers Vercel then x-real-ip and ignores client x-forwarded-for', () => {
+  const spoofed = new Headers({
+    'x-forwarded-for': '8.8.8.8',
+    'x-real-ip': '9.9.9.9',
+    'x-vercel-forwarded-for': '1.1.1.1, 2.2.2.2',
+  });
+
+  it('ignores forwarded headers unless VERCEL is set', () => {
+    expect(trustedClientIp(spoofed, {})).toBe('local');
+    expect(trustedClientIp(spoofed, { VERCEL: undefined })).toBe('local');
+  });
+
+  it('on Vercel prefers x-vercel-forwarded-for then x-real-ip and ignores x-forwarded-for', () => {
+    expect(trustedClientIp(spoofed, { VERCEL: '1' })).toBe('1.1.1.1');
     expect(
-      trustedClientIp(
-        new Headers({
-          'x-forwarded-for': '8.8.8.8',
-          'x-real-ip': '9.9.9.9',
-          'x-vercel-forwarded-for': '1.1.1.1, 2.2.2.2',
-        })
-      )
-    ).toBe('1.1.1.1');
-    expect(
-      trustedClientIp(new Headers({ 'x-forwarded-for': '8.8.8.8', 'x-real-ip': '9.9.9.9' }))
+      trustedClientIp(new Headers({ 'x-forwarded-for': '8.8.8.8', 'x-real-ip': '9.9.9.9' }), {
+        VERCEL: '1',
+      })
     ).toBe('9.9.9.9');
-    expect(trustedClientIp(new Headers({ 'x-forwarded-for': '8.8.8.8' }))).toBe('local');
+    expect(trustedClientIp(new Headers({ 'x-forwarded-for': '8.8.8.8' }), { VERCEL: '1' })).toBe(
+      'local'
+    );
   });
 });

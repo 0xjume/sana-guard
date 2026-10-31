@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { publicConfig } from '@/lib/config';
 import { gateOwnerAction, parseOwnerAllowlist, readBearerToken } from '@/lib/owner-gate';
-import { privyOwnerActionConfigured, verifyPrivyAccessToken } from '@/lib/privy-session';
+import { ownerActionDisableReason, verifyPrivyAccessToken } from '@/lib/privy-session';
 import { trustedClientIp } from '@/lib/rate-limit';
 import { postAdminToRelay } from '@/lib/relay';
 
@@ -12,11 +12,16 @@ const rateStore = new Map<string, number[]>();
 /**
  * Browser owners POST here. The route verifies a Privy access token, checks
  * the payload owner is a linked Solana wallet (and OWNER_ALLOWLIST when set),
- * then forwards to the relay. INVITE_TOKEN is attached only when set.
+ * then forwards to the relay. INVITE_TOKEN requires OWNER_ALLOWLIST.
  */
 export async function POST(request: Request) {
   if (publicConfig.configError) {
     return NextResponse.json({ error: publicConfig.configError }, { status: 400 });
+  }
+
+  const disabled = ownerActionDisableReason();
+  if (disabled) {
+    return NextResponse.json({ error: disabled }, { status: 503 });
   }
 
   const body = (await request.json().catch(() => null)) as {
@@ -45,7 +50,7 @@ export async function POST(request: Request) {
   }
 
   const gate = await gateOwnerAction({
-    configured: privyOwnerActionConfigured(),
+    configured: true,
     accessToken: readBearerToken(request),
     owner,
     allowlist: parseOwnerAllowlist(process.env.OWNER_ALLOWLIST),

@@ -153,16 +153,14 @@ describe('attack lab guard', () => {
     expect(store.has('gone')).toBe(false);
   });
 
-  it('keys the rate limit on a trusted header, not x-forwarded-for', () => {
-    expect(
-      attackLabClientKey(
-        new Request('http://local/api/attack-lab', {
-          headers: {
-            'x-forwarded-for': '8.8.8.8',
-            'x-vercel-forwarded-for': '1.2.3.4',
-          },
-        })
-      )
-    ).toBe('1.2.3.4');
+  it('keys the rate limit on a trusted header only on Vercel', () => {
+    const request = new Request('http://local/api/attack-lab', {
+      headers: {
+        'x-forwarded-for': '8.8.8.8',
+        'x-vercel-forwarded-for': '1.2.3.4',
+      },
+    });
+    expect(attackLabClientKey(request, {})).toBe('local');
+    expect(attackLabClientKey(request, { VERCEL: '1' })).toBe('1.2.3.4');
   });
 });

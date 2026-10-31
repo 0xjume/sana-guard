@@ -17,8 +17,11 @@ export function attackLabTokensEqual(provided: string, expected: string): boolea
   return timingSafeEqual(left, right);
 }
 
-export function attackLabClientKey(request: Request): string {
-  return trustedClientIp(request.headers);
+export function attackLabClientKey(
+  request: Request,
+  env: Record<string, string | undefined> = process.env
+): string {
+  return trustedClientIp(request.headers, env);
 }
 
 export function allowAttackLabRequest(

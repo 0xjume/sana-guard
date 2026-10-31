@@ -1,7 +1,18 @@
 const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_MAX = 8;
 
-export function trustedClientIp(headers: Headers): string {
+/**
+ * Trust forwarded IP headers only on Vercel, where the platform sets them.
+ * Off Vercel, spoofable x-real-ip / x-vercel-forwarded-for are ignored and the
+ * key is `local` (per-owner limits still apply).
+ */
+export function trustedClientIp(
+  headers: Headers,
+  env: Record<string, string | undefined> = process.env
+): string {
+  if (!env.VERCEL) {
+    return 'local';
+  }
   const vercel = headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim();
   if (vercel) {
     return vercel;
