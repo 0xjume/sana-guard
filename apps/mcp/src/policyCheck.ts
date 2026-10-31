@@ -30,7 +30,7 @@ export interface CheckTransferResult {
   remaining24h?: string;
 }
 
-function mintKey(mint: Mint): string {
+export function mintKey(mint: Mint): string {
   return mint.type === "sol" ? "SOL" : mint.address.toBase58();
 }
 
@@ -38,11 +38,11 @@ export function normalizeSpendMint(raw: string): string {
   return raw === "Sol" || raw === "SOL" ? "SOL" : raw;
 }
 
-function findLimit(policy: Policy, key: string, which: "perTxLimit" | "dailyCap") {
+export function findLimit(policy: Policy, key: string, which: "perTxLimit" | "dailyCap") {
   return policy[which].find((row) => mintKey(row.mint) === key);
 }
 
-function spentFor(spend: Array<{ mint: string; amount: bigint }>, key: string): bigint {
+export function spentFor(spend: Array<{ mint: string; amount: bigint }>, key: string): bigint {
   return spend
     .filter((row) => normalizeSpendMint(row.mint) === key)
     .reduce((sum, row) => sum + row.amount, 0n);

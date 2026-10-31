@@ -5,11 +5,15 @@ import {
   buildTokenTransfer,
   validateIdempotencyKey,
   extractRecentBlockhash,
+  solanaExplorerUrl,
+  type BroadcastResult,
+  type SignRequestView,
 } from "@sana-guard/sdk";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
 import { parseAmountString } from "./amounts.js";
 import { toolError, toolOk } from "./errors.js";
 import { checkTransfer } from "./policyCheck.js";
+import { checkSignMessage } from "./outflow.js";
 import { decodeBase64Tx } from "./tx.js";
 import type { GuardRuntime } from "./runtime.js";
 
@@ -29,6 +33,51 @@ function mintKeyFromPolicy(mint: { type: "sol" } | { type: "spl"; address: Publi
   return mint.type === "sol" ? "SOL" : mint.address.toBase58();
 }
 
+function explorerFor(runtime: GuardRuntime, signature: string): string {
+  return solanaExplorerUrl(signature, runtime.publicConfig.solanaCluster, runtime.config.solanaRpcUrl);
+}
+
+function writeSuccess(
+  runtime: GuardRuntime,
+  idempotencyKey: string,
+  broadcast: BroadcastResult,
+  extra: Record<string, unknown> = {}
+) {
+  return toolOk({
+    ok: true,
+    requestId: idempotencyKey,
+    idempotencyKey,
+    signature: broadcast.signature,
+    explorer: explorerFor(runtime, broadcast.signature),
+    status: broadcast.status,
+    err: broadcast.err,
+    nearTxHash: broadcast.nearTxHash,
+    ...extra,
+  });
+}
+
+function writeFailure(error: unknown, idempotencyKey: string) {
+  return toolError(error, { idempotencyKey, requestId: idempotencyKey });
+}
+
+function existingRequestResult(requestId: string, request: SignRequestView) {
+  return toolOk({
+    ok: true,
+    alreadyExists: true,
+    code: "SG_E059_DUPLICATE_REQ_ID",
+    why: "This idempotencyKey was already submitted. Call sana_guard_get_request instead of retrying.",
+    requestId,
+    idempotencyKey: requestId,
+    vaultId: request.vaultId,
+    agent: request.agent,
+    msgHash: request.msgHash,
+    status: request.status,
+    signature: request.signature,
+    createdNs: request.createdNs.toString(),
+    spend: request.spend.map((row) => ({ mint: row.mint, amount: row.amount.toString() })),
+  });
+}
+
 export function createToolHandlers(runtime: GuardRuntime) {
   const vaultId = runtime.config.vaultId;
 
@@ -39,6 +88,14 @@ export function createToolHandlers(runtime: GuardRuntime) {
       runtime.views.getRecipients(vaultId),
     ]);
     return { vault, spend24h, recipients };
+  }
+
+  async function existingWrite(idempotencyKey: string) {
+    const request = await runtime.views.getRequest(idempotencyKey);
+    if (!request) {
+      return undefined;
+    }
+    return existingRequestResult(idempotencyKey, request);
   }
 
   return {
@@ -119,6 +176,7 @@ export function createToolHandlers(runtime: GuardRuntime) {
             mint: mintKeyFromPolicy(row.mint),
             amount: row.amount.toString(),
           })),
+          remaining,
           rolling24h: remaining,
         });
       } catch (error) {
@@ -157,6 +215,10 @@ export function createToolHandlers(runtime: GuardRuntime) {
     }) {
       const idempotencyKey = resolveIdempotencyKey(args.idempotencyKey);
       try {
+        const existing = await existingWrite(idempotencyKey);
+        if (existing) {
+          return existing;
+        }
         const amount = parseAmountString(args.amount, "amount");
         const pre = await this.checkTransfer({ kind: "sol", to: args.to, amount: args.amount });
         if ("isError" in pre && pre.isError) {
@@ -175,17 +237,11 @@ export function createToolHandlers(runtime: GuardRuntime) {
           message,
           lastValidBlockHeight,
           idempotencyKey,
+          explorerCluster: runtime.publicConfig.solanaCluster,
         });
-        return toolOk({
-          ok: true,
-          requestId: idempotencyKey,
-          signature: broadcast.signature,
-          explorer: broadcast.explorer,
-          status: broadcast.status,
-          err: broadcast.err,
-        });
+        return writeSuccess(runtime, idempotencyKey, broadcast);
       } catch (error) {
-        return toolError(error);
+        return writeFailure(error, idempotencyKey);
       }
     },
 
@@ -199,6 +255,10 @@ export function createToolHandlers(runtime: GuardRuntime) {
     }) {
       const idempotencyKey = resolveIdempotencyKey(args.idempotencyKey);
       try {
+        const existing = await existingWrite(idempotencyKey);
+        if (existing) {
+          return existing;
+        }
         const amount = parseAmountString(args.amount, "amount");
         const mint = new PublicKey(args.mint);
         const decimals = args.decimals ?? (await runtime.solana.getMintDecimals(mint));
@@ -230,44 +290,53 @@ export function createToolHandlers(runtime: GuardRuntime) {
           message,
           lastValidBlockHeight,
           idempotencyKey,
+          explorerCluster: runtime.publicConfig.solanaCluster,
         });
-        return toolOk({
-          ok: true,
-          requestId: idempotencyKey,
-          signature: broadcast.signature,
-          explorer: broadcast.explorer,
-          status: broadcast.status,
-          err: broadcast.err,
+        return writeSuccess(runtime, idempotencyKey, broadcast, {
           mint: args.mint,
           destinationAta: toTokenAccount.toBase58(),
         });
       } catch (error) {
-        return toolError(error);
+        return writeFailure(error, idempotencyKey);
       }
     },
 
     async signTransaction(args: { transactionBase64: string; idempotencyKey?: string }) {
       const idempotencyKey = resolveIdempotencyKey(args.idempotencyKey);
       try {
+        const existing = await existingWrite(idempotencyKey);
+        if (existing) {
+          return existing;
+        }
         const message = decodeBase64Tx(args.transactionBase64);
         extractRecentBlockhash(message);
-        const lastValidBlockHeight = (await runtime.solana.getBlockHeight()) + 150;
+        const { vault, spend24h, recipients } = await loadPolicyContext();
+        const pre = await checkSignMessage({
+          message,
+          vaultAddress: runtime.vaultAddress,
+          vault,
+          spend24h,
+          recipients,
+          nowNs: runtime.nowNs(),
+          maxLamportsPerCall: runtime.config.maxLamportsPerCall,
+          maxTokenAmountPerCall: runtime.config.maxTokenAmountPerCall,
+        });
+        if (!pre.wouldPass) {
+          return toolOk(pre, true);
+        }
+        const { lastValidBlockHeight } = await runtime.solana.getLatestBlockhash();
         const broadcast = await runtime.client.requestSignAndBroadcast({
           vaultId,
           message,
           lastValidBlockHeight,
           idempotencyKey,
+          explorerCluster: runtime.publicConfig.solanaCluster,
         });
-        return toolOk({
-          ok: true,
-          requestId: idempotencyKey,
-          signature: broadcast.signature,
-          explorer: broadcast.explorer,
-          status: broadcast.status,
-          err: broadcast.err,
+        return writeSuccess(runtime, idempotencyKey, broadcast, {
+          spend: pre.spend,
         });
       } catch (error) {
-        return toolError(error);
+        return writeFailure(error, idempotencyKey);
       }
     },
 

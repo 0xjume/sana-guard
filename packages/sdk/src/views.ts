@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { Contract, Account as NearAccount } from 'near-api-js';
+import { Account as NearAccount } from 'near-api-js';
 import { VaultView, SignRequestView, Policy, VaultState } from './types';
 import { SanaGuardError } from './errors';
 
@@ -112,33 +112,24 @@ export function parseSpend24hJson(text: string): Array<{ mint: string; amount: b
  * Read-only queries to the NEAR contract
  */
 export class Views {
-  private contract: Contract;
-
   constructor(
     private readonly nearAccount: NearAccount,
     private readonly guardContract: string
-  ) {
-    this.contract = new Contract(nearAccount, guardContract, {
-      viewMethods: [
-        'get_vault',
-        'get_policy',
-        'get_request',
-        'get_spend_24h',
-        'get_recipients',
-        'list_vaults',
-        'supported_programs',
-        'owner_nonce',
-      ],
-      changeMethods: [],
-      useLocalViewExecution: false,
-    });
+  ) {}
+
+  private view<T>(methodName: string, args: Record<string, unknown> = {}): Promise<T> {
+    return this.nearAccount.viewFunction({
+      contractId: this.guardContract,
+      methodName,
+      args,
+    }) as Promise<T>;
   }
 
   /**
    * Get vault by ID
    */
   async getVault(vaultId: number): Promise<VaultView | null> {
-    const result: any = await (this.contract as any).get_vault({ vault_id: vaultId });
+    const result: any = await this.view('get_vault', { vault_id: vaultId });
 
     if (!result) {
       return null;
@@ -165,7 +156,7 @@ export class Views {
    * Get sign request by hex ID
    */
   async getRequest(reqIdHex: string): Promise<SignRequestView | null> {
-    const result: any = await (this.contract as any).get_request({ req_id_hex: reqIdHex });
+    const result: any = await this.view('get_request', { req_id_hex: reqIdHex });
 
     if (!result) {
       return null;
@@ -204,7 +195,7 @@ export class Views {
    * Get owner nonce (for signing admin messages)
    */
   async getNonce(ownerB58: string): Promise<number> {
-    const result: any = await (this.contract as any).owner_nonce({ owner_b58: ownerB58 });
+    const result: any = await this.view('owner_nonce', { owner_b58: ownerB58 });
     return result;
   }
 
@@ -212,7 +203,7 @@ export class Views {
    * Get recipients for a vault
    */
   async getRecipients(vaultId: number, fromIndex?: number, limit?: number): Promise<string[]> {
-    const result: any = await (this.contract as any).get_recipients({
+    const result: any = await this.view('get_recipients', {
       vault_id: vaultId,
       from_index: fromIndex,
       limit,
@@ -224,7 +215,7 @@ export class Views {
    * List vaults with pagination
    */
   async listVaults(from?: number, limit?: number): Promise<Array<{ id: number; vault: VaultView }>> {
-    const result: any = await (this.contract as any).list_vaults({ from, limit });
+    const result: any = await this.view('list_vaults', { from, limit });
 
     return result.map((item: any) => ({
       id: item[0],
@@ -250,7 +241,7 @@ export class Views {
    * Get supported programs
    */
   async supportedPrograms(): Promise<string[]> {
-    const result: any = await (this.contract as any).supported_programs();
+    const result: any = await this.view('supported_programs');
     return result;
   }
 
@@ -271,16 +262,14 @@ export class Views {
   ): Promise<PublicKey> {
     const path = `vault/${ownerPublicKey}/${vaultIndex}`;
 
-    const mpc = new Contract(this.nearAccount, mpcContract, {
-      viewMethods: ['derived_public_key'],
-      changeMethods: [],
-      useLocalViewExecution: false,
-    });
-
-    const result: any = await (mpc as any).derived_public_key({
-      path,
-      predecessor: this.guardContract,
-      domain_id: mpcDomainId,
+    const result: any = await this.nearAccount.viewFunction({
+      contractId: mpcContract,
+      methodName: 'derived_public_key',
+      args: {
+        path,
+        predecessor: this.guardContract,
+        domain_id: mpcDomainId,
+      },
     });
 
     if (!result || typeof result !== 'string' || !result.startsWith('ed25519:')) {

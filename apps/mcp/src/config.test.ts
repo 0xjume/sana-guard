@@ -72,4 +72,40 @@ describe("loadConfig", () => {
     expect(config.maxLamportsPerCall).toBe(50_000_000n);
     expect(config.maxTokenAmountPerCall).toBe(1000n);
   });
+
+  it("refuses .near contract/account ids and NEAR RPC URLs that say mainnet", () => {
+    withEnv({ GUARD_CONTRACT_ID: "guard.near" });
+    expect(() => loadConfig()).toThrow(/Mainnet refused/);
+    withEnv({
+      GUARD_CONTRACT_ID: "guard.djume.testnet",
+      NEAR_RPC_URL: "https://rpc.mainnet.near.org",
+    });
+    expect(() => loadConfig()).toThrow(/Mainnet refused/);
+  });
+
+  it("does not treat a publicnode Solana URL as mainnet from the hostname alone", () => {
+    withEnv({ SOLANA_RPC_URL: "https://solana-rpc.publicnode.com" });
+    expect(() => loadConfig()).not.toThrow();
+  });
+
+  it("requires MCP_HTTP_TOKEN when HTTP is enabled and refuses 0.0.0.0 without ALLOW_PUBLIC", () => {
+    withEnv({ MCP_TRANSPORT: "http" });
+    expect(() => loadConfig()).toThrow(/MCP_HTTP_TOKEN is required/);
+    withEnv({
+      MCP_TRANSPORT: "http",
+      MCP_HTTP_TOKEN: "tok",
+      MCP_HTTP_HOST: "0.0.0.0",
+    });
+    expect(() => loadConfig()).toThrow(/0\.0\.0\.0/);
+    withEnv({
+      MCP_TRANSPORT: "http",
+      MCP_HTTP_TOKEN: "tok",
+      MCP_HTTP_HOST: "0.0.0.0",
+      MCP_HTTP_ALLOW_PUBLIC: "true",
+    });
+    const config = loadConfig();
+    expect(config.httpAllowPublic).toBe(true);
+    expect(config.httpToken).toBe("tok");
+    expect(JSON.stringify(toPublicConfig(config))).not.toContain("tok");
+  });
 });

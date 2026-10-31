@@ -1,6 +1,6 @@
 import { PublicKey, Connection, SendOptions } from '@solana/web3.js';
 import { Account as NearAccount } from 'near-api-js';
-import { RequestSignParams, BroadcastResult, TransferParams, SignResult } from './types';
+import { RequestSignParams, BroadcastResult, TransferParams, SignResult, SolanaCluster } from './types';
 import { SanaGuardError, createSanaGuardError, toSignError } from './errors';
 import {
   buildSolTransfer,
@@ -76,6 +76,64 @@ function resolveRequestId(idempotencyKey?: string): string {
 }
 
 /**
+ * Infer the Solana explorer cluster from an RPC URL.
+ * Custom / unnamed endpoints stay `custom` and never become mainnet-beta.
+ */
+export function inferSolanaCluster(rpcUrl: string): SolanaCluster {
+  const url = rpcUrl.toLowerCase();
+  if (url.includes('devnet')) {
+    return 'devnet';
+  }
+  if (url.includes('testnet')) {
+    return 'testnet';
+  }
+  if (url.includes('mainnet')) {
+    return 'mainnet-beta';
+  }
+  return 'custom';
+}
+
+/**
+ * Solana explorer URL for a signature on the given cluster.
+ */
+export function solanaExplorerUrl(
+  signature: string,
+  cluster: SolanaCluster,
+  customRpcUrl?: string
+): string {
+  if (cluster === 'custom') {
+    const custom = customRpcUrl
+      ? `&customUrl=${encodeURIComponent(customRpcUrl)}`
+      : '';
+    return `https://explorer.solana.com/tx/${signature}?cluster=custom${custom}`;
+  }
+  return `https://explorer.solana.com/tx/${signature}?cluster=${cluster}`;
+}
+
+/**
+ * Pull the NEAR transaction hash out of a functionCall outcome when present.
+ */
+export function extractNearTxHash(outcome: unknown): string | undefined {
+  if (outcome == null || typeof outcome !== 'object') {
+    return undefined;
+  }
+  const record = outcome as {
+    transaction?: { hash?: unknown };
+    transaction_outcome?: { id?: unknown };
+  };
+  if (typeof record.transaction?.hash === 'string' && record.transaction.hash.length > 0) {
+    return record.transaction.hash;
+  }
+  if (
+    typeof record.transaction_outcome?.id === 'string' &&
+    record.transaction_outcome.id.length > 0
+  ) {
+    return record.transaction_outcome.id;
+  }
+  return undefined;
+}
+
+/**
  * Sana Guard Agent Client
  *
  * Handles request_sign calls with agent function-call key,
@@ -108,6 +166,7 @@ export class AgentClient {
     const messageB64 = Buffer.from(message).toString('base64');
 
     const account = this.nearAccount as unknown as FunctionCallAccount;
+    let nearTxHash: string | undefined;
 
     try {
       const outcome = await account.functionCall({
@@ -121,6 +180,7 @@ export class AgentClient {
         gas: BigInt(gasAttached),
         attachedDeposit: BigInt(0),
       });
+      nearTxHash = extractNearTxHash(outcome);
       const result = parseSignResult(outcome);
 
       if (!result || !Array.isArray(result) || result.length !== 64) {
@@ -134,9 +194,9 @@ export class AgentClient {
         throw new SanaGuardError('Signature verification failed');
       }
 
-      return { signature, requestId };
+      return { signature, requestId, nearTxHash };
     } catch (error: unknown) {
-      throw toSignError(error, requestId);
+      throw toSignError(error, requestId, nearTxHash);
     }
   }
 
@@ -158,33 +218,42 @@ export class AgentClient {
       );
     }
 
-    const { signature } = await this.requestSign(params, gasAttached);
-    const signedTx = assembleSignedTransaction(signature, params.message);
-    const blockhash = extractRecentBlockhash(params.message);
+    let requestId: string | undefined;
+    let nearTxHash: string | undefined;
+    try {
+      const signed = await this.requestSign(params, gasAttached);
+      requestId = signed.requestId;
+      nearTxHash = signed.nearTxHash;
+      const signedTx = assembleSignedTransaction(signed.signature, params.message);
+      const blockhash = extractRecentBlockhash(params.message);
 
-    const txSignature = await this.solanaConnection.sendRawTransaction(signedTx, sendOptions);
+      const txSignature = await this.solanaConnection.sendRawTransaction(signedTx, sendOptions);
 
-    const confirmation = await this.solanaConnection.confirmTransaction(
-      {
+      const confirmation = await this.solanaConnection.confirmTransaction(
+        {
+          signature: txSignature,
+          blockhash,
+          lastValidBlockHeight: params.lastValidBlockHeight,
+        },
+        finalityLevel
+      );
+
+      const cluster =
+        params.explorerCluster ?? inferSolanaCluster(this.solanaConnection.rpcEndpoint);
+
+      return {
         signature: txSignature,
-        blockhash,
-        lastValidBlockHeight: params.lastValidBlockHeight,
-      },
-      finalityLevel
-    );
-
-    const network = this.solanaConnection.rpcEndpoint.includes('devnet')
-      ? 'devnet'
-      : this.solanaConnection.rpcEndpoint.includes('testnet')
-        ? 'testnet'
-        : 'mainnet-beta';
-
-    return {
-      signature: txSignature,
-      explorer: `https://explorer.solana.com/tx/${txSignature}?cluster=${network}`,
-      status: confirmation.value.err ? 'failed' : finalityLevel,
-      err: confirmation.value.err || undefined,
-    };
+        explorer: solanaExplorerUrl(txSignature, cluster, this.solanaConnection.rpcEndpoint),
+        status: confirmation.value.err ? 'failed' : finalityLevel,
+        err: confirmation.value.err || undefined,
+        nearTxHash,
+      };
+    } catch (error: unknown) {
+      if (requestId) {
+        throw toSignError(error, requestId, nearTxHash);
+      }
+      throw error;
+    }
   }
 
   /**

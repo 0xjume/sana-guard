@@ -10,6 +10,7 @@ import {
   type VaultView,
 } from "@sana-guard/sdk";
 import { type GuardConfig, type PublicConfig, loadConfig, toPublicConfig } from "./config.js";
+import { assertSafeNetworks, defaultNetworkProbes } from "./networks.js";
 
 export interface GuardViews {
   getVault(vaultId: number): Promise<VaultView | null>;
@@ -41,6 +42,7 @@ export interface GuardRuntime {
 }
 
 export async function createRuntime(config: GuardConfig = loadConfig()): Promise<GuardRuntime> {
+  const solanaCluster = await assertSafeNetworks(config, await defaultNetworkProbes());
   const keyStore = new keyStores.InMemoryKeyStore();
   const keyPair = KeyPair.fromString(config.agentPrivateKey as Parameters<typeof KeyPair.fromString>[0]);
   await keyStore.setKey(config.nearNetwork, config.agentAccountId, keyPair);
@@ -49,7 +51,7 @@ export async function createRuntime(config: GuardConfig = loadConfig()): Promise
     networkId: config.nearNetwork,
     keyStore,
     nodeUrl: config.nearRpcUrl,
-  });
+  } as Parameters<typeof connect>[0]);
   const account = (await near.account(config.agentAccountId)) as Account;
   const views = new Views(account, config.guardContractId);
   const connection = new Connection(config.solanaRpcUrl, "confirmed");
@@ -72,7 +74,7 @@ export async function createRuntime(config: GuardConfig = loadConfig()): Promise
 
   return {
     config,
-    publicConfig: { ...toPublicConfig(config), vaultAddress: vaultAddressStr },
+    publicConfig: { ...toPublicConfig(config), vaultAddress: vaultAddressStr, solanaCluster },
     views,
     client,
     vaultAddress,

@@ -104,7 +104,7 @@ export function createMcpServer(runtime: GuardRuntime): McpServer {
     {
       title: "Sign an allowlisted Solana transaction",
       description:
-        "Signs an arbitrary serialized Solana transaction or message (base64) via request_sign. The fee payer must be the vault, programs must be allowlisted, and v1 (0x81) messages are rejected. Returns requestId, signature, explorer link, status. Use only after check_transfer / policy review.",
+        "Signs a serialized Solana transaction or message (base64) via request_sign after decoding every instruction, summing vault outflow (SOL system transfers + SPL transferChecked per mint) the same way the contract does, and running the policy pre-check plus server max-per-call. Rejects unknown programs, unchecked token transfers, and anything else that cannot be fully accounted for. Returns requestId, signature, explorer link, status, nearTxHash.",
       inputSchema: {
         transactionBase64: z
           .string()

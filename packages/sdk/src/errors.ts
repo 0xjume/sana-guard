@@ -20,6 +20,7 @@ export class SanaGuardSignError extends SanaGuardError {
     message: string,
     public readonly requestId: string,
     code?: string,
+    public readonly nearTxHash?: string,
   ) {
     super(message, code);
     this.name = 'SanaGuardSignError';
@@ -29,17 +30,21 @@ export class SanaGuardSignError extends SanaGuardError {
 /**
  * Wrap any request_sign failure so the allocated request id is never dropped.
  */
-export function toSignError(error: unknown, requestId: string): SanaGuardSignError {
+export function toSignError(
+  error: unknown,
+  requestId: string,
+  nearTxHash?: string
+): SanaGuardSignError {
   if (error instanceof SanaGuardSignError) {
     return error;
   }
   if (error instanceof SanaGuardError) {
-    return new SanaGuardSignError(error.message, requestId, error.code);
+    return new SanaGuardSignError(error.message, requestId, error.code, nearTxHash);
   }
   const message =
     error instanceof Error ? error.message : error != null ? String(error) : 'Unknown error';
   const mapped = createSanaGuardError(message);
-  return new SanaGuardSignError(mapped.message, requestId, mapped.code);
+  return new SanaGuardSignError(mapped.message, requestId, mapped.code, nearTxHash);
 }
 
 /**

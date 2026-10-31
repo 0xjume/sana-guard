@@ -16,17 +16,19 @@ It talks to the chain only through `@sana-guard/sdk`. Tested against `guard.djum
 | `sana_guard_sign_transaction` | yes | Sign an allowlisted serialized Solana tx/message (base64) |
 | `sana_guard_get_request` | no | `get_request` by 64-hex `requestId` |
 
-Write tools take an optional `idempotencyKey` (64 lowercase hex; generated if omitted) and return `requestId`, Solana `signature`, explorer URL, and broadcast `status`. Amounts are always integer strings.
+Write tools take an optional `idempotencyKey` (64 lowercase hex; generated if omitted) and return `requestId`, `idempotencyKey`, Solana `signature`, explorer URL, broadcast `status`, and NEAR `nearTxHash`. Amounts are always integer strings. Explorer cluster follows the verified genesis hash, never `mainnet-beta` for an unknown custom RPC.
 
 Owner/admin actions (CreateVault, SetPolicy, AddAgent, …) are **not** exposed.
 
 ## Safety
 
 - Default networks: NEAR **testnet**, Solana **devnet**.
-- Mainnet is refused unless `SANA_GUARD_ALLOW_MAINNET=true`.
+- Mainnet is refused unless `SANA_GUARD_ALLOW_MAINNET=true`. Startup verifies Solana genesis (devnet/testnet only), NEAR `chain_id == testnet`, and refuses `.near` account/contract ids.
 - Optional `SANA_GUARD_MAX_LAMPORTS_PER_CALL` / `SANA_GUARD_MAX_TOKEN_AMOUNT_PER_CALL`.
-- Private keys are read from env or a key file and never logged or returned.
-- Contract codes (`SG_E062`, `SG_E068`, `SG_E077`, …) are mapped to structured `{ code, message, why, requestId? }` errors.
+- `sana_guard_sign_transaction` decodes the tx, accounts vault outflow the same way the contract does, then applies the policy pre-check and max-per-call. Unaccountable instructions are rejected.
+- A repeated `idempotencyKey` is answered from `get_request` (E059) without another `request_sign`.
+- Private keys and `MCP_HTTP_TOKEN` are never logged or returned.
+- Contract codes (`SG_E062`, `SG_E068`, `SG_E077`, `SG_E059`, …) are mapped to structured `{ code, message, why, requestId?, idempotencyKey?, nearTxHash? }` errors.
 
 ## Setup
 
@@ -59,12 +61,14 @@ node apps/mcp/dist/index.js
 
 ### Streamable HTTP
 
+`MCP_HTTP_TOKEN` is required. Host is allowlisted (`localhost` / `127.0.0.1` / `[::1]` by default). Foreign `Origin` headers are rejected. Binding `0.0.0.0` requires `MCP_HTTP_ALLOW_PUBLIC=true`.
+
 ```bash
-pnpm --filter @sana-guard/mcp start:http
-# MCP_TRANSPORT=http MCP_HTTP_PORT=8787 node apps/mcp/dist/index.js --http
+MCP_HTTP_TOKEN=long-random-secret pnpm --filter @sana-guard/mcp start:http
+# MCP_TRANSPORT=http MCP_HTTP_TOKEN=… MCP_HTTP_PORT=8787 node apps/mcp/dist/index.js --http
 ```
 
-Listens on `http://127.0.0.1:8787/mcp`.
+Listens on `http://127.0.0.1:8787/mcp`. Clients must send `Authorization: Bearer $MCP_HTTP_TOKEN`.
 
 ## Cursor / Claude Desktop
 
