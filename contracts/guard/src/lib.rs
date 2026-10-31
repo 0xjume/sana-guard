@@ -34,6 +34,9 @@ mod tests_release_and_programs;
 mod tests_priority_fee;
 
 #[cfg(test)]
+mod tests_policy_stricter;
+
+#[cfg(test)]
 mod tests_followup_f1_f4;
 
 #[cfg(test)]

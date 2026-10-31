@@ -627,11 +627,26 @@ impl Guard {
             return false;
         }
 
+        // None is unlimited. Some -> None or a higher Some is loosening.
+        match (
+            &new.max_total_priority_fee_lamports,
+            &old.max_total_priority_fee_lamports,
+        ) {
+            (None, Some(_)) => return false,
+            (Some(new_cap), Some(old_cap)) if new_cap.0 > old_cap.0 => return false,
+            _ => {}
+        }
+
         if new.max_memo_len > old.max_memo_len {
             return false;
         }
 
         if new.expires_at_ns.0 > old.expires_at_ns.0 {
+            return false;
+        }
+
+        // A shorter delay lets a later loosening take effect sooner.
+        if new.loosen_delay_ns.0 < old.loosen_delay_ns.0 {
             return false;
         }
 
