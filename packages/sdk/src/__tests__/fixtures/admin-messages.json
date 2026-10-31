@@ -1,0 +1,28 @@
+{
+  "seed": "0707070707070707070707070707070707070707070707070707070707070707",
+  "owner": "GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
+  "nonce": 42,
+  "expires": "1800000000000000000",
+  "cases": [
+    {
+      "name": "CreateVault",
+      "message": "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: guard.djume.testnet\nvault: null\nnonce: 42\nexpires: 1800000000000000000\naction: {\"type\":\"CreateVault\",\"owner\":\"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\",\"vault_address\":\"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\",\"policy\":{\"per_tx_limit\":[[\"Sol\",\"50000000\"]],\"daily_cap\":[[\"Sol\",\"100000000\"]],\"programs\":[\"11111111111111111111111111111111\"],\"max_priority_fee_lamports\":\"100000\",\"max_memo_len\":64,\"expires_at_ns\":\"999999999999999999\",\"loosen_delay_ns\":\"3600000000000\"}}",
+      "signatureHex": "3799d4cf17252967cc70223aa5c23eed72121dc7bfb79bfc561dccdc0e9b110a662800acc1b7fa8b9dce97a60b7a200573eec4961e56296b909e03c856252406"
+    },
+    {
+      "name": "SetPolicy",
+      "message": "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: guard.djume.testnet\nvault: 0\nnonce: 42\nexpires: 1800000000000000000\naction: {\"type\":\"SetPolicy\",\"vault_id\":0,\"policy\":{\"per_tx_limit\":[[\"Sol\",\"50000000\"]],\"daily_cap\":[[\"Sol\",\"100000000\"]],\"programs\":[\"11111111111111111111111111111111\"],\"max_priority_fee_lamports\":\"100000\",\"max_memo_len\":64,\"expires_at_ns\":\"999999999999999999\",\"loosen_delay_ns\":\"3600000000000\"}}",
+      "signatureHex": "d2bb97bd635db9e1f02ed24992f30b3e4173e683892d350956a5e779a80f0166828d50ce83eef2690c73cabe759bea74087d5a63217b5ac6f767cfd958d42c02"
+    },
+    {
+      "name": "SetPolicyWithMaxTotalPriorityFee",
+      "message": "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: guard.djume.testnet\nvault: 0\nnonce: 42\nexpires: 1800000000000000000\naction: {\"type\":\"SetPolicy\",\"vault_id\":0,\"policy\":{\"per_tx_limit\":[[\"Sol\",\"50000000\"]],\"daily_cap\":[[\"Sol\",\"100000000\"]],\"programs\":[\"11111111111111111111111111111111\"],\"max_priority_fee_lamports\":\"100000\",\"max_total_priority_fee_lamports\":\"250000\",\"max_memo_len\":64,\"expires_at_ns\":\"999999999999999999\",\"loosen_delay_ns\":\"3600000000000\"}}",
+      "signatureHex": "d82a6a157645f1639bd2e16a9a8fe5c9ee83877c3c44b99cac5071d0845ee86b6d083f6f54318807c0ece3c4f4ccfcd1b4fd504a523c11f1f4343b417662ea0e"
+    },
+    {
+      "name": "BackfillRecipients",
+      "message": "SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: guard.djume.testnet\nvault: 0\nnonce: 42\nexpires: 1800000000000000000\naction: {\"type\":\"BackfillRecipients\",\"vault_id\":0,\"recipients\":[\"DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB\"]}",
+      "signatureHex": "18ef5358cdda4034821039a943f08e65c942b4b61f6b2091a0a80f593d8f4b4cd123dd480502828d3ea8ce1ee2a92b0215a63e3f39930196b0a21834d5501a0d"
+    }
+  ]
+}

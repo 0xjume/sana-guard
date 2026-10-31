@@ -1,0 +1,54 @@
+{
+  "name": "@sana-guard/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Sana Guard - Policy-enforced AI agent wallets",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint 'src/**/*.ts'",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:live": "SANA_GUARD_LIVE=1 jest"
+  },
+  "keywords": [
+    "sana-guard",
+    "solana",
+    "near",
+    "blockchain",
+    "wallet",
+    "agent"
+  ],
+  "author": "Jume / 0xjume",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bs58": "^4.0.4",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.5",
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "eslint": "^9.18.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.99.0",
+    "bs58": "^6.0.0",
+    "near-api-js": "^5.0.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "peerDependencies": {
+    "near-api-js": "^5.0.0 || ^4.0.0 || ^3.0.0"
+  }
+}

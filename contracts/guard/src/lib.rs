@@ -39,6 +39,9 @@ mod tests_migration;
 #[cfg(test)]
 mod test_helpers;
 
+#[cfg(test)]
+mod tests_sdk_admin_fixtures;
+
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
