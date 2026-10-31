@@ -300,7 +300,7 @@ impl Guard {
                         .then(
                             Self::ext(env::current_account_id())
                                 .with_static_gas(Gas::from_tgas(10))
-                                .on_vault_verified(vault_id),
+                                .on_vault_verified(vault_id, env::predecessor_account_id()),
                         );
                 }
 
@@ -333,20 +333,8 @@ impl Guard {
                     .parse()
                     .expect("invalid agent name");
 
-                // F3d: Refund excess deposits
-                let required_deposit = funding + AGENT_STORAGE_OVERHEAD;
-                let attached = env::attached_deposit().as_yoctonear();
-                if attached < required_deposit {
-                    env::panic_str("insufficient attached deposit");
-                }
-                if attached > required_deposit {
-                    let refund = attached - required_deposit;
-                    #[allow(unused_must_use)]
-                    {
-                        Promise::new(env::predecessor_account_id())
-                            .transfer(NearToken::from_yoctonear(refund));
-                    }
-                }
+                // Deposit was checked and any excess refunded in handle_owner_action.
+                // Refunding here as well paid the excess back twice.
 
                 let _ = Promise::new(agent_id.clone())
                     .create_account()
@@ -363,7 +351,12 @@ impl Guard {
                     .then(
                         Self::ext(env::current_account_id())
                             .with_static_gas(Gas::from_tgas(5))
-                            .on_agent_created(vault_id, name.clone()),
+                            .on_agent_created(
+                                vault_id,
+                                name.clone(),
+                                env::predecessor_account_id(),
+                                U128(funding + AGENT_STORAGE_OVERHEAD),
+                            ),
                     );
 
                 format!("agent {} creation initiated", name)

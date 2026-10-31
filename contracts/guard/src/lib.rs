@@ -39,6 +39,10 @@ mod tests_migration;
 #[cfg(test)]
 mod test_helpers;
 
+#[cfg(test)]
+mod tests_refunds;
+
+use near_sdk::json_types::U128;
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
 
@@ -205,26 +209,38 @@ impl Guard {
         &mut self,
         vault_id: u32,
         agent_name: String,
+        payer: AccountId,
+        refund: U128,
         #[callback_result] result: Result<(), PromiseError>,
     ) {
-        if result.is_ok() {
-            if let Some(vault) = self.vaults.get_mut(&vault_id) {
-                let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
-                    .parse()
-                    .unwrap();
-                vault.agents.push(agent_id.clone());
-                self.agent_to_vault.insert(agent_id.clone(), vault_id);
-                emit_event(Event::AgentAdded {
-                    vault_id,
-                    agent: agent_id.to_string(),
-                });
+        if result.is_err() {
+            // The failed create_account returned the funding to this contract, not to the
+            // account that attached it, so pass it on.
+            env::log_str(&format!("agent {} creation failed", agent_name));
+            #[allow(unused_must_use)]
+            {
+                Promise::new(payer).transfer(NearToken::from_yoctonear(refund.0));
             }
+            return;
+        }
+        if let Some(vault) = self.vaults.get_mut(&vault_id) {
+            let agent_id: AccountId = format!("{}.{}", agent_name, env::current_account_id())
+                .parse()
+                .unwrap();
+            vault.agents.push(agent_id.clone());
+            self.agent_to_vault.insert(agent_id.clone(), vault_id);
+            emit_event(Event::AgentAdded {
+                vault_id,
+                agent: agent_id.to_string(),
+            });
         }
     }
 
+    #[private]
     pub fn on_vault_verified(
         &mut self,
         vault_id: u32,
+        payer: AccountId,
         #[callback_result] result: Result<String, PromiseError>,
     ) {
         let vault = match self.vaults.get_mut(&vault_id) {
@@ -237,8 +253,8 @@ impl Guard {
 
         match result {
             Ok(derived_key_b58) => {
-                let derived_key_bytes = base58_decode(&derived_key_b58);
-                if derived_key_bytes == vault.vault_address {
+                // Never panic here: an undecodable key is treated as a mismatch.
+                if parse_derived_key(&derived_key_b58) == Some(vault.vault_address) {
                     // Address matches - activate vault
                     vault.state = VaultState::Active;
                     emit_event(Event::VaultCreated {
@@ -261,8 +277,7 @@ impl Guard {
                     // Refund vault creation deposit
                     #[allow(unused_must_use)]
                     {
-                        Promise::new(env::predecessor_account_id())
-                            .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                        Promise::new(payer).transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
                     }
                 }
             }
@@ -277,8 +292,7 @@ impl Guard {
                 // Refund vault creation deposit
                 #[allow(unused_must_use)]
                 {
-                    Promise::new(env::predecessor_account_id())
-                        .transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
+                    Promise::new(payer).transfer(NearToken::from_yoctonear(VAULT_STORAGE_COST));
                 }
             }
         }
@@ -441,6 +455,12 @@ fn reserve_spend(vault: &mut Vault, hour: u64, msg_hash: &[u8; 32], spend: &[(Mi
 
 fn base58_encode(bytes: &[u8]) -> String {
     bs58::encode(bytes).into_string()
+}
+
+/// Parses an MPC `derived_public_key` result, which is `ed25519:<base58>`.
+fn parse_derived_key(s: &str) -> Option<[u8; 32]> {
+    let b58 = s.strip_prefix("ed25519:").unwrap_or(s);
+    bs58::decode(b58).into_vec().ok()?.try_into().ok()
 }
 
 fn base58_decode(s: &str) -> [u8; 32] {

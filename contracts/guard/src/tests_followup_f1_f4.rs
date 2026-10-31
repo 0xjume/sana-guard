@@ -334,7 +334,7 @@ fn test_f3a_vault_activated_on_match() {
 
     // Simulate successful MPC callback with matching key
     let result = Ok(vault_b58.clone());
-    contract.on_vault_verified(0, result);
+    contract.on_vault_verified(0, accounts(1), result);
 
     // Vault should now be Active
     let vault_view = contract.get_vault(0).expect("vault should exist");
@@ -375,7 +375,7 @@ fn test_f3a_vault_removed_on_mismatch() {
 
     // Simulate MPC callback with mismatched key
     let result = Ok(wrong_b58);
-    contract.on_vault_verified(0, result);
+    contract.on_vault_verified(0, accounts(1), result);
 
     // Vault should be removed
     assert!(contract.get_vault(0).is_none());
