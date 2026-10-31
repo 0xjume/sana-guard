@@ -114,6 +114,38 @@ jobs:
       - name: MCP build
         run: pnpm --filter @sana-guard/mcp build
 
+  dashboard:
+    name: Dashboard (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: SDK build
+        run: pnpm --filter @sana-guard/sdk build
+
+      - name: Lint
+        run: pnpm --filter @sana-guard/dashboard lint
+
+      - name: Type check
+        run: pnpm --filter @sana-guard/dashboard typecheck
+
+      - name: Test
+        run: pnpm --filter @sana-guard/dashboard test
+
+      - name: Build
+        run: pnpm --filter @sana-guard/dashboard build
+
   # Separate from the typescript job so SDK steps stay isolated.
   relay:
     name: Relay (lint, typecheck, test)
