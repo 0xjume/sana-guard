@@ -12,7 +12,9 @@ const SECRET = 'sec_test';
 const USER = 'did:privy:abc';
 const SOL = 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB';
 
-function env(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+function env(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string | undefined> {
   return {
     NEXT_PUBLIC_PRIVY_APP_ID: APP,
     PRIVY_APP_SECRET: SECRET,
