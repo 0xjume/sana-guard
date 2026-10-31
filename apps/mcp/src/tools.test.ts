@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
 import { SYSTEM_PROGRAM, SanaGuardSignError, buildSolTransfer, type VaultView } from "@sana-guard/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { SERVER_MAX_CODE } from "./errors.js";
+import { BLOCKHASH_EXPIRED_CODE, KEY_REUSED_CODE, SERVER_MAX_CODE } from "./errors.js";
 import type { GuardRuntime } from "./runtime.js";
 import { createToolHandlers, generateIdempotencyKey } from "./tools.js";
 
@@ -81,6 +83,7 @@ function runtime(overrides: Partial<GuardRuntime> = {}): GuardRuntime {
         blockhash: "Ht6GqHqTWjgDKVVALPWnR1qXaP8Qm7u2abYcGvMxLbGN",
         lastValidBlockHeight: 99,
       })),
+      isBlockhashValid: vi.fn(async () => true),
       getMintDecimals: vi.fn(async () => 6),
       getBlockHeight: vi.fn(async () => 10),
     },
@@ -231,7 +234,7 @@ describe("tool handlers", () => {
           vaultId: 0,
           agent: "agent1.guard.djume.testnet",
           msgHash: "aa",
-          spend: [{ mint: "SOL", amount: 1n }],
+          spend: [{ mint: "SOL", amount: 1000n }],
           hour: 1,
           status: { status: "Signed" as const },
           signature: "already-signed",
@@ -286,5 +289,93 @@ describe("tool handlers", () => {
     const body = parse(await handlers.getPolicy());
     expect(body.remaining).toEqual(body.rolling24h);
     expect((body.remaining as Array<{ remaining24h: string }>)[0]?.remaining24h).toBe("99000000");
+  });
+
+  it("refuses a repeated idempotencyKey reused for a different transfer", async () => {
+    const rt = runtime({
+      views: {
+        getVault: vi.fn(async () => vault()),
+        getSpend24h: vi.fn(async () => []),
+        getRecipients: vi.fn(async () => [recipient]),
+        getRequest: vi.fn(async () => ({
+          vaultId: 0,
+          agent: "agent1.guard.djume.testnet",
+          msgHash: "aa",
+          spend: [{ mint: "SOL", amount: 1n }],
+          hour: 1,
+          status: { status: "Signed" as const },
+          signature: "already-signed",
+          createdNs: 1n,
+        })),
+      },
+    });
+    const handlers = createToolHandlers(rt);
+    const result = await handlers.transferSol({
+      to: recipient,
+      amount: "1000",
+      idempotencyKey: generateIdempotencyKey(),
+    });
+    const body = parse(result);
+    expect(result.isError).toBe(true);
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe(KEY_REUSED_CODE);
+    expect(body.alreadyExists).toBeUndefined();
+    expect(rt.client.requestSignAndBroadcast).not.toHaveBeenCalled();
+  });
+
+  it("sign_transaction treats a repeated key as a retry only when the message hash matches", async () => {
+    const message = buildSolTransfer(
+      vaultAddress,
+      new PublicKey(recipient),
+      1_000n,
+      "Ht6GqHqTWjgDKVVALPWnR1qXaP8Qm7u2abYcGvMxLbGN",
+      { version: "v0" }
+    );
+    const storedHash = bs58.encode(createHash("sha256").update(message).digest());
+    const request = (msgHash: string) => ({
+      vaultId: 0,
+      agent: "agent1.guard.djume.testnet",
+      msgHash,
+      spend: [{ mint: "SOL", amount: 1_000n }],
+      hour: 1,
+      status: { status: "Signed" as const },
+      signature: "already-signed",
+      createdNs: 1n,
+    });
+    const transactionBase64 = Buffer.from(message).toString("base64");
+    const idempotencyKey = generateIdempotencyKey();
+
+    const same = runtime();
+    vi.mocked(same.views.getRequest).mockResolvedValue(request(storedHash));
+    const retry = parse(
+      await createToolHandlers(same).signTransaction({ transactionBase64, idempotencyKey })
+    );
+    expect(retry.alreadyExists).toBe(true);
+
+    const other = runtime();
+    vi.mocked(other.views.getRequest).mockResolvedValue(request("different-hash"));
+    const reused = parse(
+      await createToolHandlers(other).signTransaction({ transactionBase64, idempotencyKey })
+    );
+    expect(reused.code).toBe(KEY_REUSED_CODE);
+    expect(other.client.requestSignAndBroadcast).not.toHaveBeenCalled();
+  });
+
+  it("sign_transaction refuses an expired blockhash before signing", async () => {
+    const rt = runtime();
+    vi.mocked(rt.solana.isBlockhashValid).mockResolvedValue(false);
+    const message = buildSolTransfer(
+      vaultAddress,
+      new PublicKey(recipient),
+      1_000n,
+      "Ht6GqHqTWjgDKVVALPWnR1qXaP8Qm7u2abYcGvMxLbGN",
+      { version: "v0" }
+    );
+    const result = await createToolHandlers(rt).signTransaction({
+      transactionBase64: Buffer.from(message).toString("base64"),
+    });
+    expect(result.isError).toBe(true);
+    expect(parse(result).code).toBe(BLOCKHASH_EXPIRED_CODE);
+    expect(rt.client.requestSignAndBroadcast).not.toHaveBeenCalled();
   });
 });

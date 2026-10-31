@@ -1,5 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
 import {
   buildSolTransfer,
   buildTokenTransfer,
@@ -11,7 +12,7 @@ import {
 } from "@sana-guard/sdk";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
 import { parseAmountString } from "./amounts.js";
-import { toolError, toolOk } from "./errors.js";
+import { BLOCKHASH_EXPIRED_CODE, KEY_REUSED_CODE, toolError, toolOk, whyForCode } from "./errors.js";
 import { checkTransfer } from "./policyCheck.js";
 import { checkSignMessage } from "./outflow.js";
 import { decodeBase64Tx } from "./tx.js";
@@ -65,7 +66,7 @@ function existingRequestResult(requestId: string, request: SignRequestView) {
     ok: true,
     alreadyExists: true,
     code: "SG_E059_DUPLICATE_REQ_ID",
-    why: "This idempotencyKey was already submitted. Call sana_guard_get_request instead of retrying.",
+    why: "This idempotencyKey was already submitted. This call did not sign or broadcast anything. Call sana_guard_get_request and check the Solana signature before telling the user the transfer landed.",
     requestId,
     idempotencyKey: requestId,
     vaultId: request.vaultId,
@@ -90,12 +91,44 @@ export function createToolHandlers(runtime: GuardRuntime) {
     return { vault, spend24h, recipients };
   }
 
-  async function existingWrite(idempotencyKey: string) {
+  /**
+   * Answer a repeated idempotencyKey from get_request. `matches` decides whether the stored
+   * request is the same transfer; if not, the key was reused and the caller gets an error
+   * instead of a success for a transfer it did not make.
+   */
+  async function existingWrite(
+    idempotencyKey: string,
+    matches: (request: SignRequestView) => boolean
+  ) {
     const request = await runtime.views.getRequest(idempotencyKey);
     if (!request) {
       return undefined;
     }
+    if (!matches(request)) {
+      return toolOk(
+        {
+          ok: false,
+          code: KEY_REUSED_CODE,
+          why: whyForCode(KEY_REUSED_CODE),
+          requestId: idempotencyKey,
+          idempotencyKey,
+          existingSpend: request.spend.map((row) => ({
+            mint: row.mint,
+            amount: row.amount.toString(),
+          })),
+        },
+        true
+      );
+    }
     return existingRequestResult(idempotencyKey, request);
+  }
+
+  /** Same single-mint spend as an SDK-built transfer (no compute budget instructions). */
+  function spendIs(mint: string, amount: bigint) {
+    return (request: SignRequestView) =>
+      request.spend.length === 1 &&
+      request.spend[0].mint === mint &&
+      request.spend[0].amount === amount;
   }
 
   return {
@@ -215,11 +248,11 @@ export function createToolHandlers(runtime: GuardRuntime) {
     }) {
       const idempotencyKey = resolveIdempotencyKey(args.idempotencyKey);
       try {
-        const existing = await existingWrite(idempotencyKey);
+        const amount = parseAmountString(args.amount, "amount");
+        const existing = await existingWrite(idempotencyKey, spendIs("SOL", amount));
         if (existing) {
           return existing;
         }
-        const amount = parseAmountString(args.amount, "amount");
         const pre = await this.checkTransfer({ kind: "sol", to: args.to, amount: args.amount });
         if ("isError" in pre && pre.isError) {
           return pre;
@@ -255,12 +288,12 @@ export function createToolHandlers(runtime: GuardRuntime) {
     }) {
       const idempotencyKey = resolveIdempotencyKey(args.idempotencyKey);
       try {
-        const existing = await existingWrite(idempotencyKey);
+        const amount = parseAmountString(args.amount, "amount");
+        const mint = new PublicKey(args.mint);
+        const existing = await existingWrite(idempotencyKey, spendIs(mint.toBase58(), amount));
         if (existing) {
           return existing;
         }
-        const amount = parseAmountString(args.amount, "amount");
-        const mint = new PublicKey(args.mint);
         const decimals = args.decimals ?? (await runtime.solana.getMintDecimals(mint));
         const pre = await this.checkTransfer({
           kind: "spl",
@@ -304,12 +337,31 @@ export function createToolHandlers(runtime: GuardRuntime) {
     async signTransaction(args: { transactionBase64: string; idempotencyKey?: string }) {
       const idempotencyKey = resolveIdempotencyKey(args.idempotencyKey);
       try {
-        const existing = await existingWrite(idempotencyKey);
+        const message = decodeBase64Tx(args.transactionBase64);
+        // The contract's get_request reports msg_hash as base58(sha256(message)).
+        const msgHash = bs58.encode(createHash("sha256").update(message).digest());
+        const existing = await existingWrite(
+          idempotencyKey,
+          (request) => request.msgHash === msgHash
+        );
         if (existing) {
           return existing;
         }
-        const message = decodeBase64Tx(args.transactionBase64);
-        extractRecentBlockhash(message);
+        const recentBlockhash = extractRecentBlockhash(message);
+        // Signing reserves spend and burns the request id, so refuse a message that can no
+        // longer land instead of signing it and failing at broadcast.
+        if (!(await runtime.solana.isBlockhashValid(recentBlockhash))) {
+          return toolOk(
+            {
+              ok: false,
+              code: BLOCKHASH_EXPIRED_CODE,
+              why: whyForCode(BLOCKHASH_EXPIRED_CODE),
+              requestId: idempotencyKey,
+              idempotencyKey,
+            },
+            true
+          );
+        }
         const { vault, spend24h, recipients } = await loadPolicyContext();
         const pre = await checkSignMessage({
           message,
@@ -324,6 +376,7 @@ export function createToolHandlers(runtime: GuardRuntime) {
         if (!pre.wouldPass) {
           return toolOk(pre, true);
         }
+        // Upper bound for the message's own blockhash, which was just checked to be valid.
         const { lastValidBlockHeight } = await runtime.solana.getLatestBlockhash();
         const broadcast = await runtime.client.requestSignAndBroadcast({
           vaultId,

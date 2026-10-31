@@ -5,7 +5,13 @@ import {
   SystemProgram,
 } from "@solana/web3.js";
 import { createTransferInstruction, createTransferCheckedInstruction } from "@solana/spl-token";
-import { buildSolTransfer, buildTokenTransfer, SYSTEM_PROGRAM, TOKEN_PROGRAM } from "@sana-guard/sdk";
+import {
+  buildSolTransfer,
+  buildTokenTransfer,
+  COMPUTE_BUDGET_PROGRAM,
+  SYSTEM_PROGRAM,
+  TOKEN_PROGRAM,
+} from "@sana-guard/sdk";
 import { describe, expect, it } from "vitest";
 import { SERVER_MAX_CODE } from "./errors.js";
 import { accountVaultOutflow, checkSignMessage } from "./outflow.js";
@@ -190,5 +196,57 @@ describe("checkSignMessage", () => {
     });
     expect(result.wouldPass).toBe(true);
     expect(result.spend?.[0]?.amount).toBe("1000");
+  });
+});
+
+describe("priority fee accounting (matches contract priority_fee_lamports)", () => {
+  it("charges a price without a limit on the default limit", () => {
+    // 2 instructions -> 400_000 default CU x 1_000_000 micro-lamports = 400_000 lamports
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      computeUnitPrice: 1_000_000n,
+    });
+    const result = accountVaultOutflow(message, vaultAddress);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.priorityFee).toBe(400_000n);
+    expect(result.spend).toEqual([{ mint: "SOL", amount: 1_000n + 400_000n + 5_000n }]);
+  });
+
+  it("uses an explicit limit when present", () => {
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      computeUnitLimit: 10_000,
+      computeUnitPrice: 1_000_000n,
+    });
+    const result = accountVaultOutflow(message, vaultAddress);
+    expect(result.ok && result.priorityFee).toBe(10_000n);
+  });
+
+  it("rejects a total priority fee over the policy max (SG_E078)", async () => {
+    const message = buildSolTransfer(vaultAddress, recipient, 1_000n, blockhash, {
+      version: "v0",
+      computeUnitPrice: 1_000_000n,
+    });
+    const base = vault();
+    const result = await checkSignMessage({
+      message,
+      vaultAddress,
+      vault: {
+        ...base,
+        policy: {
+          ...base.policy,
+          programs: [...base.policy.programs, COMPUTE_BUDGET_PROGRAM.toBase58()],
+          maxTotalPriorityFeeLamports: 100_000n,
+        },
+      },
+      recipients: [recipient.toBase58()],
+      spend24h: [],
+      nowNs: 1n,
+    });
+    expect(result.wouldPass).toBe(false);
+    expect(result.reasons.map((row) => row.code)).toContain("SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH");
   });
 });
