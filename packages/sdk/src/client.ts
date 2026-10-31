@@ -1,6 +1,12 @@
 import { PublicKey, Connection, SendOptions } from '@solana/web3.js';
 import { Account as NearAccount } from 'near-api-js';
-import { RequestSignParams, BroadcastResult, TransferParams, SignResult, SolanaCluster } from './types';
+import {
+  RequestSignParams,
+  BroadcastResult,
+  TransferParams,
+  SignResult,
+  SolanaCluster,
+} from './types';
 import { SanaGuardError, createSanaGuardError, toSignError } from './errors';
 import {
   buildSolTransfer,
@@ -61,9 +67,7 @@ const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{64}$/;
  */
 export function validateIdempotencyKey(key: string): void {
   if (!IDEMPOTENCY_KEY_RE.test(key)) {
-    throw new SanaGuardError(
-      'idempotencyKey must be 64 lowercase hex characters (32 bytes)'
-    );
+    throw new SanaGuardError('idempotencyKey must be 64 lowercase hex characters (32 bytes)');
   }
 }
 
@@ -102,9 +106,7 @@ export function solanaExplorerUrl(
   customRpcUrl?: string
 ): string {
   if (cluster === 'custom') {
-    const custom = customRpcUrl
-      ? `&customUrl=${encodeURIComponent(customRpcUrl)}`
-      : '';
+    const custom = customRpcUrl ? `&customUrl=${encodeURIComponent(customRpcUrl)}` : '';
     return `https://explorer.solana.com/tx/${signature}?cluster=custom${custom}`;
   }
   return `https://explorer.solana.com/tx/${signature}?cluster=${cluster}`;

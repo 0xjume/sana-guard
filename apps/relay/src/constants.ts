@@ -21,7 +21,7 @@ export function maxGasCostYocto(gasUnits: bigint): bigint {
   return gasUnits * YOCTO_PER_GAS;
 }
 
-export type NearUnit = "near" | "yocto";
+export type NearUnit = 'near' | 'yocto';
 
 /**
  * Parse an amount into yoctoNEAR.
@@ -30,34 +30,31 @@ export type NearUnit = "near" | "yocto";
  */
 export function parseNearToYocto(input: string, unit: NearUnit): bigint {
   const trimmed = input.trim();
-  if (unit === "yocto") {
+  if (unit === 'yocto') {
     if (!/^\d+$/.test(trimmed)) {
-      throw new Error("Invalid yocto amount");
+      throw new Error('Invalid yocto amount');
     }
     return BigInt(trimmed);
   }
 
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {
-    throw new Error("Invalid NEAR amount");
+    throw new Error('Invalid NEAR amount');
   }
 
-  if (!trimmed.includes(".")) {
+  if (!trimmed.includes('.')) {
     return BigInt(trimmed) * YOCTO_PER_NEAR;
   }
 
-  const [whole, fracRaw] = trimmed.split(".");
+  const [whole, fracRaw] = trimmed.split('.');
   if (fracRaw!.length > 24) {
-    throw new Error("NEAR amount has more than 24 decimal places");
+    throw new Error('NEAR amount has more than 24 decimal places');
   }
-  return BigInt(whole! + fracRaw!.padEnd(24, "0"));
+  return BigInt(whole! + fracRaw!.padEnd(24, '0'));
 }
 
 export function yoctoToNearString(yocto: string | bigint): string {
   const value = BigInt(yocto);
   const whole = value / YOCTO_PER_NEAR;
-  const frac = (value % YOCTO_PER_NEAR)
-    .toString()
-    .padStart(24, "0")
-    .replace(/0+$/, "");
+  const frac = (value % YOCTO_PER_NEAR).toString().padStart(24, '0').replace(/0+$/, '');
   return frac.length === 0 ? whole.toString() : `${whole}.${frac}`;
 }

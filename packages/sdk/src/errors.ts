@@ -4,7 +4,7 @@
 export class SanaGuardError extends Error {
   constructor(
     message: string,
-    public readonly code?: string,
+    public readonly code?: string
   ) {
     super(message);
     this.name = 'SanaGuardError';
@@ -20,7 +20,7 @@ export class SanaGuardSignError extends SanaGuardError {
     message: string,
     public readonly requestId: string,
     code?: string,
-    public readonly nearTxHash?: string,
+    public readonly nearTxHash?: string
   ) {
     super(message, code);
     this.name = 'SanaGuardSignError';
@@ -131,7 +131,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   SG_E075_INVALID_POLICY_PROGRAM: 'Policy program not in supported list or invalid format',
   SG_E076_VAULT_NOT_ACTIVE: 'Vault is not in Active state',
   SG_E077_AGENT_EXISTS: 'Agent account name is already registered',
-  SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH: 'Total priority fee exceeds policy max_total_priority_fee_lamports',
+  SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH:
+    'Total priority fee exceeds policy max_total_priority_fee_lamports',
 };
 
 /**

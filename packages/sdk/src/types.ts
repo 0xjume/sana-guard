@@ -3,9 +3,7 @@ import { PublicKey as SolanaPublicKey } from '@solana/web3.js';
 /**
  * Mint type - SOL or SPL token
  */
-export type Mint =
-  | { type: 'sol' }
-  | { type: 'spl'; address: SolanaPublicKey };
+export type Mint = { type: 'sol' } | { type: 'spl'; address: SolanaPublicKey };
 
 /**
  * Policy enforced by the vault
@@ -46,11 +44,8 @@ export interface VaultView {
 /**
  * Sign request status
  */
-export type SignRequestStatus = 
-  | { status: 'Pending' }
-  | { status: 'Signed' }
-  | { status: 'Failed' }
-  | { status: 'Released' };
+export type SignRequestStatus =
+  { status: 'Pending' } | { status: 'Signed' } | { status: 'Failed' } | { status: 'Released' };
 
 /**
  * Sign request view returned by get_request

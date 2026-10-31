@@ -1,5 +1,5 @@
-import { Hono } from "hono";
-import { createRequestLogger } from "../logger.js";
+import { Hono } from 'hono';
+import { createRequestLogger } from '../logger.js';
 import {
   CREATE_VAULT_DEPOSIT,
   GAS_100_TGAS,
@@ -7,21 +7,21 @@ import {
   parseNearToYocto,
   yoctoToNearString,
   maxGasCostYocto,
-} from "../constants.js";
-import { addAgentDeposit, maxAgentFundingYocto } from "../budget.js";
-import { createReadRateLimit } from "../middleware/rateLimit.js";
-import type { Config } from "../config.js";
+} from '../constants.js';
+import { addAgentDeposit, maxAgentFundingYocto } from '../budget.js';
+import { createReadRateLimit } from '../middleware/rateLimit.js';
+import type { Config } from '../config.js';
 
 const ZERO_DEPOSIT_ACTIONS = new Set([
-  "AddRecipient",
-  "RemoveRecipient",
-  "BackfillRecipients",
-  "RemoveAgent",
-  "SetPolicy",
-  "Pause",
-  "Unpause",
-  "RegisterTokenAccount",
-  "Release",
+  'AddRecipient',
+  'RemoveRecipient',
+  'BackfillRecipients',
+  'RemoveAgent',
+  'SetPolicy',
+  'Pause',
+  'Unpause',
+  'RegisterTokenAccount',
+  'Release',
 ]);
 
 export function createQuoteRouter(config?: Config) {
@@ -35,28 +35,28 @@ export function createQuoteRouter(config?: Config) {
     }
   );
 
-  app.get("/v1/quote/:action", limiter, async (c) => {
+  app.get('/v1/quote/:action', limiter, async (c) => {
     const log = createRequestLogger();
 
     try {
-      const action = c.req.param("action")!;
-      log.info({ action }, "Quote request");
+      const action = c.req.param('action')!;
+      log.info({ action }, 'Quote request');
 
-      let depositYocto = "0";
+      let depositYocto = '0';
       let gasUnits = GAS_100_TGAS;
 
       switch (action) {
-        case "CreateVault":
+        case 'CreateVault':
           depositYocto = CREATE_VAULT_DEPOSIT.toString();
           break;
-        case "AddAgent": {
-          const yoctoParam = c.req.query("gas_funding_yocto");
-          const nearParam = c.req.query("gas_funding");
+        case 'AddAgent': {
+          const yoctoParam = c.req.query('gas_funding_yocto');
+          const nearParam = c.req.query('gas_funding');
           if (!yoctoParam && !nearParam) {
             return c.json(
               {
                 error:
-                  "gas_funding (NEAR) or gas_funding_yocto query parameter required for AddAgent",
+                  'gas_funding (NEAR) or gas_funding_yocto query parameter required for AddAgent',
               },
               400
             );
@@ -65,10 +65,10 @@ export function createQuoteRouter(config?: Config) {
           let gasFundingYocto: bigint;
           try {
             gasFundingYocto = yoctoParam
-              ? parseNearToYocto(yoctoParam, "yocto")
-              : parseNearToYocto(nearParam!, "near");
+              ? parseNearToYocto(yoctoParam, 'yocto')
+              : parseNearToYocto(nearParam!, 'near');
           } catch {
-            return c.json({ error: "Invalid gas_funding value" }, 400);
+            return c.json({ error: 'Invalid gas_funding value' }, 400);
           }
 
           try {
@@ -77,10 +77,7 @@ export function createQuoteRouter(config?: Config) {
           } catch (error: unknown) {
             return c.json(
               {
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Invalid gas_funding value",
+                error: error instanceof Error ? error.message : 'Invalid gas_funding value',
               },
               400
             );
@@ -90,14 +87,12 @@ export function createQuoteRouter(config?: Config) {
         }
         default:
           if (!ZERO_DEPOSIT_ACTIONS.has(action)) {
-            return c.json({ error: "Unknown action type" }, 400);
+            return c.json({ error: 'Unknown action type' }, 400);
           }
       }
 
       const estimatedGasYocto = maxGasCostYocto(gasUnits).toString();
-      const totalYocto = (
-        BigInt(depositYocto) + BigInt(estimatedGasYocto)
-      ).toString();
+      const totalYocto = (BigInt(depositYocto) + BigInt(estimatedGasYocto)).toString();
 
       return c.json({
         action,
@@ -109,8 +104,8 @@ export function createQuoteRouter(config?: Config) {
         totalNear: yoctoToNearString(totalYocto),
       });
     } catch (error: unknown) {
-      log.error({ error }, "Quote request failed");
-      return c.json({ error: "Internal server error" }, 500);
+      log.error({ error }, 'Quote request failed');
+      return c.json({ error: 'Internal server error' }, 500);
     }
   });
 

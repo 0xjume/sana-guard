@@ -1,6 +1,6 @@
 /**
  * Live integration tests against guard.djume.testnet
- * 
+ *
  * Only run when SANA_GUARD_LIVE=1
  * Never sends transactions in CI
  */

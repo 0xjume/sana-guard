@@ -1,0 +1,3 @@
+# Prose docs keep hand-written tables; prettier pads them to full width.
+*.md
+pnpm-lock.yaml

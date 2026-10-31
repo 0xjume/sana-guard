@@ -1,5 +1,5 @@
-import { Transaction, VersionedTransaction } from "@solana/web3.js";
-import { assertNotV1Message } from "@sana-guard/sdk";
+import { Transaction, VersionedTransaction } from '@solana/web3.js';
+import { assertNotV1Message } from '@sana-guard/sdk';
 
 /**
  * Accept a full signed/unsigned Solana transaction or a raw message.
@@ -23,9 +23,9 @@ export function extractMessageBytes(serialized: Uint8Array): Uint8Array {
 }
 
 export function decodeBase64Tx(transactionBase64: string): Uint8Array {
-  const raw = Buffer.from(transactionBase64, "base64");
+  const raw = Buffer.from(transactionBase64, 'base64');
   if (raw.length === 0) {
-    throw new Error("transactionBase64 decoded to empty bytes");
+    throw new Error('transactionBase64 decoded to empty bytes');
   }
   return extractMessageBytes(Uint8Array.from(raw));
 }

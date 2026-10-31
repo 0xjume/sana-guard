@@ -1,10 +1,10 @@
-import { isIP } from "node:net";
-import { Context, Next } from "hono";
-import type { Config } from "../config.js";
+import { isIP } from 'node:net';
+import { Context, Next } from 'hono';
+import type { Config } from '../config.js';
 
 type ProxyConfig = Pick<
   Config,
-  "trustProxy" | "trustProxyHops" | "clientIpHeader" | "rateLimitIpv6Prefix"
+  'trustProxy' | 'trustProxyHops' | 'clientIpHeader' | 'rateLimitIpv6Prefix'
 >;
 
 interface RateLimitEntry {
@@ -22,10 +22,10 @@ const readLimits = new Map<string, RateLimitEntry>();
 function parseSingleIp(value: string | undefined): string | undefined {
   if (!value) return undefined;
   let trimmed = value.trim();
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
     trimmed = trimmed.slice(1, -1);
   }
-  if (!trimmed || trimmed.includes(",") || /\s/.test(trimmed)) {
+  if (!trimmed || trimmed.includes(',') || /\s/.test(trimmed)) {
     return undefined;
   }
   return isIP(trimmed) !== 0 ? trimmed : undefined;
@@ -33,7 +33,10 @@ function parseSingleIp(value: string | undefined): string | undefined {
 
 function ipFromXff(xff: string | undefined, hops: number): string | undefined {
   if (!xff) return undefined;
-  const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = xff
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const index = Math.max(0, parts.length - hops);
   return parseSingleIp(parts[index]);
 }
@@ -52,32 +55,27 @@ export function getClientIp(
       const fromHeader = parseSingleIp(c.req.header(named));
       if (fromHeader) return fromHeader;
     }
-    const fromXff = ipFromXff(
-      c.req.header("x-forwarded-for"),
-      opts.trustProxyHops
-    );
+    const fromXff = ipFromXff(c.req.header('x-forwarded-for'), opts.trustProxyHops);
     if (fromXff) return fromXff;
   }
 
-  const env = c.env as
-    | { incoming?: { socket?: { remoteAddress?: string } } }
-    | undefined;
-  return env?.incoming?.socket?.remoteAddress || "unknown";
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
+  return env?.incoming?.socket?.remoteAddress || 'unknown';
 }
 
 function expandIpv6(ip: string): number[] | undefined {
   let s = ip.trim();
-  if (s.startsWith("[") && s.endsWith("]")) {
+  if (s.startsWith('[') && s.endsWith(']')) {
     s = s.slice(1, -1);
   }
-  const zone = s.indexOf("%");
+  const zone = s.indexOf('%');
   if (zone !== -1) {
     s = s.slice(0, zone);
   }
 
   const v4tail = s.match(/:(\d{1,3}(?:\.\d{1,3}){3})$/);
   if (v4tail) {
-    const octets = v4tail[1]!.split(".").map((n) => Number(n));
+    const octets = v4tail[1]!.split('.').map((n) => Number(n));
     if (octets.length !== 4 || octets.some((n) => n > 255)) {
       return undefined;
     }
@@ -86,10 +84,10 @@ function expandIpv6(ip: string): number[] | undefined {
     s = `${s.slice(0, -v4tail[1]!.length)}${hi}:${lo}`;
   }
 
-  if (s.includes("::")) {
-    const [left = "", right = ""] = s.split("::");
+  if (s.includes('::')) {
+    const [left = '', right = ''] = s.split('::');
     const parse = (part: string) =>
-      part === "" ? [] : part.split(":").map((g) => parseInt(g, 16));
+      part === '' ? [] : part.split(':').map((g) => parseInt(g, 16));
     const l = parse(left);
     const r = parse(right);
     if (l.some((n) => Number.isNaN(n)) || r.some((n) => Number.isNaN(n))) {
@@ -99,11 +97,8 @@ function expandIpv6(ip: string): number[] | undefined {
     return [...l, ...Array<number>(8 - l.length - r.length).fill(0), ...r];
   }
 
-  const groups = s.split(":").map((g) => parseInt(g, 16));
-  if (
-    groups.length !== 8 ||
-    groups.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff)
-  ) {
+  const groups = s.split(':').map((g) => parseInt(g, 16));
+  if (groups.length !== 8 || groups.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff)) {
     return undefined;
   }
   return groups;
@@ -152,7 +147,7 @@ export function rateLimitKey(ip: string, ipv6Prefix: number): string {
     const groups = expandIpv6(trimmed);
     if (!groups) return trimmed;
     const masked = maskIpv6(groups, ipv6Prefix);
-    const hex = masked.map((g) => g.toString(16).padStart(4, "0")).join(":");
+    const hex = masked.map((g) => g.toString(16).padStart(4, '0')).join(':');
     return `${hex}/${ipv6Prefix}`;
   }
   return trimmed;
@@ -172,7 +167,7 @@ export function createRateLimit(
   config: ProxyConfig
 ) {
   return async (c: Context, next: Next) => {
-    if (process.env.NODE_ENV === "test" && process.env.RELAY_TEST_RATE_LIMIT !== "1") {
+    if (process.env.NODE_ENV === 'test' && process.env.RELAY_TEST_RATE_LIMIT !== '1') {
       await next();
       return;
     }
@@ -193,10 +188,7 @@ export function createRateLimit(
     }
 
     if (entry.count >= limit) {
-      return c.json(
-        { error: "Rate limit exceeded", retryAfter: entry.resetAt - now },
-        429
-      );
+      return c.json({ error: 'Rate limit exceeded', retryAfter: entry.resetAt - now }, 429);
     }
 
     entry.count++;

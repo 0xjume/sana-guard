@@ -1,14 +1,14 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
-import express from "express";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import type { GuardConfig } from "./config.js";
-import { createMcpServer } from "./server.js";
-import type { GuardRuntime } from "./runtime.js";
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import express from 'express';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import type { GuardConfig } from './config.js';
+import { createMcpServer } from './server.js';
+import type { GuardRuntime } from './runtime.js';
 
 export const HTTP_INTERNAL_ERROR = {
-  jsonrpc: "2.0" as const,
-  error: { code: -32603, message: "Internal error" },
+  jsonrpc: '2.0' as const,
+  error: { code: -32603, message: 'Internal error' },
   id: null,
 };
 
@@ -87,11 +87,11 @@ export class BoundedSessionStore<T> {
 
 export function normalizeHostHeader(host: string): string {
   const trimmed = host.trim().toLowerCase();
-  if (trimmed.startsWith("[")) {
-    const end = trimmed.indexOf("]");
+  if (trimmed.startsWith('[')) {
+    const end = trimmed.indexOf(']');
     return end === -1 ? trimmed : trimmed.slice(0, end + 1);
   }
-  const colon = trimmed.lastIndexOf(":");
+  const colon = trimmed.lastIndexOf(':');
   if (colon > -1 && /^\d+$/.test(trimmed.slice(colon + 1))) {
     return trimmed.slice(0, colon);
   }
@@ -120,7 +120,7 @@ export function hostAllowed(hostHeader: string | undefined, allowedHosts: string
   if (allowed.has(host)) {
     return true;
   }
-  if (host.startsWith("[") && host.endsWith("]")) {
+  if (host.startsWith('[') && host.endsWith(']')) {
     return allowed.has(host.slice(1, -1));
   }
   return allowed.has(`[${host}]`);
@@ -143,24 +143,28 @@ export interface HttpAccessDenial {
 
 export function evaluateHttpAccess(
   headers: { host?: string; origin?: string; authorization?: string },
-  config: Pick<GuardConfig, "httpToken" | "httpAllowedHosts">
+  config: Pick<GuardConfig, 'httpToken' | 'httpAllowedHosts'>
 ): HttpAccessDenial | undefined {
   if (!hostAllowed(headers.host, config.httpAllowedHosts)) {
-    return { status: 403, message: "Forbidden host" };
+    return { status: 403, message: 'Forbidden host' };
   }
-  if (headers.origin !== undefined && headers.origin !== "" && !originAllowed(headers.origin, config.httpAllowedHosts)) {
-    return { status: 403, message: "Forbidden origin" };
+  if (
+    headers.origin !== undefined &&
+    headers.origin !== '' &&
+    !originAllowed(headers.origin, config.httpAllowedHosts)
+  ) {
+    return { status: 403, message: 'Forbidden origin' };
   }
   if (!config.httpToken) {
-    return { status: 401, message: "Unauthorized" };
+    return { status: 401, message: 'Unauthorized' };
   }
   const authorization = headers.authorization;
-  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
-    return { status: 401, message: "Unauthorized" };
+  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
+    return { status: 401, message: 'Unauthorized' };
   }
-  const presented = authorization.slice("Bearer ".length);
+  const presented = authorization.slice('Bearer '.length);
   if (!timingSafeEqualString(presented, config.httpToken)) {
-    return { status: 401, message: "Unauthorized" };
+    return { status: 401, message: 'Unauthorized' };
   }
   return undefined;
 }
@@ -174,7 +178,7 @@ function headerString(value: string | string[] | undefined): string | undefined 
 
 export function createHttpApp(runtime: GuardRuntime, config: GuardConfig): express.Express {
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: '1mb' }));
 
   const transports = new BoundedSessionStore<StreamableHTTPServerTransport>(
     config.httpMaxSessions,
@@ -183,9 +187,9 @@ export function createHttpApp(runtime: GuardRuntime, config: GuardConfig): expre
 
   app.use((req, res, next) => {
     const host = headerString(req.headers.host);
-    if (req.path === "/health") {
+    if (req.path === '/health') {
       if (!hostAllowed(host, config.httpAllowedHosts)) {
-        res.status(403).json({ error: "Forbidden host" });
+        res.status(403).json({ error: 'Forbidden host' });
         return;
       }
       next();
@@ -206,9 +210,9 @@ export function createHttpApp(runtime: GuardRuntime, config: GuardConfig): expre
     next();
   });
 
-  app.post("/mcp", async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"];
-    const existing = typeof sessionId === "string" ? transports.get(sessionId) : undefined;
+  app.post('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'];
+    const existing = typeof sessionId === 'string' ? transports.get(sessionId) : undefined;
 
     try {
       if (existing) {
@@ -236,8 +240,8 @@ export function createHttpApp(runtime: GuardRuntime, config: GuardConfig): expre
       }
 
       res.status(400).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Bad Request: no MCP session" },
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Bad Request: no MCP session' },
         id: null,
       });
     } catch {
@@ -248,10 +252,10 @@ export function createHttpApp(runtime: GuardRuntime, config: GuardConfig): expre
   });
 
   const sessionHandler = async (req: express.Request, res: express.Response) => {
-    const sessionId = req.headers["mcp-session-id"];
-    const transport = typeof sessionId === "string" ? transports.get(sessionId) : undefined;
+    const sessionId = req.headers['mcp-session-id'];
+    const transport = typeof sessionId === 'string' ? transports.get(sessionId) : undefined;
     if (!transport) {
-      res.status(400).send("Invalid or missing MCP session");
+      res.status(400).send('Invalid or missing MCP session');
       return;
     }
     try {
@@ -263,11 +267,11 @@ export function createHttpApp(runtime: GuardRuntime, config: GuardConfig): expre
     }
   };
 
-  app.get("/mcp", sessionHandler);
-  app.delete("/mcp", sessionHandler);
+  app.get('/mcp', sessionHandler);
+  app.delete('/mcp', sessionHandler);
 
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true, name: "sana-guard-mcp" });
+  app.get('/health', (_req, res) => {
+    res.json({ ok: true, name: 'sana-guard-mcp' });
   });
 
   return app;

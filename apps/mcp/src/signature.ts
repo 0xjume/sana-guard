@@ -1,4 +1,4 @@
-import bs58 from "bs58";
+import bs58 from 'bs58';
 
 /**
  * Convert a guard `get_request` signature (base64 of 64 raw bytes) into the
@@ -11,7 +11,7 @@ export function solanaSignatureBase58(
     return undefined;
   }
 
-  if (typeof raw !== "string") {
+  if (typeof raw !== 'string') {
     const bytes = Uint8Array.from(raw);
     return bytes.length === 64 ? bs58.encode(bytes) : undefined;
   }
@@ -25,7 +25,7 @@ export function solanaSignatureBase58(
     // not base58
   }
 
-  const asB64 = Buffer.from(raw, "base64");
+  const asB64 = Buffer.from(raw, 'base64');
   if (asB64.length === 64) {
     return bs58.encode(asB64);
   }

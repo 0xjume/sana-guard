@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 
 import { config } from 'dotenv';
-import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from '@solana/web3.js';
 import bs58 from 'bs58';
 
 config();
@@ -35,9 +41,9 @@ async function derivedPublicKey(path, predecessor, mpcContract, network) {
         finality: 'final',
         account_id: mpcContract,
         method_name: 'derived_public_key',
-        args_base64: Buffer.from(
-          JSON.stringify({ path, predecessor, domain_id: 1 })
-        ).toString('base64'),
+        args_base64: Buffer.from(JSON.stringify({ path, predecessor, domain_id: 1 })).toString(
+          'base64'
+        ),
       },
     }),
   });
@@ -123,15 +129,17 @@ async function main() {
 
   console.log('Step 3: MPC Signature Request Payload');
   console.log('Call the guard contract request_sign with:');
-  console.log(JSON.stringify(
-    {
-      vault_id: parseInt(VAULT_ID, 10),
-      message_b64: message.toString('base64'),
-      req_id_b64: Buffer.from(Array(32).fill(1)).toString('base64'), // dummy req_id
-    },
-    null,
-    2
-  ));
+  console.log(
+    JSON.stringify(
+      {
+        vault_id: parseInt(VAULT_ID, 10),
+        message_b64: message.toString('base64'),
+        req_id_b64: Buffer.from(Array(32).fill(1)).toString('base64'), // dummy req_id
+      },
+      null,
+      2
+    )
+  );
   console.log('\n');
 
   console.log('Step 4: Next Actions');

@@ -12,9 +12,6 @@ export function rememberSignedNonce<T extends { nonce: bigint }>(
  * Drop a cached access key so the next send refetches the on-chain nonce.
  * Call this on any send error (including InvalidNonce).
  */
-export function forgetAccessKey(
-  cache: Record<string, unknown>,
-  publicKey: string
-): void {
+export function forgetAccessKey(cache: Record<string, unknown>, publicKey: string): void {
   delete cache[publicKey];
 }

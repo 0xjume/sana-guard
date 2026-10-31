@@ -1,9 +1,9 @@
-import Database from "better-sqlite3";
-import { logger } from "./logger.js";
-import { Mutex } from "./mutex.js";
-import type { Config } from "./config.js";
-import type { AdminAction } from "./validation.js";
-import { checkActionLimits, checkBudgets } from "./budget.js";
+import Database from 'better-sqlite3';
+import { logger } from './logger.js';
+import { Mutex } from './mutex.js';
+import type { Config } from './config.js';
+import type { AdminAction } from './validation.js';
+import { checkActionLimits, checkBudgets } from './budget.js';
 
 export interface OwnerStats {
   owner: string;
@@ -29,18 +29,15 @@ export interface UnknownReservation {
 const MAX_OWNER_LOCKS = 256;
 
 export function utcDate(nowMs: number): string {
-  return new Date(nowMs).toISOString().split("T")[0]!;
+  return new Date(nowMs).toISOString().split('T')[0]!;
 }
 
-function reservedAmount(row: {
-  reservedYocto?: string | null;
-  spentYocto: string;
-}): string {
+function reservedAmount(row: { reservedYocto?: string | null; spentYocto: string }): string {
   return row.reservedYocto || row.spentYocto;
 }
 
 function knownDeposit(row: { depositYocto: string | null }): string | null {
-  if (row.depositYocto == null || row.depositYocto === "") return null;
+  if (row.depositYocto == null || row.depositYocto === '') return null;
   return row.depositYocto;
 }
 
@@ -50,14 +47,14 @@ export class RelayDatabase {
   private readonly globalMutex = new Mutex();
 
   constructor(databaseUrl: string) {
-    if (databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://")) {
+    if (databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://')) {
       throw new Error(
-        "Postgres is not supported. Use DATABASE_URL=sqlite:<path> and a Railway volume for the file."
+        'Postgres is not supported. Use DATABASE_URL=sqlite:<path> and a Railway volume for the file.'
       );
     }
-    const dbPath = databaseUrl.replace(/^sqlite:/, "");
+    const dbPath = databaseUrl.replace(/^sqlite:/, '');
     this.db = new Database(dbPath);
-    this.db.pragma("journal_mode = WAL");
+    this.db.pragma('journal_mode = WAL');
     this.initTables();
     this.migrate();
   }
@@ -95,16 +92,16 @@ export class RelayDatabase {
   }
 
   private migrate(): void {
-    const cols = this.db
-      .prepare(`PRAGMA table_info(owner_requests)`)
-      .all() as Array<{ name: string }>;
-    if (!cols.some((c) => c.name === "reserved_yocto")) {
+    const cols = this.db.prepare(`PRAGMA table_info(owner_requests)`).all() as Array<{
+      name: string;
+    }>;
+    if (!cols.some((c) => c.name === 'reserved_yocto')) {
       this.db.exec(`ALTER TABLE owner_requests ADD COLUMN reserved_yocto TEXT`);
     }
-    if (!cols.some((c) => c.name === "deposit_yocto")) {
+    if (!cols.some((c) => c.name === 'deposit_yocto')) {
       this.db.exec(`ALTER TABLE owner_requests ADD COLUMN deposit_yocto TEXT`);
     }
-    if (!cols.some((c) => c.name === "expires_at_ms")) {
+    if (!cols.some((c) => c.name === 'expires_at_ms')) {
       this.db.exec(`ALTER TABLE owner_requests ADD COLUMN expires_at_ms INTEGER`);
     }
   }
@@ -140,9 +137,7 @@ export class RelayDatabase {
   /** Sum of pending + unknown reservations (not yet reconciled or released). */
   getOutstandingReservedYocto(): string {
     const rows = this.db
-      .prepare(
-        `SELECT spent_yocto FROM owner_requests WHERE status IN ('pending', 'unknown')`
-      )
+      .prepare(`SELECT spent_yocto FROM owner_requests WHERE status IN ('pending', 'unknown')`)
       .all() as Array<{ spent_yocto: string }>;
     let total = 0n;
     for (const row of rows) {
@@ -172,18 +167,16 @@ export class RelayDatabase {
     expiresAtMs?: number;
     config: Config;
   }): { ok: true } | { ok: false; reason: string } {
-    const spentYocto = (
-      BigInt(args.depositYocto) + BigInt(args.gasCostYocto)
-    ).toString();
+    const spentYocto = (BigInt(args.depositYocto) + BigInt(args.gasCostYocto)).toString();
 
     return this.db.transaction(() => {
       if (this.checkNonceInFlight(args.owner, args.nonce)) {
-        return { ok: false as const, reason: "Request with same nonce already in progress" };
+        return { ok: false as const, reason: 'Request with same nonce already in progress' };
       }
 
       const actionCheck = checkActionLimits(args.action, this, args.nowMs);
       if (!actionCheck.allowed) {
-        return { ok: false as const, reason: actionCheck.reason ?? "limit" };
+        return { ok: false as const, reason: actionCheck.reason ?? 'limit' };
       }
 
       const budgetCheck = checkBudgets(
@@ -195,7 +188,7 @@ export class RelayDatabase {
         args.nowMs
       );
       if (!budgetCheck.allowed) {
-        return { ok: false as const, reason: budgetCheck.reason ?? "budget" };
+        return { ok: false as const, reason: budgetCheck.reason ?? 'budget' };
       }
 
       this.insertReservation({
@@ -225,8 +218,7 @@ export class RelayDatabase {
         nonce,
         actionType,
         spentYocto,
-        depositYocto:
-          extras.depositYocto === undefined ? "0" : extras.depositYocto,
+        depositYocto: extras.depositYocto === undefined ? '0' : extras.depositYocto,
         nowMs,
         expiresAtMs: extras.expiresAtMs,
       });
@@ -286,12 +278,7 @@ export class RelayDatabase {
       .run(txHash, owner, nonce);
   }
 
-  finalizeBudget(
-    owner: string,
-    nonce: number,
-    txHash: string,
-    success: boolean
-  ): void {
+  finalizeBudget(owner: string, nonce: number, txHash: string, success: boolean): void {
     this.db
       .prepare(
         `UPDATE owner_requests SET tx_hash = ?, success = ?, status = 'completed'
@@ -311,9 +298,9 @@ export class RelayDatabase {
     txHash: string,
     success: boolean | null,
     _nowMs: number,
-    opts: { status?: "completed" | "settled-unverified" } = {}
+    opts: { status?: 'completed' | 'settled-unverified' } = {}
   ): void {
-    const status = opts.status ?? "completed";
+    const status = opts.status ?? 'completed';
 
     const txn = this.db.transaction(() => {
       const row = this.db
@@ -321,9 +308,7 @@ export class RelayDatabase {
           `SELECT spent_yocto, timestamp FROM owner_requests
            WHERE owner = ? AND nonce = ? AND status IN ('pending', 'unknown')`
         )
-        .get(owner, nonce) as
-        | { spent_yocto: string; timestamp: number }
-        | undefined;
+        .get(owner, nonce) as { spent_yocto: string; timestamp: number } | undefined;
 
       if (!row) return;
 
@@ -359,7 +344,7 @@ export class RelayDatabase {
       const next = BigInt(existing.spent_yocto) + delta;
       this.db
         .prepare(`UPDATE global_stats SET spent_yocto = ? WHERE date = ?`)
-        .run(next < 0n ? "0" : next.toString(), day);
+        .run(next < 0n ? '0' : next.toString(), day);
       return;
     }
     if (delta > 0n) {
@@ -389,7 +374,7 @@ export class RelayDatabase {
    */
   async resolveUnknownReservations(args: {
     checkTx: (txHash: string) => Promise<{
-      status: "success" | "failure" | "pending" | "unknown";
+      status: 'success' | 'failure' | 'pending' | 'unknown';
       tokensBurntYocto?: string;
     }>;
     checkOwnerNonce: (owner: string) => Promise<number>;
@@ -400,7 +385,7 @@ export class RelayDatabase {
     for (const row of this.listUnknownReservations()) {
       if (row.txHash) {
         const result = await args.checkTx(row.txHash);
-        if (result.status === "success" || result.status === "failure") {
+        if (result.status === 'success' || result.status === 'failure') {
           this.applyTxOutcome(
             row,
             { status: result.status, tokensBurntYocto: result.tokensBurntYocto },
@@ -423,15 +408,15 @@ export class RelayDatabase {
   private applyTxOutcome(
     row: UnknownReservation,
     result: {
-      status: "success" | "failure";
+      status: 'success' | 'failure';
       tokensBurntYocto?: string;
     },
     nowMs: number
   ): void {
-    const burnt = result.tokensBurntYocto ?? "0";
+    const burnt = result.tokensBurntYocto ?? '0';
     const deposit = knownDeposit(row);
     const actual =
-      result.status === "success"
+      result.status === 'success'
         ? deposit != null
           ? (BigInt(deposit) + BigInt(burnt)).toString()
           : reservedAmount(row)
@@ -440,8 +425,8 @@ export class RelayDatabase {
       row.owner,
       row.nonce,
       actual,
-      row.txHash ?? "settled-by-nonce",
-      result.status === "success",
+      row.txHash ?? 'settled-by-nonce',
+      result.status === 'success',
       nowMs
     );
   }
@@ -450,7 +435,7 @@ export class RelayDatabase {
     row: UnknownReservation,
     args: {
       checkTx: (txHash: string) => Promise<{
-        status: "success" | "failure" | "pending" | "unknown";
+        status: 'success' | 'failure' | 'pending' | 'unknown';
         tokensBurntYocto?: string;
       }>;
       checkOwnerNonce: (owner: string) => Promise<number>;
@@ -459,7 +444,7 @@ export class RelayDatabase {
   ): Promise<void> {
     if (row.txHash) {
       const again = await args.checkTx(row.txHash);
-      if (again.status === "success" || again.status === "failure") {
+      if (again.status === 'success' || again.status === 'failure') {
         this.applyTxOutcome(
           row,
           { status: again.status, tokensBurntYocto: again.tokensBurntYocto },
@@ -477,10 +462,10 @@ export class RelayDatabase {
         row.owner,
         row.nonce,
         reservedAmount(row),
-        row.txHash ?? "settled-unverified",
+        row.txHash ?? 'settled-unverified',
         null,
         args.nowMs,
-        { status: "settled-unverified" }
+        { status: 'settled-unverified' }
       );
     } else {
       this.releaseBudget(row.owner, row.nonce, args.nowMs);
@@ -502,13 +487,15 @@ export class RelayDatabase {
   getRequest(
     owner: string,
     nonce: number
-  ): {
-    status: string;
-    spentYocto: string;
-    success: number | null;
-    txHash: string | null;
-    timestamp: number;
-  } | undefined {
+  ):
+    | {
+        status: string;
+        spentYocto: string;
+        success: number | null;
+        txHash: string | null;
+        timestamp: number;
+      }
+    | undefined {
     return this.db
       .prepare(
         `SELECT status, spent_yocto as spentYocto, success,
@@ -534,9 +521,7 @@ export class RelayDatabase {
           `SELECT spent_yocto, timestamp FROM owner_requests
            WHERE owner = ? AND nonce = ? AND status IN ('pending', 'unknown')`
         )
-        .get(owner, nonce) as
-        | { spent_yocto: string; timestamp: number }
-        | undefined;
+        .get(owner, nonce) as { spent_yocto: string; timestamp: number } | undefined;
 
       if (!row) return;
 
@@ -590,7 +575,7 @@ export class RelayDatabase {
       .get(today) as { spent_yocto: string } | undefined;
 
     return {
-      spentToday: row?.spent_yocto ?? "0",
+      spentToday: row?.spent_yocto ?? '0',
     };
   }
 
@@ -612,10 +597,7 @@ export class RelayDatabase {
       .prepare(`DELETE FROM owner_requests WHERE timestamp < ? AND status != 'unknown'`)
       .run(beforeMs);
 
-    logger.info(
-      { deletedRows: deleted.changes, beforeMs },
-      "Cleaned up old request records"
-    );
+    logger.info({ deletedRows: deleted.changes, beforeMs }, 'Cleaned up old request records');
   }
 
   close(): void {

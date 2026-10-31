@@ -1,5 +1,5 @@
-import { Message, PublicKey, VersionedMessage } from "@solana/web3.js";
-import bs58 from "bs58";
+import { Message, PublicKey, VersionedMessage } from '@solana/web3.js';
+import bs58 from 'bs58';
 import {
   ATA_PROGRAM,
   COMPUTE_BUDGET_PROGRAM,
@@ -7,9 +7,9 @@ import {
   SYSTEM_PROGRAM,
   TOKEN_PROGRAM,
   type VaultView,
-} from "@sana-guard/sdk";
-import { SERVER_MAX_CODE, UNACCOUNTABLE_CODE } from "./errors.js";
-import { findLimit, normalizeSpendMint, spentFor, type CheckReason } from "./policyCheck.js";
+} from '@sana-guard/sdk';
+import { SERVER_MAX_CODE, UNACCOUNTABLE_CODE } from './errors.js';
+import { findLimit, normalizeSpendMint, spentFor, type CheckReason } from './policyCheck.js';
 
 const ATA_RENT_LAMPORTS = 2_039_280n;
 const SIGNATURE_BASE_FEE = 5_000n;
@@ -19,7 +19,7 @@ const MAX_COMPUTE_UNIT_LIMIT = 1_400_000n;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 export type OutflowTransfer = {
-  kind: "sol" | "spl";
+  kind: 'sol' | 'spl';
   to: string;
   amount: bigint;
   mint: string;
@@ -66,11 +66,12 @@ function fail(code: string, message: string): UnaccountedOutflow {
 
 function readU32Le(data: Uint8Array, offset = 0): number {
   return (
-    data[offset]! |
-    (data[offset + 1]! << 8) |
-    (data[offset + 2]! << 16) |
-    (data[offset + 3]! << 24)
-  ) >>> 0;
+    (data[offset]! |
+      (data[offset + 1]! << 8) |
+      (data[offset + 2]! << 16) |
+      (data[offset + 3]! << 24)) >>>
+    0
+  );
 }
 
 function readU64Le(data: Uint8Array, offset = 0): bigint {
@@ -84,20 +85,26 @@ function keysEqual(a: PublicKey, b: PublicKey): boolean {
 
 function decodeWireMessage(bytes: Uint8Array): WireMessage | UnaccountedOutflow {
   if (bytes.length < 32 || bytes.length > 1167) {
-    return fail("SG_E001_SIZE", "Message size out of bounds (32-1167 bytes)");
+    return fail('SG_E001_SIZE', 'Message size out of bounds (32-1167 bytes)');
   }
   if (bytes[0] === 0x81) {
-    return fail("SG_E002_UNSUPPORTED_VERSION", "Unsupported message version (only legacy and v0 allowed)");
+    return fail(
+      'SG_E002_UNSUPPORTED_VERSION',
+      'Unsupported message version (only legacy and v0 allowed)'
+    );
   }
 
   if ((bytes[0]! & 0x80) !== 0) {
     if (bytes[0] !== 0x80) {
-      return fail("SG_E002_UNSUPPORTED_VERSION", "Unsupported message version (only legacy and v0 allowed)");
+      return fail(
+        'SG_E002_UNSUPPORTED_VERSION',
+        'Unsupported message version (only legacy and v0 allowed)'
+      );
     }
     try {
       const msg = VersionedMessage.deserialize(bytes);
       if (msg.addressTableLookups.length > 0) {
-        return fail("SG_E016_ALT_NOT_ALLOWED", "Address lookup tables not allowed");
+        return fail('SG_E016_ALT_NOT_ALLOWED', 'Address lookup tables not allowed');
       }
       return {
         accountKeys: msg.staticAccountKeys,
@@ -110,7 +117,7 @@ function decodeWireMessage(bytes: Uint8Array): WireMessage | UnaccountedOutflow 
     } catch (error) {
       return fail(
         UNACCOUNTABLE_CODE,
-        error instanceof Error ? error.message : "Could not decode versioned message"
+        error instanceof Error ? error.message : 'Could not decode versioned message'
       );
     }
   }
@@ -128,13 +135,13 @@ function decodeWireMessage(bytes: Uint8Array): WireMessage | UnaccountedOutflow 
   } catch (error) {
     return fail(
       UNACCOUNTABLE_CODE,
-      error instanceof Error ? error.message : "Could not decode legacy message"
+      error instanceof Error ? error.message : 'Could not decode legacy message'
     );
   }
 }
 
 function decodeCompiledData(data: string | Uint8Array | Buffer): Uint8Array {
-  if (typeof data !== "string") {
+  if (typeof data !== 'string') {
     return Uint8Array.from(data);
   }
   return Uint8Array.from(bs58.decode(data));
@@ -147,13 +154,13 @@ function decodeCompiledData(data: string | Uint8Array | Buffer): Uint8Array {
  */
 export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey): VaultOutflow {
   const wire = decodeWireMessage(message);
-  if (!("accountKeys" in wire)) {
+  if (!('accountKeys' in wire)) {
     return wire;
   }
 
   const { accountKeys, instructions } = wire;
   if (accountKeys.length === 0) {
-    return fail("SG_E006_KEY_COUNT", "Invalid key count (must be 1-64)");
+    return fail('SG_E006_KEY_COUNT', 'Invalid key count (must be 1-64)');
   }
 
   const feePayer = accountKeys[0]!;
@@ -168,7 +175,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
     const prev = spendMap.get(mint) ?? 0n;
     const next = prev + amount;
     if (next < prev) {
-      return fail(code, "Spend calculation overflow");
+      return fail(code, 'Spend calculation overflow');
     }
     spendMap.set(mint, next);
     return undefined;
@@ -177,7 +184,7 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
   for (const ix of instructions) {
     const program = accountKeys[ix.programIdIndex];
     if (!program) {
-      return fail("SG_E012_INVALID_PROGRAM_INDEX", "Invalid program ID index");
+      return fail('SG_E012_INVALID_PROGRAM_INDEX', 'Invalid program ID index');
     }
     const programId = program.toBase58();
     if (!programs.includes(programId)) {
@@ -186,29 +193,29 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
 
     if (keysEqual(program, SYSTEM_PROGRAM)) {
       if (ix.data.length < 4) {
-        return fail("SG_E019_SYSTEM_DATA_TOO_SHORT", "System instruction data too short");
+        return fail('SG_E019_SYSTEM_DATA_TOO_SHORT', 'System instruction data too short');
       }
       const discriminator = readU32Le(ix.data);
       if (discriminator !== 2) {
-        return fail("SG_E022_SYSTEM_UNSUPPORTED", "Unsupported System instruction");
+        return fail('SG_E022_SYSTEM_UNSUPPORTED', 'Unsupported System instruction');
       }
       if (ix.data.length !== 12) {
-        return fail("SG_E020_SYSTEM_TRANSFER_LENGTH", "System transfer data wrong length");
+        return fail('SG_E020_SYSTEM_TRANSFER_LENGTH', 'System transfer data wrong length');
       }
       if (ix.accounts.length !== 2) {
-        return fail("SG_E021_SYSTEM_TRANSFER_ACCOUNTS", "System transfer wrong account count");
+        return fail('SG_E021_SYSTEM_TRANSFER_ACCOUNTS', 'System transfer wrong account count');
       }
       const from = accountKeys[ix.accounts[0]!];
       const to = accountKeys[ix.accounts[1]!];
       if (!from || !to) {
-        return fail("SG_E014_INVALID_ACCOUNT_INDEX", "Invalid account index");
+        return fail('SG_E014_INVALID_ACCOUNT_INDEX', 'Invalid account index');
       }
       if (!keysEqual(from, vaultAddress)) {
-        return fail("SG_E040_WRONG_FROM", "System transfer from address is not vault address");
+        return fail('SG_E040_WRONG_FROM', 'System transfer from address is not vault address');
       }
       const lamports = readU64Le(ix.data, 4);
-      transfers.push({ kind: "sol", to: to.toBase58(), amount: lamports, mint: "SOL" });
-      const overflow = addSpend("SOL", lamports, "SG_E041_OVERFLOW");
+      transfers.push({ kind: 'sol', to: to.toBase58(), amount: lamports, mint: 'SOL' });
+      const overflow = addSpend('SOL', lamports, 'SG_E041_OVERFLOW');
       if (overflow) {
         return overflow;
       }
@@ -217,37 +224,43 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
 
     if (keysEqual(program, TOKEN_PROGRAM)) {
       if (ix.data.length === 0) {
-        return fail("SG_E023_TOKEN_DATA_EMPTY", "Token instruction data empty");
+        return fail('SG_E023_TOKEN_DATA_EMPTY', 'Token instruction data empty');
       }
       const discriminator = ix.data[0]!;
       if (discriminator === 3) {
         return fail(
-          "SG_E043_MINT_UNKNOWN",
-          "Token transfer mint unknown (must use transferChecked)"
+          'SG_E043_MINT_UNKNOWN',
+          'Token transfer mint unknown (must use transferChecked)'
         );
       }
       if (discriminator !== 12) {
-        return fail("SG_E028_TOKEN_UNSUPPORTED", "Unsupported Token instruction");
+        return fail('SG_E028_TOKEN_UNSUPPORTED', 'Unsupported Token instruction');
       }
       if (ix.data.length !== 10) {
-        return fail("SG_E026_TOKEN_TRANSFER_CHECKED_LENGTH", "Token transferChecked data wrong length");
+        return fail(
+          'SG_E026_TOKEN_TRANSFER_CHECKED_LENGTH',
+          'Token transferChecked data wrong length'
+        );
       }
       if (ix.accounts.length !== 4) {
-        return fail("SG_E027_TOKEN_TRANSFER_CHECKED_ACCOUNTS", "Token transferChecked wrong account count");
+        return fail(
+          'SG_E027_TOKEN_TRANSFER_CHECKED_ACCOUNTS',
+          'Token transferChecked wrong account count'
+        );
       }
       const dest = accountKeys[ix.accounts[2]!];
       const authority = accountKeys[ix.accounts[3]!];
       const mint = accountKeys[ix.accounts[1]!];
       if (!dest || !authority || !mint) {
-        return fail("SG_E014_INVALID_ACCOUNT_INDEX", "Invalid account index");
+        return fail('SG_E014_INVALID_ACCOUNT_INDEX', 'Invalid account index');
       }
       if (!keysEqual(authority, vaultAddress)) {
-        return fail("SG_E042_WRONG_AUTHORITY", "Token transfer authority is not vault address");
+        return fail('SG_E042_WRONG_AUTHORITY', 'Token transfer authority is not vault address');
       }
       const amount = readU64Le(ix.data, 1);
       const mintKey = mint.toBase58();
-      transfers.push({ kind: "spl", to: dest.toBase58(), amount, mint: mintKey });
-      const overflow = addSpend(mintKey, amount, "SG_E044_OVERFLOW");
+      transfers.push({ kind: 'spl', to: dest.toBase58(), amount, mint: mintKey });
+      const overflow = addSpend(mintKey, amount, 'SG_E044_OVERFLOW');
       if (overflow) {
         return overflow;
       }
@@ -256,21 +269,24 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
 
     if (keysEqual(program, ATA_PROGRAM)) {
       if (ix.data.length > 0 && ix.data[0] !== 1) {
-        return fail("SG_E029_ATA_UNSUPPORTED", "Unsupported ATA instruction (only create-idempotent allowed)");
+        return fail(
+          'SG_E029_ATA_UNSUPPORTED',
+          'Unsupported ATA instruction (only create-idempotent allowed)'
+        );
       }
       if (ix.accounts.length !== 6) {
-        return fail("SG_E030_ATA_ACCOUNTS", "ATA create wrong account count");
+        return fail('SG_E030_ATA_ACCOUNTS', 'ATA create wrong account count');
       }
       const payer = accountKeys[ix.accounts[0]!];
       const ata = accountKeys[ix.accounts[1]!];
       if (!payer || !ata) {
-        return fail("SG_E014_INVALID_ACCOUNT_INDEX", "Invalid account index");
+        return fail('SG_E014_INVALID_ACCOUNT_INDEX', 'Invalid account index');
       }
       if (!keysEqual(payer, vaultAddress)) {
-        return fail("SG_E045_WRONG_PAYER", "ATA create payer is not vault address");
+        return fail('SG_E045_WRONG_PAYER', 'ATA create payer is not vault address');
       }
-      transfers.push({ kind: "sol", to: ata.toBase58(), amount: ATA_RENT_LAMPORTS, mint: "SOL" });
-      const overflow = addSpend("SOL", ATA_RENT_LAMPORTS, "SG_E046_OVERFLOW");
+      transfers.push({ kind: 'sol', to: ata.toBase58(), amount: ATA_RENT_LAMPORTS, mint: 'SOL' });
+      const overflow = addSpend('SOL', ATA_RENT_LAMPORTS, 'SG_E046_OVERFLOW');
       if (overflow) {
         return overflow;
       }
@@ -279,44 +295,44 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
 
     if (keysEqual(program, COMPUTE_BUDGET_PROGRAM)) {
       if (ix.data.length === 0) {
-        return fail("SG_E031_CB_DATA_EMPTY", "ComputeBudget instruction data empty");
+        return fail('SG_E031_CB_DATA_EMPTY', 'ComputeBudget instruction data empty');
       }
       const discriminator = ix.data[0]!;
       if (discriminator === 2) {
         if (ix.data.length !== 5) {
-          return fail("SG_E032_CB_LIMIT_LENGTH", "ComputeBudget setLimit data wrong length");
+          return fail('SG_E032_CB_LIMIT_LENGTH', 'ComputeBudget setLimit data wrong length');
         }
         if (computeLimit !== undefined) {
-          return fail("SG_E047_DUPLICATE_CB_LIMIT", "Duplicate ComputeBudget setLimit instruction");
+          return fail('SG_E047_DUPLICATE_CB_LIMIT', 'Duplicate ComputeBudget setLimit instruction');
         }
         computeLimit = readU32Le(ix.data, 1);
         continue;
       }
       if (discriminator === 3) {
         if (ix.data.length !== 9) {
-          return fail("SG_E033_CB_PRICE_LENGTH", "ComputeBudget setPrice data wrong length");
+          return fail('SG_E033_CB_PRICE_LENGTH', 'ComputeBudget setPrice data wrong length');
         }
         if (computePrice !== undefined) {
-          return fail("SG_E048_DUPLICATE_CB_PRICE", "Duplicate ComputeBudget setPrice instruction");
+          return fail('SG_E048_DUPLICATE_CB_PRICE', 'Duplicate ComputeBudget setPrice instruction');
         }
         computePrice = readU64Le(ix.data, 1);
         continue;
       }
-      return fail("SG_E034_CB_UNSUPPORTED", "Unsupported ComputeBudget instruction");
+      return fail('SG_E034_CB_UNSUPPORTED', 'Unsupported ComputeBudget instruction');
     }
 
     // Same address the guard allowlists (`MEMO_V2_PROGRAM` in the contract is Memo v1).
     if (keysEqual(program, MEMO_PROGRAM)) {
       try {
-        memos.push(new TextDecoder("utf-8", { fatal: true }).decode(ix.data));
+        memos.push(new TextDecoder('utf-8', { fatal: true }).decode(ix.data));
       } catch {
-        return fail("SG_E035_MEMO_INVALID_UTF8", "Memo text is not valid UTF-8");
+        return fail('SG_E035_MEMO_INVALID_UTF8', 'Memo text is not valid UTF-8');
       }
       continue;
     }
 
     return fail(
-      "SG_E018_UNKNOWN_PROGRAM",
+      'SG_E018_UNKNOWN_PROGRAM',
       `Program ${programId} is not on the contract allowlist; cannot account for fund movement`
     );
   }
@@ -334,11 +350,11 @@ export function accountVaultOutflow(message: Uint8Array, vaultAddress: PublicKey
           : MAX_COMPUTE_UNIT_LIMIT;
     const product = limit * computePrice + 999_999n;
     if (product > U64_MAX) {
-      return fail("SG_E049_OVERFLOW", "Priority fee overflows u64");
+      return fail('SG_E049_OVERFLOW', 'Priority fee overflows u64');
     }
     priorityFee = product / 1_000_000n;
     const totalFee = priorityFee + SIGNATURE_BASE_FEE;
-    const overflow = addSpend("SOL", totalFee, "SG_E050_OVERFLOW");
+    const overflow = addSpend('SOL', totalFee, 'SG_E050_OVERFLOW');
     if (overflow) {
       return overflow;
     }
@@ -391,41 +407,41 @@ export async function checkSignMessage(opts: {
   const { vault, recipients, spend24h, nowNs } = opts;
 
   if (!vault) {
-    reasons.push({ code: "SG_E054_VAULT_NOT_FOUND", message: "Vault not found" });
+    reasons.push({ code: 'SG_E054_VAULT_NOT_FOUND', message: 'Vault not found' });
     return { ok: false, wouldPass: false, reasons, ...summarize(outflow) };
   }
 
   if (!outflow.feePayer || outflow.feePayer !== opts.vaultAddress.toBase58()) {
     reasons.push({
-      code: "SG_E061_WRONG_FEE_PAYER",
-      message: "Message fee payer is not vault address",
+      code: 'SG_E061_WRONG_FEE_PAYER',
+      message: 'Message fee payer is not vault address',
     });
   }
 
-  if (vault.state !== "Active") {
-    reasons.push({ code: "SG_E076_VAULT_NOT_ACTIVE", message: `Vault state is ${vault.state}` });
+  if (vault.state !== 'Active') {
+    reasons.push({ code: 'SG_E076_VAULT_NOT_ACTIVE', message: `Vault state is ${vault.state}` });
   }
   if (vault.paused) {
-    reasons.push({ code: "SG_E055_VAULT_PAUSED", message: "Vault kill switch is on" });
+    reasons.push({ code: 'SG_E055_VAULT_PAUSED', message: 'Vault kill switch is on' });
   }
   if (nowNs >= vault.policy.expiresAtNs) {
-    reasons.push({ code: "SG_E057_POLICY_EXPIRED", message: "Policy has expired" });
+    reasons.push({ code: 'SG_E057_POLICY_EXPIRED', message: 'Policy has expired' });
   }
 
   for (const program of outflow.programs) {
     if (!vault.policy.programs.includes(program)) {
       reasons.push({
-        code: "SG_E074_PROGRAM_NOT_ALLOWED",
+        code: 'SG_E074_PROGRAM_NOT_ALLOWED',
         message: `Program ${program} is not in the vault program allowlist`,
       });
     }
   }
 
   for (const memo of outflow.memos) {
-    const byteLen = Buffer.from(memo, "utf-8").length;
+    const byteLen = Buffer.from(memo, 'utf-8').length;
     if (byteLen > vault.policy.maxMemoLen) {
       reasons.push({
-        code: "SG_E073_MEMO_TOO_LONG",
+        code: 'SG_E073_MEMO_TOO_LONG',
         message: `Memo text exceeds max length (${byteLen} > ${vault.policy.maxMemoLen})`,
       });
     }
@@ -434,9 +450,12 @@ export async function checkSignMessage(opts: {
   for (const transfer of outflow.transfers) {
     if (!recipients.includes(transfer.to)) {
       reasons.push({
-        code: transfer.kind === "sol" ? "SG_E067_RECIPIENT_NOT_ALLOWED" : "SG_E068_RECIPIENT_NOT_ALLOWED",
+        code:
+          transfer.kind === 'sol'
+            ? 'SG_E067_RECIPIENT_NOT_ALLOWED'
+            : 'SG_E068_RECIPIENT_NOT_ALLOWED',
         message:
-          transfer.kind === "sol"
+          transfer.kind === 'sol'
             ? `Wallet ${transfer.to} is not on the recipient allowlist`
             : `Destination ATA ${transfer.to} is not on the recipient allowlist (allowlist the ATA, not just the wallet)`,
       });
@@ -446,25 +465,25 @@ export async function checkSignMessage(opts: {
   const maxTotalFee = vault.policy.maxTotalPriorityFeeLamports;
   if (maxTotalFee !== undefined && outflow.priorityFee > maxTotalFee) {
     reasons.push({
-      code: "SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH",
+      code: 'SG_E078_PRIORITY_FEE_TOTAL_TOO_HIGH',
       message: `Priority fee ${outflow.priorityFee} exceeds policy max ${maxTotalFee} lamports`,
     });
   }
 
   for (const row of outflow.spend) {
     const key = normalizeSpendMint(row.mint);
-    const perTx = findLimit(vault.policy, key, "perTxLimit");
-    const daily = findLimit(vault.policy, key, "dailyCap");
-    const isSol = key === "SOL";
+    const perTx = findLimit(vault.policy, key, 'perTxLimit');
+    const daily = findLimit(vault.policy, key, 'dailyCap');
+    const isSol = key === 'SOL';
 
     if (!perTx) {
       reasons.push({
-        code: isSol ? "SG_E063_MINT_NOT_IN_PER_TX_LIMIT" : "SG_E069_MINT_NOT_IN_POLICY",
+        code: isSol ? 'SG_E063_MINT_NOT_IN_PER_TX_LIMIT' : 'SG_E069_MINT_NOT_IN_POLICY',
         message: `Mint ${key} is not in per-transaction limits`,
       });
     } else if (row.amount > perTx.amount) {
       reasons.push({
-        code: "SG_E062_PER_TX_LIMIT_EXCEEDED",
+        code: 'SG_E062_PER_TX_LIMIT_EXCEEDED',
         message: `Amount ${row.amount} exceeds per-tx limit ${perTx.amount} for ${key}`,
       });
     }
@@ -472,12 +491,12 @@ export async function checkSignMessage(opts: {
     const spent = spentFor(spend24h, key);
     if (!daily) {
       reasons.push({
-        code: "SG_E065_MINT_NOT_IN_DAILY_CAP",
+        code: 'SG_E065_MINT_NOT_IN_DAILY_CAP',
         message: `Mint ${key} is not in the 24-hour cap`,
       });
     } else if (spent + row.amount > daily.amount) {
       reasons.push({
-        code: "SG_E064_DAILY_CAP_EXCEEDED",
+        code: 'SG_E064_DAILY_CAP_EXCEEDED',
         message: `Amount ${row.amount} plus 24h spent ${spent} exceeds daily cap ${daily.amount} for ${key}`,
       });
     }

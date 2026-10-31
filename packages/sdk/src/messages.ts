@@ -4,8 +4,15 @@ import {
   TransactionInstruction,
   TransactionMessage,
   ComputeBudgetProgram,
+  Message,
+  MessageV0,
 } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, createTransferCheckedInstruction, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  createTransferCheckedInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
+} from '@solana/spl-token';
 import bs58 from 'bs58';
 import { MessageVersion } from './types';
 import { SanaGuardError } from './errors';
@@ -119,9 +126,7 @@ export function buildSolTransfer(
 
   // Add ComputeBudget instructions if provided
   if (computeUnitLimit !== undefined) {
-    instructions.push(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit })
-    );
+    instructions.push(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }));
   }
 
   if (computeUnitPrice !== undefined) {
@@ -181,15 +186,20 @@ export function buildTokenTransfer(
     maxMemoLen?: number;
   } = {}
 ): Uint8Array {
-  const { version = 'v0', computeUnitLimit, computeUnitPrice, createAta = false, memo, maxMemoLen = 64 } = options;
+  const {
+    version = 'v0',
+    computeUnitLimit,
+    computeUnitPrice,
+    createAta = false,
+    memo,
+    maxMemoLen = 64,
+  } = options;
 
   const instructions: TransactionInstruction[] = [];
 
   // Add ComputeBudget instructions if provided
   if (computeUnitLimit !== undefined) {
-    instructions.push(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit })
-    );
+    instructions.push(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }));
   }
 
   if (computeUnitPrice !== undefined) {
@@ -277,10 +287,13 @@ export function buildMessageWithMemo(
   }
 }
 
+/** Both message versions expose the compiled fields the serializers read. */
+type CompiledMessage = Message | MessageV0;
+
 /**
  * Serialize a v0 message to bytes matching contract parser expectations
  */
-function serializeV0Message(message: any): Uint8Array {
+function serializeV0Message(message: CompiledMessage): Uint8Array {
   // Version byte 0x80 for v0
   const versionByte = Buffer.from([0x80]);
 
@@ -302,7 +315,7 @@ function serializeV0Message(message: any): Uint8Array {
   // Instructions
   const numInstructions = message.compiledInstructions.length;
   const instructionsLength = encodeCompactU16(numInstructions);
-  const instructionsBuffers = message.compiledInstructions.map((ix: any) => {
+  const instructionsBuffers = message.compiledInstructions.map((ix) => {
     const programIdIndex = Buffer.from([ix.programIdIndex]);
     const accountIndexesLength = encodeCompactU16(ix.accountKeyIndexes.length);
     const accountIndexes = Buffer.from(ix.accountKeyIndexes);
@@ -329,7 +342,7 @@ function serializeV0Message(message: any): Uint8Array {
 /**
  * Serialize a legacy message to bytes matching contract parser expectations
  */
-function serializeLegacyMessage(message: any): Uint8Array {
+function serializeLegacyMessage(message: CompiledMessage): Uint8Array {
   // No version byte for legacy
 
   // Header: numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts
@@ -350,7 +363,7 @@ function serializeLegacyMessage(message: any): Uint8Array {
   // Instructions
   const numInstructions = message.compiledInstructions.length;
   const instructionsLength = encodeCompactU16(numInstructions);
-  const instructionsBuffers = message.compiledInstructions.map((ix: any) => {
+  const instructionsBuffers = message.compiledInstructions.map((ix) => {
     const programIdIndex = Buffer.from([ix.programIdIndex]);
     const accountIndexesLength = encodeCompactU16(ix.accountKeyIndexes.length);
     const accountIndexes = Buffer.from(ix.accountKeyIndexes);
@@ -387,7 +400,7 @@ export async function verifyMessageSignature(
   vaultAddress: PublicKey
 ): Promise<boolean> {
   const nacl = await import('tweetnacl');
-  
+
   if (signature.length !== 64) {
     return false;
   }
@@ -405,10 +418,7 @@ export async function verifyMessageSignature(
 /**
  * Assemble a signed transaction ready for broadcast
  */
-export function assembleSignedTransaction(
-  signature: Uint8Array,
-  message: Uint8Array
-): Uint8Array {
+export function assembleSignedTransaction(signature: Uint8Array, message: Uint8Array): Uint8Array {
   // Compact-u16 encoding of number of signatures (always 1)
   const numSignatures = encodeCompactU16(1);
   return Buffer.concat([numSignatures, Buffer.from(signature), Buffer.from(message)]);

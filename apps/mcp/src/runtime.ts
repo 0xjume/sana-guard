@@ -1,6 +1,6 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddress, getMint } from "@solana/spl-token";
-import { connect, keyStores, KeyPair, type Account } from "near-api-js";
+import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress, getMint } from '@solana/spl-token';
+import { connect, keyStores, KeyPair, type Account } from 'near-api-js';
 import {
   AgentClient,
   Views,
@@ -8,9 +8,9 @@ import {
   type RequestSignParams,
   type SignRequestView,
   type VaultView,
-} from "@sana-guard/sdk";
-import { type GuardConfig, type PublicConfig, loadConfig, toPublicConfig } from "./config.js";
-import { assertSafeNetworks, defaultNetworkProbes } from "./networks.js";
+} from '@sana-guard/sdk';
+import { type GuardConfig, type PublicConfig, loadConfig, toPublicConfig } from './config.js';
+import { assertSafeNetworks, defaultNetworkProbes } from './networks.js';
 
 export interface GuardViews {
   getVault(vaultId: number): Promise<VaultView | null>;
@@ -45,7 +45,9 @@ export interface GuardRuntime {
 export async function createRuntime(config: GuardConfig = loadConfig()): Promise<GuardRuntime> {
   const solanaCluster = await assertSafeNetworks(config, await defaultNetworkProbes());
   const keyStore = new keyStores.InMemoryKeyStore();
-  const keyPair = KeyPair.fromString(config.agentPrivateKey as Parameters<typeof KeyPair.fromString>[0]);
+  const keyPair = KeyPair.fromString(
+    config.agentPrivateKey as Parameters<typeof KeyPair.fromString>[0]
+  );
   await keyStore.setKey(config.nearNetwork, config.agentAccountId, keyPair);
 
   const near = await connect({
@@ -55,12 +57,14 @@ export async function createRuntime(config: GuardConfig = loadConfig()): Promise
   } as Parameters<typeof connect>[0]);
   const account = (await near.account(config.agentAccountId)) as Account;
   const views = new Views(account, config.guardContractId);
-  const connection = new Connection(config.solanaRpcUrl, "confirmed");
+  const connection = new Connection(config.solanaRpcUrl, 'confirmed');
 
   let vaultAddressStr = config.vaultAddress;
   if (!vaultAddressStr && config.owner !== undefined) {
     const index = config.vaultIndex ?? config.vaultId;
-    vaultAddressStr = (await views.deriveVaultAddress(config.mpcContract, config.owner, index, config.mpcDomainId)).toBase58();
+    vaultAddressStr = (
+      await views.deriveVaultAddress(config.mpcContract, config.owner, index, config.mpcDomainId)
+    ).toBase58();
   }
   if (!vaultAddressStr) {
     const vault = await views.getVault(config.vaultId);
@@ -82,25 +86,25 @@ export async function createRuntime(config: GuardConfig = loadConfig()): Promise
     nowNs: () => BigInt(Date.now()) * 1_000_000n,
     solana: {
       async getBalance(address) {
-        return BigInt(await connection.getBalance(address, "confirmed"));
+        return BigInt(await connection.getBalance(address, 'confirmed'));
       },
       async getTokenBalance(owner, mint) {
         const ata = await getAssociatedTokenAddress(mint, owner);
-        const info = await connection.getTokenAccountBalance(ata, "confirmed").catch(() => null);
+        const info = await connection.getTokenAccountBalance(ata, 'confirmed').catch(() => null);
         return info ? BigInt(info.value.amount) : 0n;
       },
       async getLatestBlockhash() {
-        return connection.getLatestBlockhash("confirmed");
+        return connection.getLatestBlockhash('confirmed');
       },
       async isBlockhashValid(blockhash) {
-        return (await connection.isBlockhashValid(blockhash, { commitment: "confirmed" })).value;
+        return (await connection.isBlockhashValid(blockhash, { commitment: 'confirmed' })).value;
       },
       async getMintDecimals(mint) {
         const mintInfo = await getMint(connection, mint);
         return mintInfo.decimals;
       },
       async getBlockHeight() {
-        return connection.getBlockHeight("confirmed");
+        return connection.getBlockHeight('confirmed');
       },
     },
   };
