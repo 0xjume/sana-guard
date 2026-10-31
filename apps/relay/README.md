@@ -120,7 +120,8 @@ Anti-drain gates (on by default for CreateVault / AddAgent):
 - `INVITE_TOKEN` — require this token in `X-Invite-Token` for CreateVault/AddAgent (compared in constant time)
 - `OWNER_ALLOWLIST` — comma-separated allowed owner pubkeys (base58)
 - `CORS_ORIGINS` — comma-separated allow-list. **Closed by default** (unset = empty list, no `*`). Preflight `OPTIONS` keeps `Access-Control-*` headers for allowed origins.
-- `TRUST_PROXY` — default `false`. Set `true` only as a **Railway service variable** (Variables tab) so the limiter uses Railway's `X-Forwarded-For`. Do not bake it into the image or `railway.json`; a Docker run without that proxy would then be spoofable via `XFF`. Optionally `TRUST_PROXY_HOPS=1`. Leave unset/`false` locally. Admin and read paths use separate limiter maps.
+- `TRUST_PROXY` — default `false`. Set `true` only as a **Railway service variable** (Variables tab). Do not bake it into the image or `railway.json`; a Docker run without that proxy would then be spoofable via `XFF` / `X-Real-IP`. Optionally `TRUST_PROXY_HOPS=1`. Leave unset/`false` locally. Admin and read paths use separate limiter maps.
+- `CLIENT_IP_HEADER` — optional. When `TRUST_PROXY` is true, read this single-IP header first (Railway: `x-real-ip`). Must be a simple header name. Invalid or multi-value headers are ignored and the limiter falls back to `X-Forwarded-For` (minus `TRUST_PROXY_HOPS`) then the socket. Ignored when `TRUST_PROXY` is false.
 
 ## Development
 
@@ -152,7 +153,7 @@ Test coverage:
 - ✅ Balance floor check (before every send, inside the global + owner lock)
 - ✅ CORS closed by default; invite token compared via SHA-256 + `timingSafeEqual`
 - ✅ Body limit on bytes actually read (chunked bodies, no Content-Length)
-- ✅ `X-Forwarded-For` trusted only when `TRUST_PROXY` is set
+- ✅ Client IP headers trusted only when `TRUST_PROXY` is set; Railway uses `CLIENT_IP_HEADER=x-real-ip`
 - ✅ Budget reserved at the prepaid-gas ceiling, then reconciled to `tokens_burnt`
 - ✅ Send timeouts with a hash stay `unknown` until txStatus or expiry+nonce settle; pre-sign failures release immediately
 - ✅ Global budget + floor check-and-reserve under one global lock / SQLite transaction
@@ -165,7 +166,11 @@ Test coverage:
 1. Create a new project in Railway
 2. Add environment variables from `.env.example`
 3. Create a **persistent volume** mounted at `/app/relay.db` (or `/data/relay.db` with `DATABASE_URL=sqlite:/data/relay.db`) so daily budgets survive redeploys
-4. In the Railway service **Variables** tab, set `TRUST_PROXY=true` so the per-IP limiter uses Railway's `X-Forwarded-For`. The image and `railway.json` default to `false`; do not set it there. Leave it unset/`false` if the service is not behind that proxy.
+4. In the Railway service **Variables** tab set all of:
+   - `TRUST_PROXY=true`
+   - `TRUST_PROXY_HOPS=1`
+   - `CLIENT_IP_HEADER=x-real-ip`
+   Railway overwrites `X-Forwarded-For` as `<client>, <internal hop>`, so hops=1 alone keys on the internal hop. `X-Real-IP` is the real client. The image and `railway.json` default to `TRUST_PROXY=false` and no `CLIENT_IP_HEADER`; do not set these in the image. Leave them unset/`false` if the service is not behind that proxy.
 5. Set `CORS_ORIGINS` to the dashboard origin(s). Unset means no browser origin is allowed
 6. Connect your GitHub repo
 7. Railway will detect `railway.json` and deploy automatically

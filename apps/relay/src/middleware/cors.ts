@@ -17,6 +17,9 @@ export function createCorsMiddleware(config: Config) {
   return async (c: Context, next: Next) => {
     const origin = c.req.header("origin");
 
+    // ACAO is origin-specific; caches must not reuse one origin's response for another.
+    c.header("Vary", "Origin");
+
     if (origin && allowedOrigins.includes(origin)) {
       c.header("Access-Control-Allow-Origin", origin);
       c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

@@ -83,11 +83,13 @@ describe("1. CORS closed by default", () => {
     expect(ok.headers.get("access-control-allow-origin")).toBe(
       "https://app.example"
     );
+    expect(ok.headers.get("vary")).toMatch(/Origin/i);
 
     const bad = await app.request("/x", {
       headers: { origin: "https://evil.example" },
     });
     expect(bad.headers.get("access-control-allow-origin")).toBeNull();
+    expect(bad.headers.get("vary")).toMatch(/Origin/i);
   });
 
   it("returns CORS headers on OPTIONS for an allowed origin, none for a disallowed one", async () => {
@@ -109,6 +111,7 @@ describe("1. CORS closed by default", () => {
     expect(ok.headers.get("access-control-allow-origin")).toBe(
       "https://dash.example"
     );
+    expect(ok.headers.get("vary")).toMatch(/Origin/i);
     expect(ok.headers.get("access-control-allow-methods")).toContain("POST");
     expect(ok.headers.get("access-control-allow-headers")).toContain(
       "X-Invite-Token"
@@ -120,6 +123,7 @@ describe("1. CORS closed by default", () => {
     });
     expect(bad.status).toBe(204);
     expect(bad.headers.get("access-control-allow-origin")).toBeNull();
+    expect(bad.headers.get("vary")).toMatch(/Origin/i);
     expect(bad.headers.get("access-control-allow-methods")).toBeNull();
     expect(bad.headers.get("access-control-allow-headers")).toBeNull();
   });
@@ -180,11 +184,56 @@ describe("4. X-Forwarded-For only when TRUST_PROXY is set", () => {
     expect(ip).toBe("203.0.113.9");
   });
 
+  it("ignores spoofed X-Real-IP and XFF when TRUST_PROXY is off", () => {
+    const ip = getClientIp(
+      fakeCtx({
+        "x-real-ip": "198.51.100.20",
+        "x-forwarded-for": "198.51.100.20, 10.0.0.1",
+      }),
+      {
+        trustProxy: false,
+        trustProxyHops: 1,
+        clientIpHeader: "x-real-ip",
+      }
+    );
+    expect(ip).toBe("203.0.113.9");
+  });
+
   it("uses XFF only when TRUST_PROXY is on", () => {
     const ip = getClientIp(fakeCtx({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" }), {
       trustProxy: true,
       trustProxyHops: 1,
     });
+    expect(ip).toBe("10.0.0.1");
+  });
+
+  it("prefers a single-IP CLIENT_IP_HEADER (X-Real-IP) over XFF hops", () => {
+    const ip = getClientIp(
+      fakeCtx({
+        "x-real-ip": "198.51.100.20",
+        "x-forwarded-for": "198.51.100.20, 10.0.0.1",
+      }),
+      {
+        trustProxy: true,
+        trustProxyHops: 1,
+        clientIpHeader: "x-real-ip",
+      }
+    );
+    expect(ip).toBe("198.51.100.20");
+  });
+
+  it("falls back to XFF when CLIENT_IP_HEADER is not a single IP", () => {
+    const ip = getClientIp(
+      fakeCtx({
+        "x-real-ip": "198.51.100.20, 10.0.0.1",
+        "x-forwarded-for": "203.0.113.50, 10.0.0.1",
+      }),
+      {
+        trustProxy: true,
+        trustProxyHops: 1,
+        clientIpHeader: "x-real-ip",
+      }
+    );
     expect(ip).toBe("10.0.0.1");
   });
 
@@ -218,6 +267,91 @@ describe("4. X-Forwarded-For only when TRUST_PROXY is set", () => {
     else process.env.RELAY_TEST_RATE_LIMIT = prev;
     adminLimits.clear();
     readLimits.clear();
+  });
+
+  it("keys the admin limiter on X-Real-IP behind TRUST_PROXY", async () => {
+    const prev = process.env.RELAY_TEST_RATE_LIMIT;
+    process.env.RELAY_TEST_RATE_LIMIT = "1";
+    adminLimits.clear();
+
+    const app = new Hono();
+    const c = cfg({
+      trustProxy: true,
+      trustProxyHops: 1,
+      clientIpHeader: "x-real-ip",
+    });
+    app.post("/admin", createAdminRateLimit(c), (ctx) => ctx.json({ ok: true }));
+    const env = { incoming: { socket: { remoteAddress: "10.0.0.9" } } };
+
+    let last = 200;
+    for (let i = 0; i < 11; i++) {
+      const res = await app.request(
+        "/admin",
+        {
+          method: "POST",
+          headers: {
+            "x-real-ip": "198.51.100.20",
+            "x-forwarded-for": "198.51.100.20, 10.0.0.9",
+          },
+        },
+        env
+      );
+      last = res.status;
+    }
+    expect(last).toBe(429);
+
+    const otherClient = await app.request(
+      "/admin",
+      {
+        method: "POST",
+        headers: {
+          "x-real-ip": "198.51.100.21",
+          "x-forwarded-for": "198.51.100.21, 10.0.0.9",
+        },
+      },
+      env
+    );
+    expect(otherClient.status).toBe(200);
+
+    if (prev === undefined) delete process.env.RELAY_TEST_RATE_LIMIT;
+    else process.env.RELAY_TEST_RATE_LIMIT = prev;
+    adminLimits.clear();
+  });
+
+  it("does not let spoofed IP headers split the bucket when TRUST_PROXY is off", async () => {
+    const prev = process.env.RELAY_TEST_RATE_LIMIT;
+    process.env.RELAY_TEST_RATE_LIMIT = "1";
+    adminLimits.clear();
+
+    const app = new Hono();
+    const c = cfg({
+      trustProxy: false,
+      trustProxyHops: 1,
+      clientIpHeader: "x-real-ip",
+    });
+    app.post("/admin", createAdminRateLimit(c), (ctx) => ctx.json({ ok: true }));
+    const env = { incoming: { socket: { remoteAddress: "198.51.100.7" } } };
+
+    let last = 200;
+    for (let i = 0; i < 11; i++) {
+      const res = await app.request(
+        "/admin",
+        {
+          method: "POST",
+          headers: {
+            "x-real-ip": `203.0.113.${i}`,
+            "x-forwarded-for": `${i}.1.1.1, 10.0.0.1`,
+          },
+        },
+        env
+      );
+      last = res.status;
+    }
+    expect(last).toBe(429);
+
+    if (prev === undefined) delete process.env.RELAY_TEST_RATE_LIMIT;
+    else process.env.RELAY_TEST_RATE_LIMIT = prev;
+    adminLimits.clear();
   });
 });
 
