@@ -56,9 +56,8 @@ jobs:
           echo "WASM size: $((WASM_SIZE / 1024)) KB ($WASM_SIZE bytes)"
           ls -lh ../../target/near/sana_guard_contract/*.wasm
 
-  # packages/sdk only. apps/* are placeholders; PR #5 (relay) may add more TS steps here.
   typescript:
-    name: TypeScript (sdk)
+    name: TypeScript (sdk + mcp)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +98,18 @@ jobs:
 
       - name: SDK test
         run: pnpm --filter @sana-guard/sdk test
+
+      - name: MCP lint
+        run: pnpm --filter @sana-guard/mcp lint
+
+      - name: MCP typecheck
+        run: pnpm --filter @sana-guard/mcp typecheck
+
+      - name: MCP test
+        run: pnpm --filter @sana-guard/mcp test
+
+      - name: MCP build
+        run: pnpm --filter @sana-guard/mcp build
 
   # Separate from the typescript job so SDK steps stay isolated.
   relay:
