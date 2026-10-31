@@ -35,6 +35,7 @@ function testConfig(overrides: Partial<Config> = {}): Config {
     adminGateEnabled: true,
     trustProxy: false,
     trustProxyHops: 1,
+    rateLimitIpv6Prefix: 64,
     ...overrides,
   };
 }
@@ -263,6 +264,30 @@ describe("POST /v1/admin", () => {
     const body = await res.json();
     expect(body.code).toBe("INVALID_JSON");
     expect(body.error).toBe("Invalid JSON body");
+  });
+
+  it("returns 500 for an unexpected error after a valid JSON body", async () => {
+    near.getVault = async () => {
+      throw new Error("Unexpected token in JSON at position 0");
+    };
+    const msg = makeAdminMsg({
+      vault: "0",
+      nonce: 6,
+      action: { type: "AddRecipient", vault_id: 0, recipient: owner },
+    });
+    const res = await app.request("/v1/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msg,
+        signature: signMsg(msg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Internal server error");
+    expect(body.code).toBeUndefined();
   });
 
   it("rejects unknown actions with 400", async () => {

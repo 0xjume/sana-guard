@@ -122,6 +122,7 @@ Anti-drain gates (on by default for CreateVault / AddAgent):
 - `CORS_ORIGINS` — comma-separated allow-list. **Closed by default** (unset = empty list, no `*`). Preflight `OPTIONS` keeps `Access-Control-*` headers for allowed origins.
 - `TRUST_PROXY` — default `false`. Set `true` only as a **Railway service variable** (Variables tab). Do not bake it into the image or `railway.json`; a Docker run without that proxy would then be spoofable via `XFF` / `X-Real-IP`. Optionally `TRUST_PROXY_HOPS=1`. Leave unset/`false` locally. Admin and read paths use separate limiter maps.
 - `CLIENT_IP_HEADER` — optional. When `TRUST_PROXY` is true, read this single-IP header first (Railway: `x-real-ip`). Must be a simple header name. Invalid or multi-value headers are ignored and the limiter falls back to `X-Forwarded-For` (minus `TRUST_PROXY_HOPS`) then the socket. Ignored when `TRUST_PROXY` is false.
+- `RATE_LIMIT_IPV6_PREFIX` — optional, default `64` (range 32–128). IPv6 limiter keys use this prefix. IPv4 stays per-address; IPv4-mapped IPv6 (`::ffff:1.2.3.4`) is normalized to IPv4. No Railway change required.
 
 ## Development
 

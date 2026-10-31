@@ -31,6 +31,7 @@ const configSchema = z.object({
     .refine((v) => v === undefined || /^[a-z0-9-]+$/.test(v), {
       message: "CLIENT_IP_HEADER must be a simple header name",
     }),
+  rateLimitIpv6Prefix: z.coerce.number().int().min(32).max(128),
 });
 
 export interface Config extends z.infer<typeof configSchema> {
@@ -66,6 +67,7 @@ export function loadConfig(): Config {
     trustProxy: process.env.TRUST_PROXY ?? "false",
     trustProxyHops: process.env.TRUST_PROXY_HOPS ?? "1",
     clientIpHeader: process.env.CLIENT_IP_HEADER,
+    rateLimitIpv6Prefix: process.env.RATE_LIMIT_IPV6_PREFIX ?? "64",
   });
 
   const globalDailyBudgetYocto = parseNearToYocto(globalDaily, "near");
