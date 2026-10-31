@@ -123,7 +123,7 @@ pub struct SignRequest { vault_id: u32, agent: AccountId, msg_hash: [u8;32], spe
 | `#[private] on_signed(req_id, #[callback_result] r: Result<MpcSignature, PromiseError>) -> Option<Base64VecU8>` | self | **Never panics**: on Ok stores the sig and status Signed; on Err releases the reservation and sets status Failed |
 | `apply_pending_policy(vault_id)` | anyone | After the delay |
 | `admin_pause_all(bool)` | admin, `assert_one_yocto` | Global kill switch |
-| Views | | `get_vault`, `get_policy`, `get_request(req_id)`, `get_spend_24h(vault_id)`, `list_vaults(from,limit)`, `supported_programs()`, `owner_nonce(owner)` |
+| Views | | `get_vault`, `get_policy`, `get_request(req_id)`, `get_spend_24h(vault_id)` (amounts as `U64` JSON strings), `list_vaults(from,limit)`, `supported_programs()`, `owner_nonce(owner)` |
 
 **Admin message format** (UTF-8, human-readable so Privy shows it):
 ```

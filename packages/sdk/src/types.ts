@@ -181,6 +181,11 @@ export interface RequestSignParams {
    * the message's recent blockhash. Required for broadcast/confirm.
    */
   lastValidBlockHeight?: number;
+  /**
+   * Cluster used for the Solana explorer link. When omitted, inferred from
+   * the RPC URL. Custom RPCs stay `custom` and never default to mainnet-beta.
+   */
+  explorerCluster?: SolanaCluster;
 }
 
 /**
@@ -189,6 +194,7 @@ export interface RequestSignParams {
 export interface SignResult {
   signature: Uint8Array;
   requestId: string;
+  nearTxHash?: string;
 }
 
 /**
@@ -199,4 +205,7 @@ export interface BroadcastResult {
   explorer: string;
   status?: string;
   err?: unknown;
+  nearTxHash?: string;
 }
+
+export type SolanaCluster = 'devnet' | 'testnet' | 'mainnet-beta' | 'custom';

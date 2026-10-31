@@ -1,6 +1,6 @@
 # Sana Guard Status
 
-**Updated:** October 31, 2026 (after [#9](https://github.com/0xjume/sana-guard/pull/9))
+**Updated:** October 31, 2026 (after [#13](https://github.com/0xjume/sana-guard/pull/13))
 
 Policy-enforced AI agent wallets: a NEAR contract signs Solana transactions through NEAR Chain Signatures only when they pass the owner's policy. Design and day-by-day plan: [docs/PLAN.md](./docs/PLAN.md).
 
@@ -11,7 +11,7 @@ Policy-enforced AI agent wallets: a NEAR contract signs Solana transactions thro
 | `contracts/guard` | Implemented. Exercised in testnet E2E runs (fixes in #2, #3) | fmt, clippy `-D warnings`, `cargo test`, WASM build |
 | `packages/sdk` | Implemented (#6) | lint, typecheck, build, jest |
 | `apps/relay` | Implemented (#5, #9); Railway deploy config included | lint, typecheck, vitest, Docker image health check |
-| `apps/mcp` | Placeholder (README only) | — |
+| `apps/mcp` | Implemented (#11): agent-only tools, testnet/devnet by default | lint, typecheck, vitest, build |
 | `apps/dashboard` | Placeholder (README only) | — |
 
 Prettier (`pnpm format:check`) runs over all TypeScript, JavaScript and JSON. Markdown is excluded.
@@ -26,9 +26,8 @@ Prettier (`pnpm format:check`) runs over all TypeScript, JavaScript and JSON. Ma
 
 ## Next (per PLAN.md §9)
 
-1. `apps/mcp`: MCP server for agents (`guard_transfer`, `guard_status`, `guard_policy`).
-2. `apps/dashboard`: owner dashboard with Privy login, policy editor, kill switch, attack lab.
-3. Self-audit against PLAN.md §7, longer fuzzing, gas profiling.
+1. `apps/dashboard`: owner dashboard with Privy login, policy editor, kill switch, attack lab.
+2. Self-audit against PLAN.md §7, longer fuzzing, gas profiling.
 
 ## Security
 

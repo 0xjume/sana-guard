@@ -1,7 +1,13 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Account as NearAccount } from 'near-api-js';
 import nacl from 'tweetnacl';
-import { AgentClient, validateIdempotencyKey } from '../client';
+import {
+  AgentClient,
+  validateIdempotencyKey,
+  inferSolanaCluster,
+  solanaExplorerUrl,
+  extractNearTxHash,
+} from '../client';
 import { SanaGuardError, SanaGuardSignError } from '../errors';
 
 function validKey(): string {
@@ -50,6 +56,7 @@ describe('AgentClient.requestSign', () => {
     });
 
     expect(result.requestId).toBe(requestId);
+    expect(result.nearTxHash).toBeUndefined();
     expect(Buffer.from(result.signature).equals(Buffer.from(signature))).toBe(true);
     expect(functionCall).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -176,5 +183,43 @@ describe('AgentClient.requestSign', () => {
       expect((error as SanaGuardSignError).code).toBe('SG_E058_INVALID_REQ_ID');
       expect((error as SanaGuardSignError).requestId).toBe(requestId);
     }
+  });
+
+  it('returns the NEAR transaction hash when the functionCall outcome includes one', async () => {
+    const { vaultAddress, message, signature } = signedFixture();
+    const functionCall = jest.fn().mockResolvedValue({
+      status: {
+        SuccessValue: Buffer.from(JSON.stringify(Array.from(signature))).toString('base64'),
+      },
+      transaction: { hash: 'NEAR_TX_HASH_ABC' },
+    });
+    const client = mockClient(functionCall, vaultAddress);
+
+    const result = await client.requestSign({
+      vaultId: 0,
+      message,
+      idempotencyKey: validKey(),
+    });
+
+    expect(result.nearTxHash).toBe('NEAR_TX_HASH_ABC');
+  });
+});
+
+describe('explorer cluster inference', () => {
+  it('never defaults a custom RPC to mainnet-beta', () => {
+    expect(inferSolanaCluster('https://solana-rpc.publicnode.com')).toBe('custom');
+    expect(inferSolanaCluster('https://rpc.ankr.com/solana')).toBe('custom');
+    expect(inferSolanaCluster('https://api.devnet.solana.com')).toBe('devnet');
+    expect(solanaExplorerUrl('Sig111', 'custom', 'https://rpc.ankr.com/solana')).toBe(
+      'https://explorer.solana.com/tx/Sig111?cluster=custom&customUrl=https%3A%2F%2Frpc.ankr.com%2Fsolana'
+    );
+    expect(solanaExplorerUrl('Sig111', 'devnet')).toContain('cluster=devnet');
+    expect(solanaExplorerUrl('Sig111', 'custom')).not.toContain('mainnet-beta');
+  });
+
+  it('extracts a NEAR tx hash from functionCall outcomes', () => {
+    expect(extractNearTxHash({ transaction: { hash: 'abc' } })).toBe('abc');
+    expect(extractNearTxHash({ transaction_outcome: { id: 'def' } })).toBe('def');
+    expect(extractNearTxHash(Array.from({ length: 64 }, () => 1))).toBeUndefined();
   });
 });

@@ -5,11 +5,13 @@ import { createCorsMiddleware } from './middleware/cors.js';
 import { bodyLimit, MAX_BODY_SIZE } from './middleware/bodyLimit.js';
 import {
   getClientIp,
+  rateLimitKey,
   createAdminRateLimit,
   createReadRateLimit,
   adminLimits,
   readLimits,
 } from './middleware/rateLimit.js';
+import { loadConfig } from './config.js';
 import { tokensEqual } from './crypto.js';
 import { RelayDatabase } from './db.js';
 import { checkInviteGate } from './routes/admin.js';
@@ -42,6 +44,7 @@ function cfg(overrides: Partial<Config> = {}): Config {
     adminGateEnabled: true,
     trustProxy: false,
     trustProxyHops: 1,
+    rateLimitIpv6Prefix: 64,
     ...overrides,
   };
 }
@@ -332,6 +335,92 @@ describe('4. X-Forwarded-For only when TRUST_PROXY is set', () => {
     if (prev === undefined) delete process.env.RELAY_TEST_RATE_LIMIT;
     else process.env.RELAY_TEST_RATE_LIMIT = prev;
     adminLimits.clear();
+  });
+
+  it('keys IPv6 on the configured /64 prefix', () => {
+    const a = rateLimitKey('2001:db8:1:2:aaaa::1', 64);
+    const b = rateLimitKey('2001:db8:1:2:bbbb::2', 64);
+    const other = rateLimitKey('2001:db8:1:3::1', 64);
+    expect(a).toBe(b);
+    expect(a).not.toBe(other);
+  });
+
+  it('normalizes IPv4-mapped IPv6 to the IPv4 address', () => {
+    expect(rateLimitKey('::ffff:192.0.2.10', 64)).toBe('192.0.2.10');
+    expect(rateLimitKey('::ffff:c000:20a', 64)).toBe('192.0.2.10');
+    expect(rateLimitKey('192.0.2.10', 64)).toBe('192.0.2.10');
+  });
+
+  it('shares the admin bucket for two IPv6 addresses in the same /64', async () => {
+    const prev = process.env.RELAY_TEST_RATE_LIMIT;
+    process.env.RELAY_TEST_RATE_LIMIT = '1';
+    adminLimits.clear();
+
+    const app = new Hono();
+    app.post('/admin', createAdminRateLimit(cfg()), (ctx) => ctx.json({ ok: true }));
+
+    let last = 200;
+    for (let i = 0; i < 10; i++) {
+      const res = await app.request(
+        '/admin',
+        { method: 'POST' },
+        { incoming: { socket: { remoteAddress: '2001:db8:1:2::1' } } }
+      );
+      last = res.status;
+    }
+    expect(last).toBe(200);
+
+    const samePrefix = await app.request(
+      '/admin',
+      { method: 'POST' },
+      { incoming: { socket: { remoteAddress: '2001:db8:1:2:ffff::9' } } }
+    );
+    expect(samePrefix.status).toBe(429);
+
+    const otherPrefix = await app.request(
+      '/admin',
+      { method: 'POST' },
+      { incoming: { socket: { remoteAddress: '2001:db8:1:3::1' } } }
+    );
+    expect(otherPrefix.status).toBe(200);
+
+    if (prev === undefined) delete process.env.RELAY_TEST_RATE_LIMIT;
+    else process.env.RELAY_TEST_RATE_LIMIT = prev;
+    adminLimits.clear();
+  });
+});
+
+describe('loadConfig', () => {
+  const required = {
+    RELAY_ACCOUNT_ID: 'relay.test.near',
+    RELAY_NEAR_PRIVATE_KEY: 'ed25519:test',
+  };
+
+  function withEnv(extra: Record<string, string>, fn: () => void): void {
+    const keys = [
+      ...Object.keys(required),
+      ...Object.keys(extra),
+      'CLIENT_IP_HEADER',
+      'RATE_LIMIT_IPV6_PREFIX',
+    ];
+    const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    try {
+      for (const [k, v] of Object.entries({ ...required, ...extra })) {
+        process.env[k] = v;
+      }
+      fn();
+    } finally {
+      for (const [k, v] of Object.entries(prev)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  }
+
+  it('rejects an invalid CLIENT_IP_HEADER at config load', () => {
+    withEnv({ CLIENT_IP_HEADER: 'x-real-ip; injected' }, () => {
+      expect(() => loadConfig()).toThrow(/CLIENT_IP_HEADER/);
+    });
   });
 });
 

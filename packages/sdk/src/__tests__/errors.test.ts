@@ -96,11 +96,13 @@ describe('Errors', () => {
     it('toSignError wraps contract panics without dropping requestId', () => {
       const wrapped = toSignError(
         new Error('Smart contract panicked: SG_E058_INVALID_REQ_ID'),
-        'cd'.repeat(32)
+        'cd'.repeat(32),
+        'NEARHASH'
       );
       expect(wrapped).toBeInstanceOf(SanaGuardSignError);
       expect(wrapped.requestId).toBe('cd'.repeat(32));
       expect(wrapped.code).toBe('SG_E058_INVALID_REQ_ID');
+      expect(wrapped.nearTxHash).toBe('NEARHASH');
     });
   });
 
