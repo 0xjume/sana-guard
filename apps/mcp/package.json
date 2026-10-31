@@ -1,0 +1,45 @@
+{
+  "name": "@sana-guard/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server for Sana Guard policy-enforced agent wallets",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "sana-guard-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "SANA_GUARD_LIVE=1 tsx scripts/live.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "@sana-guard/sdk": "workspace:*",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.99.0",
+    "bs58": "^6.0.0",
+    "express": "^4.21.2",
+    "near-api-js": "^5.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.5",
+    "@typescript-eslint/eslint-plugin": "^8.22.0",
+    "@typescript-eslint/parser": "^8.22.0",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

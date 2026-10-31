@@ -15,6 +15,7 @@ export type {
   RequestSignParams,
   SignResult,
   BroadcastResult,
+  SolanaCluster,
 } from './types';
 
 // Errors
@@ -75,7 +76,13 @@ export {
 export type { CreateVaultParams, AddAgentParams } from './admin';
 
 // Agent client
-export { AgentClient, validateIdempotencyKey } from './client';
+export {
+  AgentClient,
+  validateIdempotencyKey,
+  inferSolanaCluster,
+  solanaExplorerUrl,
+  extractNearTxHash,
+} from './client';
 
 // Views
 export { Views, parseSpend24hJson, parseU64Amount, parseJsonIntegersAsStrings } from './views';
