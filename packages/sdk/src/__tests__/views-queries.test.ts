@@ -101,14 +101,16 @@ describe('Views', () => {
     expect(req?.status).toEqual({ status: 'Pending' });
   });
 
-  it('getNonce, getRecipients and supportedPrograms pass values through', async () => {
+  it('getNonce, getOwnerVaultCount, getRecipients and supportedPrograms pass values through', async () => {
     const { views } = viewsWith({
       owner_nonce: 4,
+      owner_vault_count: 2,
       get_recipients: null,
       supported_programs: ['11111111111111111111111111111111'],
     });
 
     expect(await views.getNonce('Owner111')).toBe(4);
+    expect(await views.getOwnerVaultCount('Owner111')).toBe(2);
     expect(await views.getRecipients(0)).toEqual([]);
     expect(await views.supportedPrograms()).toEqual(['11111111111111111111111111111111']);
   });
