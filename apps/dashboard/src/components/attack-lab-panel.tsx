@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ATTACK_EXPECTED, ATTACK_KINDS, ATTACK_LABELS, type AttackKind } from '@/lib/attack-lab';
 import { AttackAttemptCard, type AttackLabResult } from './attack-attempt-card';
 import { StatusBadge } from './status-badge';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export function AttackLabPanel({ vaultId }: { vaultId: number }) {
+  const fieldId = useId();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [pinnedVaultId, setPinnedVaultId] = useState<number | null>(null);
   const [token, setToken] = useState('');
@@ -77,9 +78,9 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
           )}
         </div>
         <div className="mt-4 space-y-2">
-          <Label htmlFor="attack-lab-token">Attack Lab token</Label>
+          <Label htmlFor={`${fieldId}-token`}>Attack Lab token</Label>
           <Input
-            id="attack-lab-token"
+            id={`${fieldId}-token`}
             type="password"
             autoComplete="off"
             value={token}

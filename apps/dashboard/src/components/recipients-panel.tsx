@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { isBase58Pubkey } from '@/lib/policy-form';
@@ -22,6 +22,7 @@ export function RecipientsPanel({
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
+  const fieldId = useId();
   const [value, setValue] = useState('');
   const [ata, setAta] = useState('');
   const [mint, setMint] = useState('');
@@ -95,9 +96,9 @@ export function RecipientsPanel({
         )}
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
           <div className="min-w-0 flex-1 space-y-2">
-            <Label htmlFor="recipient-address">Solana address or ATA</Label>
+            <Label htmlFor={`${fieldId}-address`}>Solana address or ATA</Label>
             <Input
-              id="recipient-address"
+              id={`${fieldId}-address`}
               placeholder="Solana address or ATA"
               value={value}
               onChange={(event) => setValue(event.target.value)}
@@ -120,27 +121,27 @@ export function RecipientsPanel({
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="recipient-ata">ATA</Label>
+            <Label htmlFor={`${fieldId}-ata`}>ATA</Label>
             <Input
-              id="recipient-ata"
+              id={`${fieldId}-ata`}
               placeholder="ATA"
               value={ata}
               onChange={(event) => setAta(event.target.value)}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="recipient-mint">Mint</Label>
+            <Label htmlFor={`${fieldId}-mint`}>Mint</Label>
             <Input
-              id="recipient-mint"
+              id={`${fieldId}-mint`}
               placeholder="Mint"
               value={mint}
               onChange={(event) => setMint(event.target.value)}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="recipient-decimals">Decimals</Label>
+            <Label htmlFor={`${fieldId}-decimals`}>Decimals</Label>
             <Input
-              id="recipient-decimals"
+              id={`${fieldId}-decimals`}
               placeholder="Decimals"
               value={decimals}
               onChange={(event) => setDecimals(event.target.value)}

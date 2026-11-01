@@ -51,6 +51,15 @@ function MeterRow({
   );
 }
 
+function CapLabel({ label, cap }: { label: string; cap: string | null }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="font-mono text-sm text-foreground">{cap ?? '—'} SOL</p>
+    </div>
+  );
+}
+
 export function SpendMeter({
   perTxUsed,
   perTxCap,
@@ -64,7 +73,11 @@ export function SpendMeter({
 }) {
   return (
     <div className="grid gap-5 sm:grid-cols-2">
-      <MeterRow label="Per-tx cap" used={perTxUsed ?? '0'} cap={perTxCap} />
+      {perTxUsed == null ? (
+        <CapLabel label="Per-tx cap" cap={perTxCap} />
+      ) : (
+        <MeterRow label="Per-tx cap" used={perTxUsed} cap={perTxCap} />
+      )}
       <MeterRow label="Rolling 24h cap" used={dailyUsed} cap={dailyCap} />
     </div>
   );

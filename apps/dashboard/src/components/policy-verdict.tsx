@@ -29,7 +29,7 @@ export function PolicyVerdict({
   return (
     <div
       role={rejected ? 'alert' : 'status'}
-      aria-live="polite"
+      aria-live={rejected ? undefined : 'polite'}
       className={cn(
         'rounded-lg border p-5',
         rejected ? 'border-rejected-fill/40 bg-rejected-fill/10' : 'border-primary/40 bg-primary/10'
@@ -46,7 +46,7 @@ export function PolicyVerdict({
           {rejected ? <ShieldX className="h-6 w-6" /> : <ShieldCheck className="h-6 w-6" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="kicker">{rejected ? 'Policy check' : 'Policy check'}</p>
+          <p className="kicker">Policy check</p>
           <p
             className={cn(
               'mt-1 font-heading text-3xl font-semibold tracking-tight',

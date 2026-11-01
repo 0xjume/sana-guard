@@ -40,10 +40,15 @@ export function ProofLink({
     kind === 'near-tx' ? 'NEAR tx' : kind === 'solana-tx' ? 'Solana tx' : 'Solana address';
 
   const copy = async () => {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    toast.success('Copied to clipboard');
-    window.setTimeout(() => setCopied(false), 1200);
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast.success('Copied to clipboard');
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+      toast.error('Could not copy to clipboard');
+    }
   };
 
   return (

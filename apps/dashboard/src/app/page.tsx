@@ -13,7 +13,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 export default function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const session = useOwnerSession();
-  const showGateway = Boolean(publicConfig.privyAppId) && !session.authenticated;
+  const showGateway = Boolean(publicConfig.privyAppId) && session.ready && !session.authenticated;
 
   return (
     <div className="space-y-6">
@@ -28,26 +28,24 @@ export default function HomePage() {
       ) : null}
       {!publicConfig.privyAppId ? <MissingConfig /> : null}
       {showGateway ? <GatewayLogin /> : null}
-      {!showGateway ? (
-        <Card>
-          <CardHeader>
-            <p className="kicker">Owner console</p>
-            <CardTitle className="max-w-2xl text-3xl">
-              Policy is on-chain. The dashboard only signs it.
-            </CardTitle>
-            <CardDescription className="max-w-2xl">
-              Sana Guard holds per-vault policy on NEAR and asks the MPC network to sign a Solana
-              transaction only when an agent request passes that policy. This console is for owners:
-              create a vault, tighten limits immediately, schedule loosenings, add agents, and hit
-              the kill switch.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
+      <Card>
+        <CardHeader>
+          <p className="kicker">Owner console</p>
+          <CardTitle className="max-w-2xl text-3xl">
+            Policy is on-chain. The dashboard only signs it.
+          </CardTitle>
+          <CardDescription className="max-w-2xl">
+            Sana Guard holds per-vault policy on NEAR and asks the MPC network to sign a Solana
+            transaction only when an agent request passes that policy. This console is for owners:
+            create a vault, tighten limits immediately, schedule loosenings, add agents, and hit the
+            kill switch.
+          </CardDescription>
+        </CardHeader>
+      </Card>
       <NetworkStatus />
       {publicConfig.configError ? null : (
         <>
-          {showGateway ? null : <VaultList refreshKey={refreshKey} />}
+          <VaultList refreshKey={refreshKey} />
           <CreateVaultForm onCreated={() => setRefreshKey((value) => value + 1)} />
         </>
       )}

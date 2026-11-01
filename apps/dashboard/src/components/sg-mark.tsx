@@ -10,17 +10,34 @@ export function SgMark({ className, size = 36 }: { className?: string; size?: nu
       role="img"
       aria-label="Sana Guard"
     >
-      <rect width="40" height="40" rx="12" fill="#121614" stroke="#15c15d" strokeWidth="1.5" />
+      <rect
+        x="1"
+        y="1"
+        width="38"
+        height="38"
+        rx="11"
+        fill="hsl(var(--background))"
+        stroke="hsl(var(--primary))"
+        strokeWidth="1.5"
+      />
       <path
-        d="M20 7.2 30.5 11v9.4c0 6.2-4.6 11.3-10.5 13.2C13.9 31.7 9.5 26.6 9.5 20.4V11L20 7.2z"
+        d="M20 6.8 31 11v9.6c0 6.4-4.7 11.7-11 13.6C13.7 32.3 9 27 9 20.6V11L20 6.8z"
         fill="none"
-        stroke="#15c15d"
-        strokeWidth="1.6"
+        stroke="hsl(var(--primary))"
+        strokeWidth="1.5"
       />
-      <path
-        d="M14.4 17.1c0-2.1 1.7-3.4 4.2-3.4 2.1 0 3.8 1 3.8 2.8 0 1.3-.9 2.1-2.5 2.7l-1.5.5c-1 .3-1.4.7-1.4 1.3 0 .7.6 1.1 1.7 1.1 1.2 0 2-.5 2.4-1.4l1.7.6c-.6 1.7-2.2 2.7-4.1 2.7-2.5 0-4.1-1.3-4.1-3.3 0-1.5 1-2.5 2.8-3.1l1.6-.6c.9-.3 1.2-.6 1.2-1.1 0-.6-.5-1-1.5-1-1 0-1.8.5-2.1 1.3l-2.2-.6Zm11.2 7.6V14.2h2.1v10.5h-2.1z"
-        fill="#15c15d"
-      />
+      <text
+        x="20"
+        y="23.5"
+        textAnchor="middle"
+        fill="hsl(var(--primary))"
+        fontFamily="var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+        fontSize="12"
+        fontWeight="700"
+        letterSpacing="0.5"
+      >
+        SG
+      </text>
     </svg>
   );
 }

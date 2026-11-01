@@ -3,7 +3,6 @@ import { ATTACK_LABELS, type AttackKind } from '@/lib/attack-lab';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PolicyVerdict } from '@/components/policy-verdict';
-import { ProofLink } from '@/components/proof-link';
 
 export interface AttackLabResult {
   enabled?: boolean;
@@ -18,7 +17,6 @@ export interface AttackLabResult {
       message?: string;
       code?: string;
       unexpected?: string;
-      txHash?: string;
     };
   }>;
 }
@@ -27,12 +25,16 @@ function isAttackKind(value: string | undefined): value is AttackKind {
   return Boolean(value && value in ATTACK_LABELS);
 }
 
+export function isOnChainRejection(result: AttackLabResult): boolean {
+  const attempt = result.attempts?.[0]?.result;
+  return Boolean(attempt && !attempt.unexpected && attempt.code === result.expected);
+}
+
 export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
   const kindLabel = isAttackKind(result.kind) ? ATTACK_LABELS[result.kind] : result.kind;
   const attempt = result.attempts?.[0]?.result;
-  const code = attempt?.code ?? result.evaluated;
-  const txHash = attempt?.txHash;
-  const rejected = !attempt?.unexpected;
+  const ran = Boolean(attempt);
+  const rejected = isOnChainRejection(result);
 
   return (
     <Card className="border-rejected-fill/30">
@@ -59,21 +61,22 @@ export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
           <li>
             <p className="text-xs font-medium text-muted-foreground">3. On-chain</p>
             <p className="mt-1 text-sm">
-              {attempt?.unexpected ?? attempt?.message ?? result.error ?? 'Rejected on-chain'}
+              {!ran
+                ? 'Not run'
+                : (attempt?.unexpected ?? attempt?.message ?? result.error ?? 'Rejected on-chain')}
             </p>
           </li>
         </ol>
-        {result.error && !attempt ? (
-          <p className="text-sm text-rejected">{result.error}</p>
+        {result.error && !ran ? <p className="text-sm text-rejected">{result.error}</p> : null}
+        {!ran ? (
+          <p className="text-sm text-muted-foreground">On-chain attempt not run.</p>
         ) : (
           <PolicyVerdict
             verdict={rejected ? 'rejected' : 'allowed'}
-            code={code}
+            code={attempt?.code}
             expected={result.expected}
-            actual={result.evaluated ?? attempt?.code}
-          >
-            {txHash ? <ProofLink value={txHash} kind="near-tx" finalized={rejected} /> : null}
-          </PolicyVerdict>
+            actual={attempt?.code}
+          />
         )}
       </CardContent>
     </Card>

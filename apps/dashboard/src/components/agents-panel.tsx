@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
@@ -24,6 +24,7 @@ export function AgentsPanel({
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
+  const fieldId = useId();
   const [name, setName] = useState('agent1');
   const [funding, setFunding] = useState('0.15');
   const [secret, setSecret] = useState<string | null>(null);
@@ -131,13 +132,17 @@ export function AgentsPanel({
         )}
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="agent-name">Name</Label>
-            <Input id="agent-name" value={name} onChange={(event) => setName(event.target.value)} />
+            <Label htmlFor={`${fieldId}-name`}>Name</Label>
+            <Input
+              id={`${fieldId}-name`}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="agent-funding">Gas funding (NEAR)</Label>
+            <Label htmlFor={`${fieldId}-funding`}>Gas funding (NEAR)</Label>
             <Input
-              id="agent-funding"
+              id={`${fieldId}-funding`}
               value={funding}
               onChange={(event) => setFunding(event.target.value)}
             />
