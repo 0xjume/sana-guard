@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import type { Policy } from '@sana-guard/sdk';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
@@ -9,6 +9,9 @@ import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/
 import { formFromPolicy, policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
 import type { GuardActionError } from '@/lib/errors';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 const KNOWN_PROGRAMS: Array<{ id: string; label: string }> = [
   { id: '11111111111111111111111111111111', label: 'System' },
@@ -75,13 +78,19 @@ export function PolicyEditor({
 
   const field = (key: keyof PolicyFormValues) => ({
     value: values[key] as string,
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+    onChange: (event: ChangeEvent<HTMLInputElement>) =>
       setValues((current) => ({ ...current, [key]: event.target.value })),
   });
 
   return (
     <div className="space-y-4">
-      <div className={stricter ? 'notice-ok' : 'notice-warn'}>
+      <div
+        className={
+          stricter
+            ? 'rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-accent'
+            : 'rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning'
+        }
+      >
         {stricter ? (
           <p>
             This change is a <strong>tightening or no-op</strong>. It applies immediately and clears
@@ -103,43 +112,43 @@ export function PolicyEditor({
         ) : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs">
-          Per-tx SOL
-          <input className="field mt-1" {...field('solPerTx')} />
-        </label>
-        <label className="block text-xs">
-          Rolling 24h SOL cap
-          <input className="field mt-1" {...field('solDaily')} />
-        </label>
-        <label className="block text-xs">
-          Max priority fee (lamports)
-          <input className="field mt-1" {...field('maxPriorityFeeLamports')} />
-        </label>
-        <label className="block text-xs">
-          Max total priority fee (optional)
-          <input className="field mt-1" {...field('maxTotalPriorityFeeLamports')} />
-        </label>
-        <label className="block text-xs">
-          Max memo length
-          <input className="field mt-1" {...field('maxMemoLen')} />
-        </label>
-        <label className="block text-xs">
-          Loosen delay (hours)
-          <input className="field mt-1" {...field('loosenDelayHours')} />
-        </label>
-        <label className="block text-xs sm:col-span-2">
-          Expires
-          <input className="field mt-1" type="datetime-local" {...field('expiresAtLocal')} />
-        </label>
+        <div className="space-y-2">
+          <Label htmlFor="solPerTx">Per-tx SOL</Label>
+          <Input id="solPerTx" {...field('solPerTx')} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="solDaily">Rolling 24h SOL cap</Label>
+          <Input id="solDaily" {...field('solDaily')} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="maxPriorityFeeLamports">Max priority fee (lamports)</Label>
+          <Input id="maxPriorityFeeLamports" {...field('maxPriorityFeeLamports')} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="maxTotalPriorityFeeLamports">Max total priority fee (optional)</Label>
+          <Input id="maxTotalPriorityFeeLamports" {...field('maxTotalPriorityFeeLamports')} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="maxMemoLen">Max memo length</Label>
+          <Input id="maxMemoLen" {...field('maxMemoLen')} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="loosenDelayHours">Loosen delay (hours)</Label>
+          <Input id="loosenDelayHours" {...field('loosenDelayHours')} />
+        </div>
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="expiresAtLocal">Expires</Label>
+          <Input id="expiresAtLocal" type="datetime-local" {...field('expiresAtLocal')} />
+        </div>
       </div>
       {policy.perTxLimit.some((item) => item.mint.type !== 'sol') ||
       policy.dailyCap.some((item) => item.mint.type !== 'sol') ? (
-        <p className="text-xs text-parchment-400">
+        <p className="text-xs text-muted-foreground">
           Existing SPL token limits are preserved on save. This editor only changes the SOL rows.
         </p>
       ) : null}
       <fieldset>
-        <legend className="text-xs text-parchment-400">Allowed programs</legend>
+        <legend className="text-xs text-muted-foreground">Allowed programs</legend>
         <div className="mt-2 flex flex-wrap gap-3">
           {KNOWN_PROGRAMS.map((program) => (
             <label key={program.id} className="flex items-center gap-2 text-xs">
@@ -160,14 +169,9 @@ export function PolicyEditor({
           ))}
         </div>
       </fieldset>
-      <button
-        type="button"
-        className="btn-primary"
-        disabled={busy || !nextPolicy}
-        onClick={() => void submit()}
-      >
+      <Button type="button" disabled={busy || !nextPolicy} onClick={() => void submit()}>
         {busy ? 'Signing…' : 'Sign SetPolicy'}
-      </button>
+      </Button>
       <ActionResult error={error} txHash={txHash} success="Policy submitted." />
     </div>
   );

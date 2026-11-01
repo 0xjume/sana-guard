@@ -23,7 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         loginMethods: ['email', 'wallet'],
         appearance: {
           theme: 'dark',
-          accentColor: '#d4a017',
+          accentColor: '#15c15d',
           logo: undefined,
           walletChainType: 'solana-only',
         },

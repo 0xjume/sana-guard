@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
@@ -8,6 +8,11 @@ import { useOwnerSession } from '@/hooks/use-owner-session';
 import { nearToYocto } from '@/lib/format';
 import { ActionResult } from './action-result';
 import type { GuardActionError } from '@/lib/errors';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 
 export function AgentsPanel({
   vaultId,
@@ -19,6 +24,7 @@ export function AgentsPanel({
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
+  const fieldId = useId();
   const [name, setName] = useState('agent1');
   const [funding, setFunding] = useState('0.15');
   const [secret, setSecret] = useState<string | null>(null);
@@ -85,83 +91,92 @@ export function AgentsPanel({
   };
 
   return (
-    <section className="panel">
-      <p className="kicker">Agents</p>
-      <h2 className="mt-2 text-lg font-semibold">Function-call identities</h2>
-      <p className="mt-2 text-sm text-parchment-400">
-        AddAgent creates{' '}
-        <code>
-          {'{name}.'}
-          {'{guard}'}
-        </code>{' '}
-        with one FC key. The secret is generated in this browser and shown once — it is not sent to
-        the dashboard server.
-      </p>
-      <ul className="mt-4 space-y-2 text-sm">
-        {agents.length === 0 ? <li className="text-parchment-400">No agents yet.</li> : null}
-        {agents.map((agent) => (
-          <li
-            key={agent}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-ink-600 px-3 py-2"
-          >
-            <span className="font-mono text-xs">{agent}</span>
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={busy}
-              onClick={() => void remove(agent)}
-            >
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <label className="text-xs">
-          Name
-          <input
-            className="field mt-1"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label className="text-xs">
-          Gas funding (NEAR)
-          <input
-            className="field mt-1"
-            value={funding}
-            onChange={(event) => setFunding(event.target.value)}
-          />
-        </label>
-        <div className="flex items-end">
-          <button type="button" className="btn-ghost w-full" onClick={generate}>
-            Generate key
-          </button>
+    <Card>
+      <CardHeader>
+        <p className="kicker">Agents</p>
+        <CardTitle>Function-call identities</CardTitle>
+        <CardDescription>
+          AddAgent creates{' '}
+          <code>
+            {'{name}.'}
+            {'{guard}'}
+          </code>{' '}
+          with one FC key. The secret is generated in this browser and shown once — it is not sent
+          to the dashboard server.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {agents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No agents yet.</p>
+        ) : (
+          <Table>
+            <TableBody>
+              {agents.map((agent) => (
+                <TableRow key={agent}>
+                  <TableCell className="font-mono text-xs">{agent}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void remove(agent)}
+                    >
+                      Remove
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor={`${fieldId}-name`}>Name</Label>
+            <Input
+              id={`${fieldId}-name`}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`${fieldId}-funding`}>Gas funding (NEAR)</Label>
+            <Input
+              id={`${fieldId}-funding`}
+              value={funding}
+              onChange={(event) => setFunding(event.target.value)}
+            />
+          </div>
+          <div className="flex items-end">
+            <Button type="button" variant="outline" className="w-full" onClick={generate}>
+              Generate key
+            </Button>
+          </div>
         </div>
-      </div>
-      {publicKey ? (
-        <div className="mt-3 rounded-sm border border-brass-500/30 bg-ink-800 p-3 text-xs">
-          <p className="text-parchment-400">Public key (submitted)</p>
-          <p className="mt-1 break-all font-mono">{publicKey}</p>
-          {secret ? (
-            <>
-              <p className="mt-3 text-rust-400">Secret (shown once, copy now)</p>
-              <p className="mt-1 break-all font-mono">{secret}</p>
-            </>
-          ) : null}
+        {publicKey ? (
+          <div className="mt-3 rounded-md border border-primary/30 bg-secondary p-3 text-xs">
+            <p className="text-muted-foreground">Public key (submitted)</p>
+            <p className="mt-1 break-all font-mono">{publicKey}</p>
+            {secret ? (
+              <>
+                <p className="mt-3 text-rejected">Secret (shown once, copy now)</p>
+                <p className="mt-1 break-all font-mono">{secret}</p>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        <Button
+          type="button"
+          className="mt-4"
+          disabled={busy || !publicKey}
+          onClick={() => void add()}
+        >
+          {busy ? 'Signing…' : 'Add agent (≥ 0.15 NEAR)'}
+        </Button>
+        <div className="mt-3">
+          <ActionResult error={error} txHash={txHash} />
         </div>
-      ) : null}
-      <button
-        type="button"
-        className="btn-primary mt-4"
-        disabled={busy || !publicKey}
-        onClick={() => void add()}
-      >
-        {busy ? 'Signing…' : 'Add agent (≥ 0.15 NEAR)'}
-      </button>
-      <div className="mt-3">
-        <ActionResult error={error} txHash={txHash} />
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
