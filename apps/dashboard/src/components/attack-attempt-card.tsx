@@ -25,16 +25,64 @@ function isAttackKind(value: string | undefined): value is AttackKind {
   return Boolean(value && value in ATTACK_LABELS);
 }
 
+export type AttackOutcomeKind = 'rejected' | 'bypassed' | 'unexpected';
+
 export function isOnChainRejection(result: AttackLabResult): boolean {
   const attempt = result.attempts?.[0]?.result;
   return Boolean(attempt && !attempt.unexpected && attempt.code === result.expected);
+}
+
+export function classifyAttackOutcome(result: AttackLabResult): AttackOutcomeKind | null {
+  const attempt = result.attempts?.[0]?.result;
+  if (!attempt) {
+    return null;
+  }
+  if (isOnChainRejection(result)) {
+    return 'rejected';
+  }
+  if (attempt.unexpected) {
+    return 'bypassed';
+  }
+  return 'unexpected';
+}
+
+export function attackOutcomeHeading(outcome: AttackOutcomeKind): string {
+  if (outcome === 'rejected') {
+    return 'REJECTED';
+  }
+  if (outcome === 'bypassed') {
+    return 'ALLOWED — guard bypassed';
+  }
+  return 'Unexpected outcome';
+}
+
+export function unexpectedOutcomeDetail(result: AttackLabResult): string | undefined {
+  const attempt = result.attempts?.[0]?.result;
+  return attempt?.code ?? attempt?.message;
+}
+
+function UnexpectedOutcomeCard({ detail }: { detail?: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-lg border border-warning/40 bg-warning/10 p-5"
+    >
+      <p className="sr-only">Unexpected outcome{detail ? ` ${detail}` : ''}</p>
+      <p className="kicker">On-chain result</p>
+      <p className="mt-1 font-heading text-3xl font-semibold tracking-tight text-warning">
+        Unexpected outcome
+      </p>
+      {detail ? <p className="mt-2 font-mono text-sm text-foreground">{detail}</p> : null}
+    </div>
+  );
 }
 
 export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
   const kindLabel = isAttackKind(result.kind) ? ATTACK_LABELS[result.kind] : result.kind;
   const attempt = result.attempts?.[0]?.result;
   const ran = Boolean(attempt);
-  const rejected = isOnChainRejection(result);
+  const outcome = classifyAttackOutcome(result);
 
   return (
     <Card className="border-rejected-fill/30">
@@ -68,15 +116,26 @@ export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
           </li>
         </ol>
         {result.error && !ran ? <p className="text-sm text-rejected">{result.error}</p> : null}
-        {!ran ? (
+        {!ran || !outcome ? (
           <p className="text-sm text-muted-foreground">On-chain attempt not run.</p>
-        ) : (
+        ) : outcome === 'rejected' ? (
           <PolicyVerdict
-            verdict={rejected ? 'rejected' : 'allowed'}
+            verdict="rejected"
+            heading={attackOutcomeHeading(outcome)}
             code={attempt?.code}
             expected={result.expected}
             actual={attempt?.code}
           />
+        ) : outcome === 'bypassed' ? (
+          <PolicyVerdict
+            verdict="allowed"
+            heading={attackOutcomeHeading(outcome)}
+            code={attempt?.code}
+            expected={result.expected}
+            actual={attempt?.unexpected ?? attempt?.code}
+          />
+        ) : (
+          <UnexpectedOutcomeCard detail={unexpectedOutcomeDetail(result)} />
         )}
       </CardContent>
     </Card>

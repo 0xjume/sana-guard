@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 
 export function PolicyVerdict({
   verdict,
+  heading,
   code,
   ruleName,
   expected,
@@ -13,6 +14,7 @@ export function PolicyVerdict({
   children,
 }: {
   verdict: 'allowed' | 'rejected';
+  heading?: string;
   code?: string;
   ruleName?: string;
   expected?: string;
@@ -20,11 +22,12 @@ export function PolicyVerdict({
   children?: ReactNode;
 }) {
   const rejected = verdict === 'rejected';
+  const title = heading ?? (rejected ? 'REJECTED' : 'ALLOWED');
   const resolvedRule = ruleName ?? (code ? ruleNameFromCode(code) : undefined);
   const description = code ? getErrorMessage(code) : undefined;
   const announcement = rejected
     ? `Rejected${code ? ` ${code}` : ''}${resolvedRule ? ` ${resolvedRule}` : ''}`
-    : 'Allowed';
+    : title;
 
   return (
     <div
@@ -53,7 +56,7 @@ export function PolicyVerdict({
               rejected ? 'text-rejected' : 'text-accent'
             )}
           >
-            {rejected ? 'REJECTED' : 'ALLOWED'}
+            {title}
           </p>
           {code ? (
             <p className="mt-2 font-mono text-sm text-foreground">
