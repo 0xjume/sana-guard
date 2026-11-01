@@ -18,7 +18,22 @@ function trim(value: string | undefined): string | null {
   return next ? next : null;
 }
 
-export function loadPublicConfig(env: NodeJS.ProcessEnv = process.env): PublicDashboardConfig {
+type PublicEnv = Record<string, string | undefined>;
+
+// Next.js only inlines literal process.env.NEXT_PUBLIC_* references into client bundles.
+const inlinedPublicEnv: PublicEnv = {
+  NEXT_PUBLIC_PRIVY_APP_ID: process.env.NEXT_PUBLIC_PRIVY_APP_ID,
+  NEXT_PUBLIC_PRIVY_CLIENT_ID: process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID,
+  NEXT_PUBLIC_NEAR_NETWORK: process.env.NEXT_PUBLIC_NEAR_NETWORK,
+  NEXT_PUBLIC_GUARD_CONTRACT: process.env.NEXT_PUBLIC_GUARD_CONTRACT,
+  NEXT_PUBLIC_NEAR_RPC: process.env.NEXT_PUBLIC_NEAR_RPC,
+  NEXT_PUBLIC_MPC_CONTRACT: process.env.NEXT_PUBLIC_MPC_CONTRACT,
+  NEXT_PUBLIC_MPC_DOMAIN_ID: process.env.NEXT_PUBLIC_MPC_DOMAIN_ID,
+  NEXT_PUBLIC_RELAY_URL: process.env.NEXT_PUBLIC_RELAY_URL,
+  NEXT_PUBLIC_SOLANA_RPC: process.env.NEXT_PUBLIC_SOLANA_RPC,
+};
+
+export function loadPublicConfig(env: PublicEnv = inlinedPublicEnv): PublicDashboardConfig {
   const requested = trim(env.NEXT_PUBLIC_NEAR_NETWORK) ?? 'testnet';
   const nearNetwork: NearNetwork = requested === 'mainnet' ? 'mainnet' : 'testnet';
   const guardContract = trim(env.NEXT_PUBLIC_GUARD_CONTRACT);

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadPublicConfig } from './config';
 
 const KEYS = [
@@ -58,5 +59,30 @@ describe('loadPublicConfig', () => {
     expect(cfg.configError).toBeNull();
     expect(cfg.guardContract).toBe('guard.example.near');
     expect(cfg.nearRpcUrl).toBe('https://rpc.mainnet.near.org');
+  });
+});
+
+describe('publicConfig client inlining', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('reads NEXT_PUBLIC_* by default without an explicit env argument', async () => {
+    vi.stubEnv('NEXT_PUBLIC_PRIVY_APP_ID', 'privy-test-app');
+    vi.stubEnv('NEXT_PUBLIC_RELAY_URL', 'https://relay.example.test');
+    vi.resetModules();
+    const mod = await import('./config');
+    expect(mod.publicConfig.privyAppId).toBe('privy-test-app');
+    expect(mod.loadPublicConfig().relayUrl).toBe('https://relay.example.test');
+  });
+
+  it('references every NEXT_PUBLIC_* key literally so Next.js inlines it into the client bundle', () => {
+    const source = readFileSync(new URL('./config.ts', import.meta.url), 'utf8');
+    const read = new Set(Array.from(source.matchAll(/env\.(NEXT_PUBLIC_[A-Z_]+)/g), (m) => m[1]));
+    expect(read.size).toBeGreaterThan(0);
+    for (const key of read) {
+      expect(source).toContain(`process.env.${key}`);
+    }
   });
 });
