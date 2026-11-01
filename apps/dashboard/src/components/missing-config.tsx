@@ -1,19 +1,26 @@
+import { ChevronDown, CircleAlert } from 'lucide-react';
 import { publicConfig } from '@/lib/config';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function MissingConfig() {
   return (
-    <Card className="border-warning/40 shadow-e1">
-      <CardHeader>
-        <p className="kicker">Configuration</p>
-        <CardTitle className="text-2xl">Missing Privy app ID</CardTitle>
-        <CardDescription>
-          This dashboard builds and renders without <code>NEXT_PUBLIC_PRIVY_APP_ID</code>, but
-          owners cannot sign in until you create a Privy app with Solana embedded wallets and set
-          that variable. Read-only NEAR views still work below.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <details className="group rounded-lg border border-warning/40 bg-warning/[0.06] shadow-e0">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
+        <CircleAlert aria-hidden className="size-5 shrink-0 text-warning" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-foreground">
+            Sign-in is not configured
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            <code>NEXT_PUBLIC_PRIVY_APP_ID</code> is not set. Read-only NEAR views still work.
+          </span>
+        </span>
+        <span className="hidden text-xs text-muted-foreground sm:inline">Setup steps</span>
+        <ChevronDown
+          aria-hidden
+          className="size-4 shrink-0 text-muted-foreground motion-safe:transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="border-t border-warning/20 px-5 pb-5 pt-4">
         <ol className="list-decimal space-y-2 pl-5 text-sm text-foreground">
           <li>
             Create a Privy app, enable Solana embedded wallets, and add this origin to allowed
@@ -29,7 +36,7 @@ export function MissingConfig() {
             attaches it.
           </li>
         </ol>
-        <dl className="mt-6 grid gap-3 text-xs sm:grid-cols-2">
+        <dl className="mt-5 grid gap-3 text-xs sm:grid-cols-2">
           <div>
             <dt className="text-muted-foreground">Guard</dt>
             <dd className="font-mono">{publicConfig.guardContract}</dd>
@@ -47,7 +54,7 @@ export function MissingConfig() {
             <dd className="break-all font-mono">{publicConfig.solanaRpcUrl}</dd>
           </div>
         </dl>
-      </CardContent>
-    </Card>
+      </div>
+    </details>
   );
 }

@@ -5,7 +5,9 @@ import { ATTACK_EXPECTED, ATTACK_KINDS, ATTACK_LABELS, type AttackKind } from '@
 import { AttackAttemptCard, type AttackLabResult } from './attack-attempt-card';
 import { StatusBadge } from './status-badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { FlaskConical } from 'lucide-react';
+import { SectionHeader } from './section-header';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -46,22 +48,26 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
 
   return (
     <Card>
-      <CardHeader>
-        <p className="kicker">Attack lab</p>
-        <CardTitle>Policy-violating agent requests</CardTitle>
-        <CardDescription>
-          Buttons call a server route that uses <code>DEMO_AGENT_*</code> to submit{' '}
-          <code>request_sign</code>. Agent keys never enter this browser bundle. This page is vault{' '}
-          {vaultId}. Attacks always run against pinned vault{' '}
-          {pinnedVaultId === null ? (
-            <code>DEMO_AGENT_VAULT_ID</code>
-          ) : (
-            <strong>{pinnedVaultId}</strong>
-          )}{' '}
-          (the client vault id is ignored) and require <code>X-Attack-Lab-Token</code>. Every
-          payload is evaluated against a TS port of the contract rules before it is sent.
-        </CardDescription>
-      </CardHeader>
+      <SectionHeader
+        icon={FlaskConical}
+        tone="warn"
+        kicker="Attack lab"
+        title="Policy-violating agent requests"
+        description={
+          <>
+            Buttons call a server route that uses <code>DEMO_AGENT_*</code> to submit{' '}
+            <code>request_sign</code>. Agent keys never enter this browser bundle. This page is
+            vault {vaultId}. Attacks always run against pinned vault{' '}
+            {pinnedVaultId === null ? (
+              <code>DEMO_AGENT_VAULT_ID</code>
+            ) : (
+              <strong>{pinnedVaultId}</strong>
+            )}{' '}
+            (the client vault id is ignored) and require <code>X-Attack-Lab-Token</code>. Every
+            payload is evaluated against a TS port of the contract rules before it is sent.
+          </>
+        }
+      />
       <CardContent>
         <div>
           {enabled === null ? (

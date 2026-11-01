@@ -3,21 +3,38 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import {
+  ArrowLeft,
+  Bot,
+  Coins,
+  Eye,
+  Gauge,
+  Power,
+  QrCode,
+  ShieldCheck,
+  SlidersHorizontal,
+} from 'lucide-react';
 import type { Policy, VaultView } from '@sana-guard/sdk';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig } from '@/lib/config';
-import { formatDurationNs, formatTimestampNs, lamportsToSol, nsToDate } from '@/lib/format';
+import {
+  formatDurationNs,
+  formatTimestampNs,
+  lamportsToSol,
+  nsToDate,
+  programLabel,
+} from '@/lib/format';
 import { clonePolicy, createViews, getSolanaBalanceLamports } from '@/lib/near';
 import { ActionResult } from './action-result';
 import { ActivityFeed } from './activity-feed';
 import { AgentsPanel } from './agents-panel';
 import { AttackLabPanel } from './attack-lab-panel';
-import { CopyButton } from './copy-button';
 import { PolicyEditor } from './policy-editor';
 import { ProofLink } from './proof-link';
 import { RecipientsPanel } from './recipients-panel';
-import { SpendMeter } from './spend-meter';
+import { SectionHeader } from './section-header';
+import { StatTile, UsageBar } from './stat-tile';
 import { StatusBadge } from './status-badge';
 import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
@@ -80,7 +97,7 @@ function PolicySummary({ policy }: { policy: Policy }) {
         <dd className="mt-1 flex flex-wrap gap-2">
           {policy.programs.map((program) => (
             <StatusBadge key={program} tone="muted">
-              {program.slice(0, 12)}
+              {programLabel(program)}
             </StatusBadge>
           ))}
         </dd>
@@ -197,158 +214,223 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
   const solLimit = vault.policy.perTxLimit.find((item) => item.mint.type === 'sol');
   const solCap = vault.policy.dailyCap.find((item) => item.mint.type === 'sol');
 
+  const dailyUsed = solSpend ? solSpend.amount : 0n;
+  const dailyPercent =
+    solCap && solCap.amount > 0n ? Number((dailyUsed * 1000n) / solCap.amount) / 10 : 0;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <Link href="/" className="text-sm text-accent underline-offset-4 hover:underline">
-          All vaults
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 rounded-pill text-muted-foreground underline-offset-4 hover:text-foreground"
+        >
+          <ArrowLeft aria-hidden className="size-4" />
+          Vaults
         </Link>
-        <span className="font-mono text-xs text-muted-foreground">#{vaultId}</span>
-      </div>
+        <span aria-hidden className="text-muted-foreground">
+          /
+        </span>
+        <span className="font-medium">Vault {vaultId}</span>
+      </nav>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="kicker">Vault</p>
-              <CardTitle className="mt-2 text-2xl">Vault {vaultId}</CardTitle>
-              <p className="mt-2 break-all font-mono text-sm">{vault.vaultAddress}</p>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">{vault.path}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <CopyButton value={vault.vaultAddress} label="Copy address" />
-                <ProofLink value={vault.vaultAddress} kind="solana-address" />
-              </div>
-            </div>
-            <div className="rounded-md bg-white p-2">
-              <QRCodeSVG value={vault.vaultAddress} size={120} />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="flex flex-wrap gap-2">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-heading text-3xl font-semibold tracking-tight">Vault {vaultId}</h1>
             <StatusBadge tone={vault.paused ? 'danger' : 'ok'}>
               {vault.paused ? 'Paused' : vault.state}
             </StatusBadge>
-            <StatusBadge tone="muted">
-              SOL {balance === null ? '—' : `${lamportsToSol(balance)}`}
-            </StatusBadge>
-            <StatusBadge tone="muted">
-              24h spend {solSpend ? `${lamportsToSol(solSpend.amount)} SOL` : '0 SOL'}
-            </StatusBadge>
+            {vault.pendingLoosen ? <StatusBadge tone="warn">Pending loosen</StatusBadge> : null}
+            {isOwner ? <StatusBadge tone="muted">You own this vault</StatusBadge> : null}
           </div>
-          <SpendMeter
-            perTxCap={solLimit ? lamportsToSol(solLimit.amount) : null}
-            dailyUsed={solSpend ? lamportsToSol(solSpend.amount) : '0'}
-            dailyCap={solCap ? lamportsToSol(solCap.amount) : null}
-          />
-          {!isOwner ? (
-            <p className="text-sm text-muted-foreground">
-              Read-only. Sign in with the owner wallet to change policy, agents, or the kill switch.
-            </p>
-          ) : null}
-          <div>
-            <ActionResult error={actionError} txHash={txHash} />
-          </div>
-        </CardContent>
-      </Card>
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{vault.path}</p>
+        </div>
+        <ActionResult error={actionError} txHash={txHash} />
+      </header>
 
-      {isOwner ? (
-        <Card className="border-rejected-fill/40">
-          <CardHeader>
-            <p className="kicker">Danger zone</p>
-            <CardTitle>Kill switch</CardTitle>
-            <CardDescription>
-              Pause immediately stops new agent signatures for this vault. Unpause restores the
-              current on-chain policy.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {vault.paused ? (
-              <Button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void run(() =>
-                    ownerActionHelpers(session.owner!, session.signer!).unpause(vaultId)
-                  )
-                }
-              >
-                Unpause
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={busy}
-                onClick={() =>
-                  void run(() => ownerActionHelpers(session.owner!, session.signer!).pause(vaultId))
-                }
-              >
-                Pause (kill switch)
-              </Button>
-            )}
-            {vault.pendingLoosen ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  void run(() =>
-                    ownerActionHelpers(session.owner!, session.signer!).setPolicy(
-                      vaultId,
-                      clonePolicy(vault.policy)
-                    )
-                  )
-                }
-              >
-                Cancel pending loosen
-              </Button>
-            ) : null}
-          </CardContent>
-        </Card>
+      {!isOwner ? (
+        <div className="flex items-start gap-3 rounded-lg border border-info/30 bg-info/[0.06] px-4 py-3 text-sm">
+          <Eye aria-hidden className="mt-0.5 size-4 shrink-0 text-info" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">Read-only view.</span> Sign in with the
+            owner wallet to change policy, recipients, agents or the kill switch.
+          </p>
+        </div>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <p className="kicker">Policy</p>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Enforced limits</CardTitle>
-            {vault.pendingLoosen ? (
-              <Countdown effectiveNs={vault.pendingLoosen.effectiveNs} />
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <PolicySummary policy={vault.policy} />
-          {vault.pendingLoosen ? (
-            <div className="mt-5 rounded-md border border-warning/30 bg-warning/10 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong className="text-warning">Pending loosen</strong>
-                <Countdown effectiveNs={vault.pendingLoosen.effectiveNs} />
-              </div>
-              <p className="mt-2 text-xs text-warning">
-                There is no dedicated cancel method. Re-submitting the current policy is treated as
-                stricter and clears <code>pending_loosen</code> immediately. After the delay, anyone
-                can call <code>apply_pending_policy</code> on-chain.
-              </p>
-              <div className="mt-3">
-                <PolicySummary policy={vault.pendingLoosen.policy} />
-              </div>
-            </div>
-          ) : null}
-          {isOwner ? (
-            <div className="mt-6">
-              <Separator className="mb-5" />
-              <PolicyEditor vaultId={vaultId} policy={vault.policy} onUpdated={() => void load()} />
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <StatTile
+          icon={Coins}
+          label="Vault balance"
+          value={balance === null ? '—' : lamportsToSol(balance)}
+          unit="SOL"
+          hint="Solana devnet"
+        />
+        <StatTile
+          icon={Gauge}
+          label="Spent, rolling 24h"
+          value={lamportsToSol(dailyUsed)}
+          unit="SOL"
+          hint={solCap ? `of ${lamportsToSol(solCap.amount)} SOL cap` : 'No SOL cap set'}
+        >
+          <UsageBar percent={dailyPercent} label="Rolling 24h SOL spend" />
+        </StatTile>
+        <StatTile
+          icon={ShieldCheck}
+          label="Per-transaction cap"
+          value={solLimit ? lamportsToSol(solLimit.amount) : '—'}
+          unit="SOL"
+          hint="Larger transfers are rejected"
+        />
+        <StatTile
+          icon={Bot}
+          label="Agents"
+          value={vault.agents.length}
+          hint={vault.agents.length === 1 ? '1 function-call key' : 'Function-call keys'}
+        />
+      </div>
 
-      <RecipientsPanel vaultId={vaultId} recipients={recipients} onUpdated={() => void load()} />
-      <AgentsPanel vaultId={vaultId} agents={vault.agents} onUpdated={() => void load()} />
-      <ActivityFeed vaultId={vaultId} />
-      <AttackLabPanel vaultId={vaultId} />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-6">
+          <Card>
+            <SectionHeader
+              icon={SlidersHorizontal}
+              kicker="Policy"
+              title="Enforced limits"
+              action={
+                vault.pendingLoosen ? (
+                  <Countdown effectiveNs={vault.pendingLoosen.effectiveNs} />
+                ) : undefined
+              }
+            />
+            <CardContent>
+              <PolicySummary policy={vault.policy} />
+              {vault.pendingLoosen ? (
+                <div className="mt-5 rounded-md border border-warning/30 bg-warning/10 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-warning">Pending loosen</strong>
+                    <Countdown effectiveNs={vault.pendingLoosen.effectiveNs} />
+                  </div>
+                  <p className="mt-2 text-xs text-warning">
+                    There is no dedicated cancel method. Re-submitting the current policy is treated
+                    as stricter and clears <code>pending_loosen</code> immediately. After the delay,
+                    anyone can call <code>apply_pending_policy</code> on-chain.
+                  </p>
+                  <div className="mt-3">
+                    <PolicySummary policy={vault.pendingLoosen.policy} />
+                  </div>
+                </div>
+              ) : null}
+              {isOwner ? (
+                <div className="mt-6">
+                  <Separator className="mb-5" />
+                  <PolicyEditor
+                    vaultId={vaultId}
+                    policy={vault.policy}
+                    onUpdated={() => void load()}
+                  />
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <RecipientsPanel
+            vaultId={vaultId}
+            recipients={recipients}
+            canEdit={isOwner}
+            onUpdated={() => void load()}
+          />
+          <AgentsPanel
+            vaultId={vaultId}
+            agents={vault.agents}
+            canEdit={isOwner}
+            onUpdated={() => void load()}
+          />
+          <ActivityFeed vaultId={vaultId} />
+          <AttackLabPanel vaultId={vaultId} />
+        </div>
+
+        <aside className="space-y-6 lg:sticky lg:top-28">
+          <Card>
+            <SectionHeader icon={QrCode} kicker="Fund" title="Vault address" />
+            <CardContent className="space-y-4">
+              <div className="mx-auto w-fit rounded-md bg-white p-3">
+                <QRCodeSVG value={vault.vaultAddress} size={156} />
+              </div>
+              <p className="break-all rounded-md border border-border bg-background/40 px-3 py-2 font-mono text-xs leading-5">
+                {vault.vaultAddress}
+              </p>
+              <ProofLink value={vault.vaultAddress} kind="solana-address" label="Address" />
+              <p className="text-xs leading-5 text-muted-foreground">
+                Derived by the NEAR MPC network for this vault and verified on-chain. Only the guard
+                can sign for it.
+              </p>
+            </CardContent>
+          </Card>
+
+          {isOwner ? (
+            <Card className={vault.paused ? 'border-border' : 'border-rejected-fill/40'}>
+              <SectionHeader
+                icon={Power}
+                tone="danger"
+                kicker="Danger zone"
+                title="Kill switch"
+                description={
+                  vault.paused
+                    ? 'New agent signatures are blocked. Unpause restores the current on-chain policy.'
+                    : 'Pausing immediately stops new agent signatures for this vault.'
+                }
+              />
+              <CardContent className="flex flex-col gap-2">
+                {vault.paused ? (
+                  <Button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() =>
+                        ownerActionHelpers(session.owner!, session.signer!).unpause(vaultId)
+                      )
+                    }
+                  >
+                    Unpause vault
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() =>
+                        ownerActionHelpers(session.owner!, session.signer!).pause(vaultId)
+                      )
+                    }
+                  >
+                    Pause vault
+                  </Button>
+                )}
+                {vault.pendingLoosen ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() =>
+                        ownerActionHelpers(session.owner!, session.signer!).setPolicy(
+                          vaultId,
+                          clonePolicy(vault.policy)
+                        )
+                      )
+                    }
+                  >
+                    Cancel pending loosen
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+        </aside>
+      </div>
     </div>
   );
 }
