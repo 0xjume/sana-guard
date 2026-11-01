@@ -5,6 +5,7 @@ import {
   lamportsToSol,
   nearToYocto,
   nsToHours,
+  pluralizeCount,
   shortenAddress,
   solToLamports,
   yoctoToNear,
@@ -40,5 +41,11 @@ describe('format', () => {
 
   it('shortens addresses', () => {
     expect(shortenAddress('DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB')).toBe('DeF8…MvmB');
+  });
+
+  it('pluralizes visible counts', () => {
+    expect(pluralizeCount(1, 'vault')).toBe('1 vault');
+    expect(pluralizeCount(0, 'vault')).toBe('0 vaults');
+    expect(pluralizeCount(2, 'vault')).toBe('2 vaults');
   });
 });

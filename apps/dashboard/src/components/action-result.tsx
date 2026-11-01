@@ -1,7 +1,8 @@
 'use client';
 
-import { nearExplorerTxUrl, publicConfig } from '@/lib/config';
 import { formatActionError, type GuardActionError } from '@/lib/errors';
+import { PolicyVerdict } from '@/components/policy-verdict';
+import { ProofLink } from '@/components/proof-link';
 
 export function ActionResult({
   error,
@@ -18,35 +19,25 @@ export function ActionResult({
 
   if (error) {
     return (
-      <div className="notice-danger" role="alert">
-        <div className="font-medium">{formatActionError(error)}</div>
-        {error.txHash ? (
-          <a
-            className="mt-2 inline-block text-xs underline"
-            href={nearExplorerTxUrl(publicConfig.nearNetwork, error.txHash)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            View failed NEAR tx
-          </a>
-        ) : null}
-      </div>
+      <PolicyVerdict
+        verdict="rejected"
+        code={error.code}
+        actual={formatActionError(error)}
+        expected={error.code}
+      >
+        {error.txHash ? <ProofLink value={error.txHash} kind="near-tx" /> : null}
+      </PolicyVerdict>
     );
   }
 
   return (
-    <div className="notice-ok">
-      <div>{success ?? 'Submitted'}</div>
+    <PolicyVerdict verdict="allowed">
+      <p className="text-sm text-foreground">{success ?? 'Submitted'}</p>
       {txHash ? (
-        <a
-          className="mt-2 inline-block text-xs underline"
-          href={nearExplorerTxUrl(publicConfig.nearNetwork, txHash)}
-          target="_blank"
-          rel="noreferrer"
-        >
-          View NEAR tx {txHash.slice(0, 8)}…
-        </a>
+        <div className="mt-3">
+          <ProofLink value={txHash} kind="near-tx" finalized />
+        </div>
       ) : null}
-    </div>
+    </PolicyVerdict>
   );
 }

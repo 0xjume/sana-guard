@@ -6,6 +6,11 @@ import { useOwnerSession } from '@/hooks/use-owner-session';
 import { isBase58Pubkey } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
 import type { GuardActionError } from '@/lib/errors';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 
 export function RecipientsPanel({
   vaultId,
@@ -47,104 +52,123 @@ export function RecipientsPanel({
   };
 
   return (
-    <section className="panel">
-      <p className="kicker">Allowlists</p>
-      <h2 className="mt-2 text-lg font-semibold">Recipients and token accounts</h2>
-      <p className="mt-2 text-sm text-parchment-400">
-        Adding a recipient is immediate on the current contract (not delayed). Removing is
-        immediate. SPL transfers check the destination ATA, not just the wallet.
-      </p>
-      <ul className="mt-4 space-y-2">
+    <Card>
+      <CardHeader>
+        <p className="kicker">Allowlists</p>
+        <CardTitle>Recipients and token accounts</CardTitle>
+        <CardDescription>
+          Adding a recipient is immediate on the current contract (not delayed). Removing is
+          immediate. SPL transfers check the destination ATA, not just the wallet.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
         {recipients.length === 0 ? (
-          <li className="text-sm text-parchment-400">No recipients.</li>
-        ) : null}
-        {recipients.map((recipient) => (
-          <li
-            key={recipient}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-ink-600 px-3 py-2"
-          >
-            <span className="break-all font-mono text-xs">{recipient}</span>
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={busy || !session.signer}
-              onClick={() =>
-                void run(() =>
-                  ownerActionHelpers(session.owner!, session.signer!).removeRecipient(
-                    vaultId,
-                    recipient
-                  )
+          <p className="text-sm text-muted-foreground">No recipients.</p>
+        ) : (
+          <Table>
+            <TableBody>
+              {recipients.map((recipient) => (
+                <TableRow key={recipient}>
+                  <TableCell className="break-all font-mono text-xs">{recipient}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || !session.signer}
+                      onClick={() =>
+                        void run(() =>
+                          ownerActionHelpers(session.owner!, session.signer!).removeRecipient(
+                            vaultId,
+                            recipient
+                          )
+                        )
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Label htmlFor="recipient-address">Solana address or ATA</Label>
+            <Input
+              id="recipient-address"
+              placeholder="Solana address or ATA"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </div>
+          <Button
+            type="button"
+            disabled={busy || !isBase58Pubkey(value) || !session.signer}
+            onClick={() =>
+              void run(() =>
+                ownerActionHelpers(session.owner!, session.signer!).addRecipient(
+                  vaultId,
+                  value.trim()
                 )
-              }
-            >
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <input
-          className="field"
-          placeholder="Solana address or ATA"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-        />
-        <button
+              )
+            }
+          >
+            Add recipient
+          </Button>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-4">
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="recipient-ata">ATA</Label>
+            <Input
+              id="recipient-ata"
+              placeholder="ATA"
+              value={ata}
+              onChange={(event) => setAta(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="recipient-mint">Mint</Label>
+            <Input
+              id="recipient-mint"
+              placeholder="Mint"
+              value={mint}
+              onChange={(event) => setMint(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="recipient-decimals">Decimals</Label>
+            <Input
+              id="recipient-decimals"
+              placeholder="Decimals"
+              value={decimals}
+              onChange={(event) => setDecimals(event.target.value)}
+            />
+          </div>
+        </div>
+        <Button
           type="button"
-          className="btn-primary"
-          disabled={busy || !isBase58Pubkey(value) || !session.signer}
+          variant="outline"
+          className="mt-2"
+          disabled={busy || !session.signer || !isBase58Pubkey(ata) || !isBase58Pubkey(mint)}
           onClick={() =>
             void run(() =>
-              ownerActionHelpers(session.owner!, session.signer!).addRecipient(
+              ownerActionHelpers(session.owner!, session.signer!).registerTokenAccount(
                 vaultId,
-                value.trim()
+                ata.trim(),
+                mint.trim(),
+                Number(decimals)
               )
             )
           }
         >
-          Add recipient
-        </button>
-      </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-4">
-        <input
-          className="field sm:col-span-2"
-          placeholder="ATA"
-          value={ata}
-          onChange={(event) => setAta(event.target.value)}
-        />
-        <input
-          className="field"
-          placeholder="Mint"
-          value={mint}
-          onChange={(event) => setMint(event.target.value)}
-        />
-        <input
-          className="field"
-          placeholder="Decimals"
-          value={decimals}
-          onChange={(event) => setDecimals(event.target.value)}
-        />
-      </div>
-      <button
-        type="button"
-        className="btn-ghost mt-2"
-        disabled={busy || !session.signer || !isBase58Pubkey(ata) || !isBase58Pubkey(mint)}
-        onClick={() =>
-          void run(() =>
-            ownerActionHelpers(session.owner!, session.signer!).registerTokenAccount(
-              vaultId,
-              ata.trim(),
-              mint.trim(),
-              Number(decimals)
-            )
-          )
-        }
-      >
-        Register vault token account
-      </button>
-      <div className="mt-3">
-        <ActionResult error={error} txHash={txHash} />
-      </div>
-    </section>
+          Register vault token account
+        </Button>
+        <div className="mt-3">
+          <ActionResult error={error} txHash={txHash} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }

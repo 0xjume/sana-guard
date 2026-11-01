@@ -47,6 +47,10 @@ export function shortenAddress(value: string, left = 4, right = 4): string {
   return `${value.slice(0, left)}…${value.slice(-right)}`;
 }
 
+export function pluralizeCount(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export function nsToDate(ns: bigint): Date {
   return new Date(Number(ns / 1_000_000n));
 }

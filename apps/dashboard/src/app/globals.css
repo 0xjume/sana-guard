@@ -2,72 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
-}
-
-body {
-  @apply bg-ink-950 text-parchment-100 antialiased;
-  background-image:
-    radial-gradient(1200px 500px at 10% -10%, rgba(212, 160, 23, 0.08), transparent 50%),
-    linear-gradient(180deg, #0b0d10 0%, #0e1116 100%);
-  min-height: 100vh;
-}
-
-code {
-  @apply rounded-sm bg-ink-800 px-1 py-0.5 font-mono text-[0.85em];
-}
-
-@layer components {
-  .panel {
-    @apply rounded-sm border border-ink-600 bg-ink-900 p-5 shadow-panel;
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: 150 10% 8%;
+    --foreground: 0 0% 92%;
+    --card: 144 8% 12%;
+    --card-foreground: 0 0% 92%;
+    --popover: 144 8% 12%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 145 80% 42%;
+    --primary-foreground: 150 10% 8%;
+    --secondary: 140 7% 16%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 140 7% 18%;
+    --muted-foreground: 0 0% 72%;
+    --accent: 145 65% 55%;
+    --accent-foreground: 150 10% 8%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 142 6% 25%;
+    --input: 140 6% 42%;
+    --ring: 145 80% 42%;
+    --radius: 0.75rem;
+    --rejected: 0 91% 71%;
+    --rejected-fill: 0 84% 60%;
+    --warning: 43 96% 56%;
+    --info: 213 94% 68%;
+    --divider: 142 6% 18%;
+    --surface-2: 140 7% 16%;
   }
 
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  body {
+    @apply min-h-screen font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-heading tracking-tight text-balance;
+  }
+
+  p {
+    @apply text-pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  code {
+    @apply rounded-sm bg-secondary px-1 py-0.5 font-mono text-[0.85em];
+  }
+}
+
+@layer utilities {
   .kicker {
-    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-brass-500;
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground;
   }
+}
 
-  .field {
-    @apply w-full rounded-sm border border-ink-600 bg-ink-950 px-3 py-2 font-mono text-sm text-parchment-100 outline-none focus:border-brass-500;
-  }
-
-  .btn-primary {
-    @apply rounded-sm bg-brass-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50;
-  }
-
-  .btn-ghost {
-    @apply rounded-sm border border-ink-600 px-3 py-2 text-sm text-parchment-100 hover:border-brass-500/50 disabled:opacity-50;
-  }
-
-  .btn-danger {
-    @apply rounded-sm bg-rust-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50;
-  }
-
-  .badge-ok {
-    @apply inline-flex rounded-sm bg-forest-500/15 px-2 py-0.5 text-[11px] font-medium text-forest-400;
-  }
-
-  .badge-warn {
-    @apply inline-flex rounded-sm bg-brass-500/15 px-2 py-0.5 text-[11px] font-medium text-brass-400;
-  }
-
-  .badge-danger {
-    @apply inline-flex rounded-sm bg-rust-500/15 px-2 py-0.5 text-[11px] font-medium text-rust-400;
-  }
-
-  .badge-muted {
-    @apply inline-flex rounded-sm bg-ink-700 px-2 py-0.5 font-mono text-[11px] text-parchment-400;
-  }
-
-  .notice-ok {
-    @apply rounded-sm border border-forest-500/30 bg-forest-500/10 p-3 text-sm text-forest-400;
-  }
-
-  .notice-warn {
-    @apply rounded-sm border border-brass-500/30 bg-brass-500/10 p-3 text-sm text-brass-400;
-  }
-
-  .notice-danger {
-    @apply rounded-sm border border-rust-500/30 bg-rust-500/10 p-3 text-sm text-rust-400;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

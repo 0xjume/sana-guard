@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { nearExplorerTxUrl, publicConfig } from '@/lib/config';
+import { publicConfig } from '@/lib/config';
 import type { ActivityItem } from '@/lib/activity';
 import { StatusBadge } from './status-badge';
+import { ProofLink } from './proof-link';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function ActivityFeed({ vaultId }: { vaultId: number }) {
   const [items, setItems] = useState<ActivityItem[]>([]);
@@ -38,70 +40,75 @@ export function ActivityFeed({ vaultId }: { vaultId: number }) {
   }, [vaultId]);
 
   return (
-    <section className="panel">
-      <p className="kicker">Activity</p>
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Recent sign attempts</h2>
-        {degraded ? (
-          <StatusBadge tone="warn">
-            {reason === 'no history source' ? 'no history source' : 'Indexer degraded'}
-          </StatusBadge>
-        ) : null}
-      </div>
-      <p className="mt-2 text-sm text-parchment-400">
-        Pulled from the public NearBlocks testnet account history for {publicConfig.guardContract}.
-        The relay has no activity endpoint. An empty indexer response is shown as{' '}
-        <strong>no history source</strong>, not as an empty vault.
-      </p>
-      {reason ? <p className="mt-3 text-xs text-brass-400">{reason}</p> : null}
-      <ol className="mt-4 space-y-3">
-        {items.length === 0 ? (
-          <li className="text-sm text-parchment-400">
-            {degraded
-              ? 'No history source. NearBlocks returned no transactions for this contract.'
-              : 'No indexed events for this vault yet.'}
-          </li>
-        ) : null}
-        {items.map((item, index) => (
-          <li
-            key={`${item.txHash ?? 'x'}-${item.kind}-${index}`}
-            className="border-l border-ink-600 pl-3"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge
-                tone={
-                  item.kind.includes('reject') || item.kind.includes('fail')
-                    ? 'danger'
-                    : item.kind === 'signed'
-                      ? 'ok'
-                      : 'muted'
-                }
-              >
-                {item.title}
-              </StatusBadge>
-              {item.timestampMs ? (
-                <span className="text-xs text-parchment-400">
-                  {new Date(item.timestampMs).toISOString()}
-                </span>
+    <Card>
+      <CardHeader>
+        <p className="kicker">Activity</p>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Recent sign attempts</CardTitle>
+          {degraded ? (
+            <StatusBadge tone="warn">
+              {reason === 'no history source' ? 'no history source' : 'Indexer degraded'}
+            </StatusBadge>
+          ) : null}
+        </div>
+        <CardDescription>
+          Pulled from the public NearBlocks testnet account history for {publicConfig.guardContract}
+          . The relay has no activity endpoint. An empty indexer response is shown as{' '}
+          <strong>no history source</strong>, not as an empty vault.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {reason ? <p className="mb-3 text-xs text-warning">{reason}</p> : null}
+        <ol className="space-y-3">
+          {items.length === 0 ? (
+            <li className="text-sm text-muted-foreground">
+              {degraded
+                ? 'No history source. NearBlocks returned no transactions for this contract.'
+                : 'No indexed events for this vault yet.'}
+            </li>
+          ) : null}
+          {items.map((item, index) => (
+            <li
+              key={`${item.txHash ?? 'x'}-${item.kind}-${index}`}
+              className="border-l border-divider pl-3"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge
+                  tone={
+                    item.kind.includes('reject') || item.kind.includes('fail')
+                      ? 'danger'
+                      : item.kind === 'signed'
+                        ? 'ok'
+                        : 'muted'
+                  }
+                >
+                  {item.title}
+                </StatusBadge>
+                {item.timestampMs ? (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {new Date(item.timestampMs).toISOString()}
+                  </span>
+                ) : null}
+              </div>
+              {item.detail ? (
+                <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
               ) : null}
-            </div>
-            {item.detail ? <p className="mt-1 text-xs text-parchment-400">{item.detail}</p> : null}
-            {item.reqId ? (
-              <p className="mt-1 font-mono text-[11px] text-parchment-400">req {item.reqId}</p>
-            ) : null}
-            {item.txHash ? (
-              <a
-                className="mt-1 inline-block text-xs text-brass-400 underline"
-                href={nearExplorerTxUrl(publicConfig.nearNetwork, item.txHash)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                NEAR tx
-              </a>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-    </section>
+              {item.reqId ? (
+                <p className="mt-1 font-mono text-xs text-muted-foreground">req {item.reqId}</p>
+              ) : null}
+              {item.txHash ? (
+                <div className="mt-2">
+                  <ProofLink
+                    value={item.txHash}
+                    kind="near-tx"
+                    finalized={item.kind === 'signed'}
+                  />
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
   );
 }

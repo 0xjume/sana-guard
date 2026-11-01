@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { publicConfig } from '@/lib/config';
 import { createViews } from '@/lib/near';
+import { pluralizeCount } from '@/lib/format';
 import { StatusBadge } from './status-badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Snapshot {
   programs: string[];
@@ -42,24 +45,36 @@ export function NetworkStatus() {
   }, []);
 
   return (
-    <section className="panel">
-      <p className="kicker">Live testnet</p>
-      <h2 className="mt-2 text-lg font-semibold">Guard contract</h2>
-      <p className="mt-2 font-mono text-sm text-parchment-400">{publicConfig.guardContract}</p>
-      {!snapshot ? (
-        <p className="mt-4 text-sm text-parchment-400">Reading NEAR views…</p>
-      ) : snapshot.error ? (
-        <p className="mt-4 text-sm text-rust-400">{snapshot.error}</p>
-      ) : (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <StatusBadge tone="ok">{snapshot.vaultCount} vaults visible</StatusBadge>
-          {snapshot.programs.map((program) => (
-            <StatusBadge key={program} tone="muted">
-              {program.startsWith('1111') ? 'System' : program.slice(0, 12)}
+    <Card>
+      <CardHeader>
+        <p className="kicker">Live testnet</p>
+        <CardTitle>Guard contract</CardTitle>
+        <p className="break-all font-mono text-sm text-muted-foreground">
+          {publicConfig.guardContract}
+        </p>
+      </CardHeader>
+      <CardContent>
+        {!snapshot ? (
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-6 w-32" />
+            <Skeleton className="h-6 w-20" />
+            <Skeleton className="h-6 w-24" />
+          </div>
+        ) : snapshot.error ? (
+          <p className="text-sm text-rejected">{snapshot.error}</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge tone="ok">
+              {pluralizeCount(snapshot.vaultCount, 'vault')} visible
             </StatusBadge>
-          ))}
-        </div>
-      )}
-    </section>
+            {snapshot.programs.map((program) => (
+              <StatusBadge key={program} tone="muted">
+                {program.startsWith('1111') ? 'System' : program.slice(0, 12)}
+              </StatusBadge>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

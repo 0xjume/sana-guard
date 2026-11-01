@@ -2,40 +2,52 @@
 
 import { useState } from 'react';
 import { CreateVaultForm } from '@/components/create-vault-form';
+import { GatewayLogin } from '@/components/gateway-login';
 import { MissingConfig } from '@/components/missing-config';
 import { NetworkStatus } from '@/components/network-status';
 import { VaultList } from '@/components/vault-list';
+import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig } from '@/lib/config';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const session = useOwnerSession();
+  const showGateway = Boolean(publicConfig.privyAppId) && !session.authenticated;
 
   return (
     <div className="space-y-6">
       {publicConfig.configError ? (
-        <section className="panel border-rust-400/40">
-          <p className="kicker">Configuration</p>
-          <h1 className="mt-2 text-2xl font-semibold text-parchment-100">Mainnet refused</h1>
-          <p className="mt-3 text-sm text-parchment-400">{publicConfig.configError}</p>
-        </section>
+        <Card className="border-rejected-fill/40">
+          <CardHeader>
+            <p className="kicker">Configuration</p>
+            <CardTitle className="text-2xl">Mainnet refused</CardTitle>
+            <CardDescription>{publicConfig.configError}</CardDescription>
+          </CardHeader>
+        </Card>
       ) : null}
       {!publicConfig.privyAppId ? <MissingConfig /> : null}
-      <section className="panel">
-        <p className="kicker">Owner console</p>
-        <h1 className="mt-2 max-w-2xl text-3xl font-semibold tracking-tight">
-          Policy is on-chain. The dashboard only signs it.
-        </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-parchment-400">
-          Sana Guard holds per-vault policy on NEAR and asks the MPC network to sign a Solana
-          transaction only when an agent request passes that policy. This console is for owners:
-          create a vault, tighten limits immediately, schedule loosenings, add agents, and hit the
-          kill switch.
-        </p>
-      </section>
+      {showGateway ? <GatewayLogin /> : null}
+      {!showGateway ? (
+        <Card>
+          <CardHeader>
+            <p className="kicker">Owner console</p>
+            <CardTitle className="max-w-2xl text-3xl">
+              Policy is on-chain. The dashboard only signs it.
+            </CardTitle>
+            <CardDescription className="max-w-2xl">
+              Sana Guard holds per-vault policy on NEAR and asks the MPC network to sign a Solana
+              transaction only when an agent request passes that policy. This console is for owners:
+              create a vault, tighten limits immediately, schedule loosenings, add agents, and hit
+              the kill switch.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
       <NetworkStatus />
       {publicConfig.configError ? null : (
         <>
-          <VaultList refreshKey={refreshKey} />
+          {showGateway ? null : <VaultList refreshKey={refreshKey} />}
           <CreateVaultForm onCreated={() => setRefreshKey((value) => value + 1)} />
         </>
       )}
