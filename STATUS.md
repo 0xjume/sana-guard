@@ -12,7 +12,7 @@ Policy-enforced AI agent wallets: a NEAR contract signs Solana transactions thro
 | `packages/sdk` | Implemented (#6). Compact-u16 encode/decode matches Solana short_vec (#13, #15, #16) | lint, typecheck, build, jest |
 | `apps/relay` | Implemented (#5, #9); Railway deploy config included | lint, typecheck, vitest, Docker image health check |
 | `apps/mcp` | Implemented (#11). Local memo pre-check (#16); idempotency-key reuse and blockhash pre-check (#17) | lint, typecheck, vitest, build |
-| `apps/dashboard` | Placeholder (README only) | — |
+| `apps/dashboard` | Owner console (Privy + relay + live NEAR views) | lint, typecheck, vitest, Next.js build |
 
 Prettier (`pnpm format:check`) runs over all TypeScript, JavaScript and JSON. Markdown is excluded.
 
@@ -27,8 +27,8 @@ Prettier (`pnpm format:check`) runs over all TypeScript, JavaScript and JSON. Ma
 
 ## Next (per PLAN.md §9)
 
-1. `apps/dashboard`: owner dashboard with Privy login, policy editor, kill switch, attack lab.
-2. Self-audit against PLAN.md §7, longer fuzzing, gas profiling.
+1. Self-audit against PLAN.md §7, longer fuzzing, gas profiling.
+2. End-to-end owner flows on the deployed dashboard once a Privy app ID and relay CORS origin are set.
 
 ## Security
 

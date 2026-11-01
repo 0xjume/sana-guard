@@ -236,6 +236,14 @@ export class Views {
   }
 
   /**
+   * Next per-owner vault index (number of vaults this owner has created).
+   */
+  async getOwnerVaultCount(ownerB58: string): Promise<number> {
+    const raw = await this.view<number | string>('owner_vault_count', { owner_b58: ownerB58 });
+    return Number(raw);
+  }
+
+  /**
    * Get recipients for a vault
    */
   async getRecipients(vaultId: number, fromIndex?: number, limit?: number): Promise<string[]> {
