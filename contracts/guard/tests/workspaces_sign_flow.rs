@@ -19,6 +19,10 @@ const COMPUTE_BUDGET_B58: &str = "ComputeBudget111111111111111111111111111111";
 const VAULT_ADDRESS: [u8; 32] = [1u8; 32];
 const RECIPIENT: [u8; 32] = [2u8; 32];
 const MAX_TX_GAS_TGAS: u64 = 300;
+/// Gas the agent attaches. Prepaid gas is charged up front at the sandbox gas price, and 300 Tgas
+/// costs more than the agent's 0.2 NEAR balance and its 0.25 NEAR key allowance; 150 Tgas still
+/// clears the guard's own reservation (50 MPC + 15 callback + 10 buffer).
+const AGENT_GAS_TGAS: u64 = 150;
 
 /// Legacy Solana message: `transfers` SystemProgram transfers of `lamports` each from the vault
 /// to RECIPIENT. `blockhash_byte` makes each message (and its hash) unique.
@@ -209,7 +213,7 @@ async fn request_sign(
             "message_b64": message_b64,
             "req_id_hex": req_id,
         }))
-        .gas(Gas::from_tgas(MAX_TX_GAS_TGAS))
+        .gas(Gas::from_tgas(AGENT_GAS_TGAS))
         .transact()
         .await?;
     let tgas = outcome.total_gas_burnt.as_tgas();
@@ -282,7 +286,7 @@ async fn policy_violation_is_rejected_before_mpc() -> Result<(), Box<dyn std::er
             "message_b64": transfer_message(1, 2_000_000_000, 4),
             "req_id_hex": "44".repeat(32),
         }))
-        .gas(Gas::from_tgas(MAX_TX_GAS_TGAS))
+        .gas(Gas::from_tgas(AGENT_GAS_TGAS))
         .transact()
         .await?;
     assert!(over.is_failure());
@@ -297,7 +301,7 @@ async fn policy_violation_is_rejected_before_mpc() -> Result<(), Box<dyn std::er
             "message_b64": transfer_message(1, 1_000, 5),
             "req_id_hex": "55".repeat(32),
         }))
-        .gas(Gas::from_tgas(MAX_TX_GAS_TGAS))
+        .gas(Gas::from_tgas(AGENT_GAS_TGAS))
         .transact()
         .await?;
     assert!(format!("{:?}", not_agent.into_result().unwrap_err()).contains("SG_E052"));
