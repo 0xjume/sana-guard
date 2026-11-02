@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import type { Policy } from '@sana-guard/sdk';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
+import { submittedSuccess } from '@/lib/action-result-state';
+import type { GuardActionError } from '@/lib/errors';
 import { formatDurationNs } from '@/lib/format';
 import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/lib/policy';
 import { formFromPolicy, policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
-import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +21,13 @@ const KNOWN_PROGRAMS: Array<{ id: string; label: string }> = [
   { id: 'ComputeBudget111111111111111111111111111111', label: 'Compute Budget' },
   { id: 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo', label: 'Memo' },
 ];
+
+function hasPreservedSplLimits(policy: Policy): boolean {
+  return (
+    policy.perTxLimit.some((item) => item.mint.type !== 'sol') ||
+    policy.dailyCap.some((item) => item.mint.type !== 'sol')
+  );
+}
 
 export function PolicyEditor({
   vaultId,
@@ -50,8 +58,11 @@ export function PolicyEditor({
 
   const reasons = nextPolicy ? policyLoosenReasons(nextPolicy, policy) : [];
   const stricter = nextPolicy ? isPolicyStricter(nextPolicy, policy) : false;
+  const noticeClassName = stricter
+    ? 'rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-accent'
+    : 'rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning';
 
-  const submit = async () => {
+  async function submit(): Promise<void> {
     if (!session.owner || !session.signer || !nextPolicy) {
       return;
     }
@@ -74,23 +85,19 @@ export function PolicyEditor({
     } finally {
       setBusy(false);
     }
-  };
+  }
 
-  const field = (key: keyof PolicyFormValues) => ({
-    value: values[key] as string,
-    onChange: (event: ChangeEvent<HTMLInputElement>) =>
-      setValues((current) => ({ ...current, [key]: event.target.value })),
-  });
+  function field(key: keyof PolicyFormValues) {
+    return {
+      value: values[key] as string,
+      onChange: (event: ChangeEvent<HTMLInputElement>) =>
+        setValues((current) => ({ ...current, [key]: event.target.value })),
+    };
+  }
 
   return (
     <div className="space-y-4">
-      <div
-        className={
-          stricter
-            ? 'rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-accent'
-            : 'rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning'
-        }
-      >
+      <div className={noticeClassName}>
         {stricter ? (
           <p>
             This change is a <strong>tightening or no-op</strong>. It applies immediately and clears
@@ -141,8 +148,7 @@ export function PolicyEditor({
           <Input id="expiresAtLocal" type="datetime-local" {...field('expiresAtLocal')} />
         </div>
       </div>
-      {policy.perTxLimit.some((item) => item.mint.type !== 'sol') ||
-      policy.dailyCap.some((item) => item.mint.type !== 'sol') ? (
+      {hasPreservedSplLimits(policy) ? (
         <p className="text-xs text-muted-foreground">
           Existing SPL token limits are preserved on save. This editor only changes the SOL rows.
         </p>
@@ -172,7 +178,11 @@ export function PolicyEditor({
       <Button type="button" disabled={busy || !nextPolicy} onClick={() => void submit()}>
         {busy ? 'Signing…' : 'Sign SetPolicy'}
       </Button>
-      <ActionResult error={error} txHash={txHash} success="Policy submitted." />
+      <ActionResult
+        error={error}
+        txHash={txHash}
+        success={submittedSuccess(txHash, 'Policy submitted.')}
+      />
     </div>
   );
 }

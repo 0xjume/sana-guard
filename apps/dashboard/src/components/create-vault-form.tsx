@@ -1,18 +1,38 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
+import { submittedSuccess } from '@/lib/action-result-state';
 import { publicConfig, solanaExplorerAddressUrl } from '@/lib/config';
+import { createVaultUiBlockedReason } from '@/lib/create-vault-limits';
+import type { GuardActionError } from '@/lib/errors';
 import { createViews } from '@/lib/near';
 import { defaultCreatePolicyForm } from '@/lib/policy';
 import { policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
 import { ProofLink } from './proof-link';
-import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
+function asActionError(err: unknown, fallback: string): GuardActionError {
+  return { message: err instanceof Error ? err.message : fallback };
+}
+
+async function ownerVaultCountFor(owner: string): Promise<number> {
+  return createViews().getOwnerVaultCount(owner);
+}
+
+async function previewVaultAddress(owner: string, index: number): Promise<string> {
+  const address = await createViews().deriveVaultAddress(
+    publicConfig.mpcContract,
+    owner,
+    index,
+    publicConfig.mpcDomainId
+  );
+  return address.toBase58();
+}
 
 export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
   const session = useOwnerSession();
@@ -20,59 +40,83 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
   const [derived, setDerived] = useState<string | null>(null);
   const [error, setError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [ownerVaultCount, setOwnerVaultCount] = useState<number | null>(null);
   const defaults = useMemo(() => defaultCreatePolicyForm(), []);
+
+  useEffect(() => {
+    if (!session.owner) {
+      setOwnerVaultCount(null);
+      return;
+    }
+    const owner = session.owner;
+    let cancelled = false;
+    void ownerVaultCountFor(owner)
+      .then((count) => {
+        if (!cancelled) {
+          setOwnerVaultCount(count);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(asActionError(err, 'Failed to read owner vault count'));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.owner]);
 
   if (!session.authenticated || !session.owner || !session.signer) {
     return null;
   }
 
-  const derive = async () => {
-    setError(null);
-    const views = createViews();
-    const index = await views.getOwnerVaultCount(session.owner!);
-    const address = await views.deriveVaultAddress(
-      publicConfig.mpcContract,
-      session.owner!,
-      index,
-      publicConfig.mpcDomainId
-    );
-    setDerived(address.toBase58());
-  };
+  const owner = session.owner;
+  const signer = session.signer;
+  const blockedReason =
+    ownerVaultCount === null ? null : createVaultUiBlockedReason(ownerVaultCount);
+  const createDisabled = busy || ownerVaultCount === null || Boolean(blockedReason);
 
-  const submit = async () => {
-    if (!session.owner || !session.signer) {
+  async function derive(): Promise<void> {
+    setError(null);
+    const index = await ownerVaultCountFor(owner);
+    setOwnerVaultCount(index);
+    if (createVaultUiBlockedReason(index)) {
       return;
     }
+    setDerived(await previewVaultAddress(owner, index));
+  }
+
+  async function submit(): Promise<void> {
     setBusy(true);
     setError(null);
     setTxHash(null);
     try {
-      const views = createViews();
-      const index = await views.getOwnerVaultCount(session.owner);
-      const address = await views.deriveVaultAddress(
-        publicConfig.mpcContract,
-        session.owner,
-        index,
-        publicConfig.mpcDomainId
-      );
-      setDerived(address.toBase58());
-      const policy = policyFromForm(defaults);
-      const result = await ownerActionHelpers(session.owner, session.signer).createVault(
-        address.toBase58(),
-        policy
+      const index = await ownerVaultCountFor(owner);
+      setOwnerVaultCount(index);
+      const blocked = createVaultUiBlockedReason(index);
+      if (blocked) {
+        setError({ code: 'DASH_VAULT_LIMIT', message: blocked });
+        return;
+      }
+      const address = await previewVaultAddress(owner, index);
+      setDerived(address);
+      const result = await ownerActionHelpers(owner, signer).createVault(
+        address,
+        policyFromForm(defaults)
       );
       if (result.success) {
         setTxHash(result.txHash);
+        setOwnerVaultCount(index + 1);
         onCreated?.();
       } else {
         setError(result.error);
       }
     } catch (err) {
-      setError({ message: err instanceof Error ? err.message : 'Create vault failed' });
+      setError(asActionError(err, 'Create vault failed'));
     } finally {
       setBusy(false);
     }
-  };
+  }
 
   return (
     <Card>
@@ -80,18 +124,27 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
         <p className="kicker">Create</p>
         <CardTitle>New vault</CardTitle>
         <CardDescription>
-          Derives the next MPC Solana address for this owner, then submits a signed{' '}
-          <code>CreateVault</code> through the relay (0.5 NEAR storage, paid by the relay).
-          CreateVault is invite-gated on the public relay. This app attaches{' '}
-          <code>INVITE_TOKEN</code> on the server; it is never shipped to the browser.
+          Sign in, create one vault (the relay pays ~0.5 NEAR storage + gas), set policy, add an
+          agent key, then fund the vault Solana address. This hosted demo allows one vault per
+          owner. <code>INVITE_TOKEN</code> stays on the server and is never shipped to the browser.
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {blockedReason ? (
+          <p role="status" className="mb-4 text-sm text-muted-foreground">
+            {blockedReason}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => void derive()} disabled={busy}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void derive()}
+            disabled={createDisabled}
+          >
             Preview address
           </Button>
-          <Button type="button" onClick={() => void submit()} disabled={busy}>
+          <Button type="button" onClick={() => void submit()} disabled={createDisabled}>
             {busy ? 'Signing…' : 'Create vault'}
           </Button>
         </div>
@@ -122,7 +175,11 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
           </div>
         ) : null}
         <div className="mt-4">
-          <ActionResult error={error} txHash={txHash} success="Vault created." />
+          <ActionResult
+            error={error}
+            txHash={txHash}
+            success={submittedSuccess(txHash, 'Vault created.')}
+          />
         </div>
       </CardContent>
     </Card>

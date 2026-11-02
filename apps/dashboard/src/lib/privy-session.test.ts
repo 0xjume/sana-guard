@@ -111,11 +111,11 @@ describe('verifyPrivyAccessToken', () => {
 });
 
 describe('owner action disable reason', () => {
-  it('requires Privy secret and pairs INVITE_TOKEN with OWNER_ALLOWLIST', () => {
+  it('requires Privy secret but treats OWNER_ALLOWLIST as optional even when INVITE_TOKEN is set', () => {
     expect(ownerActionDisableReason({})).toMatch(/PRIVY_APP_SECRET/);
     expect(
       ownerActionDisableReason(env({ INVITE_TOKEN: 'invite', OWNER_ALLOWLIST: undefined }))
-    ).toMatch(/OWNER_ALLOWLIST/);
+    ).toBeNull();
     expect(
       ownerActionDisableReason(env({ INVITE_TOKEN: 'invite', OWNER_ALLOWLIST: SOL }))
     ).toBeNull();

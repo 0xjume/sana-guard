@@ -51,12 +51,19 @@ describe('owner gate', () => {
     });
   });
 
-  it('returns 403 when OWNER_ALLOWLIST rejects the owner', () => {
+  it('allows any linked owner when OWNER_ALLOWLIST is unset', () => {
+    expect(allow({ allowlist: null }).ok).toBe(true);
+    expect(allow({ allowlist: parseOwnerAllowlist(undefined) }).ok).toBe(true);
+    expect(allow({ allowlist: parseOwnerAllowlist('') }).ok).toBe(true);
+  });
+
+  it('returns 403 when OWNER_ALLOWLIST is set and rejects the owner', () => {
     expect(allow({ allowlist: [OTHER] })).toEqual({
       ok: false,
       status: 403,
       error: 'Owner is not on OWNER_ALLOWLIST',
     });
+    expect(allow({ allowlist: [OWNER] }).ok).toBe(true);
     expect(parseOwnerAllowlist(' a , b ')).toEqual(['a', 'b']);
     expect(parseOwnerAllowlist('')).toBeNull();
   });

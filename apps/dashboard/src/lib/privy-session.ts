@@ -1,5 +1,4 @@
 import { createRemoteJWKSet, importSPKI, jwtVerify, type JWTPayload } from 'jose';
-import { parseOwnerAllowlist } from './owner-gate';
 import type { PrivySession } from './owner-gate';
 
 const JWKS_CACHE = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
@@ -10,7 +9,12 @@ function basicAuth(appId: string, secret: string): string {
   return `Basic ${Buffer.from(`${appId}:${secret}`).toString('base64')}`;
 }
 
-export function jwtVerifyOptions(appId: string) {
+export function jwtVerifyOptions(appId: string): {
+  issuer: string;
+  audience: string;
+  algorithms: ['ES256'];
+  requiredClaims: ['exp', 'sub'];
+} {
   return {
     issuer: 'privy.io',
     audience: appId,
@@ -34,15 +38,23 @@ export function privyUserRequest(
   };
 }
 
+function linkedAccountsFromUser(body: unknown): unknown[] {
+  if (!body || typeof body !== 'object') {
+    return [];
+  }
+  const root = body as Record<string, unknown>;
+  if (Array.isArray(root.linked_accounts)) {
+    return root.linked_accounts;
+  }
+  if (Array.isArray(root.linkedAccounts)) {
+    return root.linkedAccounts;
+  }
+  return [];
+}
+
 export function walletAddressesFromUser(body: unknown): string[] {
-  const root = body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
-  const accounts = Array.isArray(root?.linked_accounts)
-    ? root.linked_accounts
-    : Array.isArray(root?.linkedAccounts)
-      ? root.linkedAccounts
-      : [];
   const addresses: string[] = [];
-  for (const account of accounts) {
+  for (const account of linkedAccountsFromUser(body)) {
     if (!account || typeof account !== 'object') {
       continue;
     }
@@ -90,9 +102,6 @@ export function ownerActionDisableReason(
 ): string | null {
   if (!env.NEXT_PUBLIC_PRIVY_APP_ID?.trim() || !env.PRIVY_APP_SECRET?.trim()) {
     return 'Owner actions are disabled until NEXT_PUBLIC_PRIVY_APP_ID and PRIVY_APP_SECRET are set.';
-  }
-  if (env.INVITE_TOKEN?.trim() && parseOwnerAllowlist(env.OWNER_ALLOWLIST) === null) {
-    return 'INVITE_TOKEN is set; set OWNER_ALLOWLIST (comma-separated owner pubkeys) before enabling owner actions.';
   }
   return null;
 }
