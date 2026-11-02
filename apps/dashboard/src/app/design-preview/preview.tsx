@@ -6,6 +6,7 @@ import { AttackAttemptCard } from '@/components/attack-attempt-card';
 import { OwnerSignInCard } from '@/components/gateway-login';
 import { PolicyVerdict } from '@/components/policy-verdict';
 import { ProofLink } from '@/components/proof-link';
+import { useSignReview } from '@/components/sign-review';
 import { SpendMeter } from '@/components/spend-meter';
 import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,36 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const MOCK_TX = '8x7kQ2n4mP9rL1cD6fH3jS5tV0wY8zA2bC4dE6fG8hJ';
 const MOCK_SOL = 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB';
+
+const SAMPLE_ADMIN_MESSAGE = [
+  'SANA-GUARD-ADMIN-v1',
+  'network: near-testnet',
+  'contract: guard.djume.testnet',
+  'vault: 0',
+  'nonce: 7',
+  'expires: 1800000000000000000',
+  'action: {"type":"SetPolicy","vault_id":0,"policy":{"per_tx_limit":[["Sol","50000000"]],"daily_cap":[["Sol","100000000"]],"programs":["11111111111111111111111111111111","ComputeBudget111111111111111111111111111111"],"max_priority_fee_lamports":"100000","max_memo_len":64,"expires_at_ns":"1800000000000000000","loosen_delay_ns":"3600000000000"}}',
+].join('\n');
+
+function SignReviewSample() {
+  const review = useSignReview();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Review before signing</CardTitle>
+        <CardDescription>
+          Opens the dialog the owner sees before every wallet signature (sample SetPolicy without a
+          total fee cap).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button type="button" onClick={() => void review(SAMPLE_ADMIN_MESSAGE)}>
+          Open sign review
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
 
 function PreviewTabs() {
   const params = useSearchParams();
@@ -40,6 +71,7 @@ function PreviewTabs() {
           <TabsTrigger value="attack">Attack lab</TabsTrigger>
           <TabsTrigger value="config">Config</TabsTrigger>
           <TabsTrigger value="signin">Sign-in</TabsTrigger>
+          <TabsTrigger value="sign-review">Sign review</TabsTrigger>
         </TabsList>
         <TabsContent value="policy" className="space-y-4">
           <PolicyVerdict
@@ -154,6 +186,9 @@ function PreviewTabs() {
         </TabsContent>
         <TabsContent value="signin">
           <OwnerSignInCard />
+        </TabsContent>
+        <TabsContent value="sign-review">
+          <SignReviewSample />
         </TabsContent>
       </Tabs>
     </div>

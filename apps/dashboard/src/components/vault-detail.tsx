@@ -60,12 +60,16 @@ function PolicySummary({ policy }: { policy: Policy }) {
         <dd className="font-mono">{solCap ? `${lamportsToSol(solCap.amount)} SOL` : '—'}</dd>
       </div>
       <div>
-        <dt className="text-xs text-muted-foreground">max_priority_fee_lamports</dt>
-        <dd className="font-mono">{policy.maxPriorityFeeLamports.toString()}</dd>
+        <dt className="text-xs text-muted-foreground">Max compute-unit price</dt>
+        <dd className="font-mono">{policy.maxPriorityFeeLamports.toString()} lamports / CU</dd>
       </div>
       <div>
-        <dt className="text-xs text-muted-foreground">max_total_priority_fee_lamports</dt>
-        <dd className="font-mono">{policy.maxTotalPriorityFeeLamports?.toString() ?? 'none'}</dd>
+        <dt className="text-xs text-muted-foreground">Max total priority fee / tx</dt>
+        <dd className="font-mono">
+          {policy.maxTotalPriorityFeeLamports === undefined
+            ? 'No cap'
+            : `${lamportsToSol(policy.maxTotalPriorityFeeLamports)} SOL`}
+        </dd>
       </div>
       <div>
         <dt className="text-xs text-muted-foreground">Expiry</dt>

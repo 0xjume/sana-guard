@@ -7,6 +7,7 @@ import bs58 from 'bs58';
 import type { Ed25519Signer } from '@sana-guard/sdk';
 import { publicConfig } from '@/lib/config';
 import { registerPrivyAccessTokenGetter } from '@/lib/privy-browser-token';
+import { useSignReview } from '@/components/sign-review';
 
 export interface OwnerSession {
   privyEnabled: boolean;
@@ -56,6 +57,7 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
   const privy = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
   const { signMessage } = useSignMessage();
+  const reviewMessage = useSignReview();
 
   const wallet = wallets[0];
   const owner = wallet?.address ?? null;
@@ -67,6 +69,12 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
     return {
       publicKey: bs58.decode(owner),
       sign: async (message: Uint8Array) => {
+        // Show the owner the exact bytes before the wallet prompt; fatal decoding means a
+        // non-UTF-8 payload is rejected instead of being shown lossily.
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(message);
+        if (!(await reviewMessage(text))) {
+          throw new Error('Signing cancelled');
+        }
         const signed = await signMessage({
           message,
           wallet,
@@ -79,7 +87,7 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
         return signature;
       },
     };
-  }, [owner, signMessage, wallet]);
+  }, [owner, reviewMessage, signMessage, wallet]);
 
   useEffect(() => {
     registerPrivyAccessTokenGetter(() => privy.getAccessToken());

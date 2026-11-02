@@ -113,8 +113,10 @@ export function defaultCreatePolicyForm(): PolicyFormValues {
     solPerTx: '0.05',
     solDaily: '0.1',
     programs: ['11111111111111111111111111111111', 'ComputeBudget111111111111111111111111111111'],
-    maxPriorityFeeLamports: '100000',
-    maxTotalPriorityFeeLamports: '',
+    // Contract unit is lamports per compute unit; 1 is the smallest non-zero price cap.
+    maxPriorityFeeLamports: '1',
+    // Bounds what one transaction can spend on priority fees: 0.001 SOL.
+    maxTotalPriorityFeeLamports: '1000000',
     maxMemoLen: '64',
     expiresAtLocal: local,
     loosenDelayHours: '1',

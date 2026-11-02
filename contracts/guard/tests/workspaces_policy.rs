@@ -2,42 +2,17 @@
 //!
 //! Remove or raise the cap -> pending_loosen with the current delay.
 //! Lower or set the cap -> apply immediately.
-use ed25519_dalek::{Signer, SigningKey};
+mod common;
+
+use common::{admin_message, guard_and_mock_wasm, json_u64, sign, NETWORK, VAULT_B58};
+use ed25519_dalek::SigningKey;
 use near_workspaces::network::Sandbox;
 use near_workspaces::types::NearToken;
 use near_workspaces::{Contract, Worker};
 use serde_json::json;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const HOUR_NS: u64 = 3_600_000_000_000;
 const CAP: u64 = 1_000_000;
-const VAULT_B58: &str = "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi";
-const NETWORK: &str = "near-testnet";
-
-fn cargo_near_wasm(package_dir: &Path, artifact: &str) -> Vec<u8> {
-    let status = Command::new("cargo")
-        .args([
-            "+stable",
-            "near",
-            "build",
-            "non-reproducible-wasm",
-            "--no-abi",
-        ])
-        .current_dir(package_dir)
-        .status()
-        .expect("spawn cargo near");
-    assert!(
-        status.success(),
-        "cargo +stable near build failed in {}",
-        package_dir.display()
-    );
-    let wasm = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/near")
-        .join(artifact)
-        .join(format!("{artifact}.wasm"));
-    std::fs::read(&wasm).unwrap_or_else(|e| panic!("read {}: {e}", wasm.display()))
-}
 
 fn policy_json(cap: Option<u64>) -> serde_json::Value {
     json!({
@@ -50,31 +25,6 @@ fn policy_json(cap: Option<u64>) -> serde_json::Value {
         "expires_at_ns": "18446744073709551615",
         "loosen_delay_ns": HOUR_NS.to_string(),
     })
-}
-
-fn admin_message(
-    contract: &str,
-    vault: Option<u32>,
-    nonce: u64,
-    action: serde_json::Value,
-) -> String {
-    let vault_line = vault.map_or_else(|| "null".to_string(), |v| v.to_string());
-    format!(
-        "SANA-GUARD-ADMIN-v1\nnetwork: {NETWORK}\ncontract: {contract}\nvault: {vault_line}\nnonce: {nonce}\nexpires: 18446744073709551615\naction: {}",
-        action
-    )
-}
-
-fn sign(key: &SigningKey, message: &str) -> Vec<u8> {
-    key.sign(message.as_bytes()).to_bytes().to_vec()
-}
-
-fn json_u64(value: &serde_json::Value) -> u64 {
-    match value {
-        serde_json::Value::String(s) => s.parse().expect("u64 string"),
-        serde_json::Value::Number(n) => n.as_u64().expect("u64 number"),
-        other => panic!("expected u64, got {other}"),
-    }
 }
 
 fn cap_of(policy: &serde_json::Value) -> Option<u64> {
@@ -95,10 +45,7 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let guard_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let mock_dir = guard_dir.join("../mock-mpc");
-        let guard_wasm = cargo_near_wasm(&guard_dir, "sana_guard_contract");
-        let mock_wasm = cargo_near_wasm(&mock_dir, "sana_guard_mock_mpc");
+        let (guard_wasm, mock_wasm) = guard_and_mock_wasm();
 
         let worker = near_workspaces::sandbox().await?;
         let mpc = worker.dev_deploy(&mock_wasm).await?;
