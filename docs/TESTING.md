@@ -185,3 +185,17 @@ cargo test --test workspaces_sign_flow -- --nocapture
 
 Needs `cargo-near` and the NEAR sandbox binary, which requires an open-file limit of 65535
 (`ulimit -n`). CI prints the gas numbers in the "request_sign gas report" step.
+
+Measured in CI (sandbox, mock MPC, Nov 2 2026), total gas burnt per `request_sign` across all
+receipts (guard parse + policy, mock `sign`, `on_signed`):
+
+| Message | Gas burnt |
+|---|---|
+| 1 SystemProgram transfer | ~10 Tgas |
+| 8 SystemProgram transfers (parser maximum) | ~11 Tgas |
+
+Parsing and policy checks add about 1 Tgas going from 1 to 8 instructions, so the 300 Tgas
+transaction limit is not a concern. The real MPC `sign` (yield/resume) costs more than the mock;
+the guard reserves 50 Tgas for it plus 15 Tgas for the callback. Note that prepaid gas is charged
+up front: an agent whose function-call key has a 0.25 NEAR allowance cannot attach 300 Tgas at the
+sandbox gas price, and the tests attach 150 Tgas.
