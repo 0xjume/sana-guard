@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DASH_MALFORMED_ACTION,
   DASH_RELAY_VAULT_CAP,
   DASH_VAULT_LIMIT,
   ONE_VAULT_PER_OWNER_MESSAGE,
@@ -7,8 +8,11 @@ import {
   countListedVaults,
   createVaultUiBlockedReason,
   evaluateCreateVaultLimits,
+  fetchOwnerActionLimits,
   isCreateVaultAdminMessage,
   loadCreateVaultLimits,
+  ownerActionLimits,
+  readAdminActionKind,
 } from './create-vault-limits';
 
 const OWNER = 'DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB';
@@ -43,14 +47,36 @@ describe('isCreateVaultAdminMessage', () => {
     expect(isCreateVaultAdminMessage(setPolicyMessage())).toBe(false);
     expect(isCreateVaultAdminMessage('not an admin message')).toBe(false);
   });
+
+  it('rejects a malformed action line', () => {
+    expect(readAdminActionKind('action: {not-json')).toBe('malformed');
+    expect(
+      evaluateCreateVaultLimits({
+        message: 'action: {not-json',
+        ownerVaultCount: 0,
+        totalVaultCount: 0,
+        maxVaultsPerOwner: 1,
+        maxRelayVaultsTotal: 10,
+      })
+    ).toEqual({
+      ok: false,
+      status: 400,
+      code: DASH_MALFORMED_ACTION,
+      message: 'Malformed owner action',
+    });
+  });
 });
 
 describe('loadCreateVaultLimits', () => {
-  it('defaults to one vault per owner and a total relay cap of 50', () => {
+  it('defaults to one vault per owner and a total relay cap of 10', () => {
     expect(loadCreateVaultLimits({})).toEqual({
       maxVaultsPerOwner: 1,
-      maxRelayVaultsTotal: 50,
+      maxRelayVaultsTotal: 10,
       capMode: 'total',
+    });
+    expect(ownerActionLimits({})).toEqual({
+      maxVaultsPerOwner: 1,
+      maxRelayVaultsTotal: 10,
     });
   });
 
@@ -75,7 +101,7 @@ describe('loadCreateVaultLimits', () => {
       })
     ).toEqual({
       maxVaultsPerOwner: 1,
-      maxRelayVaultsTotal: 50,
+      maxRelayVaultsTotal: 10,
       capMode: 'total',
     });
   });
@@ -101,7 +127,7 @@ describe('evaluateCreateVaultLimits', () => {
         ownerVaultCount: 1,
         totalVaultCount: 0,
         maxVaultsPerOwner: 1,
-        maxRelayVaultsTotal: 50,
+        maxRelayVaultsTotal: 10,
       })
     ).toEqual({
       ok: false,
@@ -118,7 +144,7 @@ describe('evaluateCreateVaultLimits', () => {
         ownerVaultCount: 1,
         totalVaultCount: 0,
         maxVaultsPerOwner: 2,
-        maxRelayVaultsTotal: 50,
+        maxRelayVaultsTotal: 10,
       })
     ).toEqual({ ok: true });
   });
@@ -128,9 +154,9 @@ describe('evaluateCreateVaultLimits', () => {
       evaluateCreateVaultLimits({
         message: createVaultMessage(),
         ownerVaultCount: 0,
-        totalVaultCount: 50,
+        totalVaultCount: 10,
         maxVaultsPerOwner: 1,
-        maxRelayVaultsTotal: 50,
+        maxRelayVaultsTotal: 10,
       })
     ).toMatchObject({
       ok: false,
@@ -141,10 +167,11 @@ describe('evaluateCreateVaultLimits', () => {
 });
 
 describe('createVaultUiBlockedReason', () => {
-  it('returns the hosted-demo message once the owner already has a vault', () => {
-    expect(createVaultUiBlockedReason(0)).toBeNull();
-    expect(createVaultUiBlockedReason(1)).toBe(ONE_VAULT_PER_OWNER_MESSAGE);
+  it('uses the supplied server max, not a hard-coded 1', () => {
+    expect(createVaultUiBlockedReason(0, 1)).toBeNull();
+    expect(createVaultUiBlockedReason(1, 1)).toBe(ONE_VAULT_PER_OWNER_MESSAGE);
     expect(createVaultUiBlockedReason(1, 2)).toBeNull();
+    expect(createVaultUiBlockedReason(2, 2)).toBe(ONE_VAULT_PER_OWNER_MESSAGE);
   });
 });
 
@@ -190,13 +217,13 @@ describe('checkCreateVaultLimits', () => {
   it('rejects when the relay total cap is exceeded', async () => {
     const views = {
       getOwnerVaultCount: async () => 0,
-      listVaults: async () => Array.from({ length: 50 }, (_, id) => ({ id })),
+      listVaults: async () => Array.from({ length: 10 }, (_, id) => ({ id })),
     };
     const denied = await checkCreateVaultLimits({
       message: createVaultMessage(),
       owner: OWNER,
       views,
-      env: { MAX_RELAY_VAULTS_TOTAL: '50' },
+      env: {},
     });
     expect(denied).toMatchObject({ ok: false, code: DASH_RELAY_VAULT_CAP });
   });
@@ -214,5 +241,43 @@ describe('checkCreateVaultLimits', () => {
         env: {},
       })
     ).resolves.toEqual({ ok: true });
+  });
+
+  it('throws on a malformed owner_vault_count so the route can 503', async () => {
+    await expect(
+      checkCreateVaultLimits({
+        message: createVaultMessage(),
+        owner: OWNER,
+        views: {
+          getOwnerVaultCount: async () => Number.NaN,
+          listVaults: async () => [],
+        },
+        env: {},
+      })
+    ).rejects.toThrow(/owner_vault_count/);
+  });
+
+  it('throws on a malformed list_vaults page so the route can 503', async () => {
+    await expect(
+      checkCreateVaultLimits({
+        message: createVaultMessage(),
+        owner: OWNER,
+        views: {
+          getOwnerVaultCount: async () => 0,
+          listVaults: async () => 'nope' as unknown as unknown[],
+        },
+        env: {},
+      })
+    ).rejects.toThrow(/list_vaults/);
+  });
+});
+
+describe('fetchOwnerActionLimits', () => {
+  it('reads maxVaultsPerOwner from GET /api/owner-action', async () => {
+    const fetcher = (async () =>
+      new Response(JSON.stringify({ maxVaultsPerOwner: 3, maxRelayVaultsTotal: 10 }), {
+        status: 200,
+      })) as typeof fetch;
+    await expect(fetchOwnerActionLimits(fetcher)).resolves.toEqual({ maxVaultsPerOwner: 3 });
   });
 });

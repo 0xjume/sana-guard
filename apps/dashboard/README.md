@@ -9,14 +9,14 @@ The dashboard authenticates owners with a **Privy embedded Solana wallet**. Owne
 Judges can self-onboard without being allowlisted:
 
 1. **Sign in with Privy** (email or a Solana wallet). Privy creates an embedded Solana wallet if you do not already have one.
-2. **Create one vault.** The relay pays ~0.5 NEAR storage + gas. The dashboard enforces `MAX_VAULTS_PER_OWNER` (default 1) via the contract `owner_vault_count` view and a global `MAX_RELAY_VAULTS_TOTAL` cap (default 50) from `list_vaults`. Create vault is hidden/disabled with `One vault per owner on the hosted demo` once you already own one.
+2. **Create one vault.** The relay pays ~0.5 NEAR storage + gas. The dashboard enforces `MAX_VAULTS_PER_OWNER` (default 1) via the contract `owner_vault_count` view and a global `MAX_RELAY_VAULTS_TOTAL` cap (default 10) from `list_vaults`. The UI reads that owner limit from `GET /api/owner-action` so it stays in sync with the server. Create vault is hidden/disabled with `One vault per owner on the hosted demo` once you already own one.
 3. **Set policy** (tighten immediately; loosening is delayed).
 4. **Add an agent key.**
 5. **Fund the vault Solana address** shown after create (QR + explorer link).
 
 `OWNER_ALLOWLIST` is optional. If set, only listed wallets can act. If unset, any authenticated Privy user with a linked Solana wallet may act on vaults they own. `INVITE_TOKEN` is still attached server-side so the public relay's CreateVault gate stays closed to anonymous callers.
 
-**Relay spend cap:** `VaultView` / `list_vaults` do not carry a creation timestamp or block, so the dashboard cannot count “vaults created in the last 24h.” It uses **`MAX_RELAY_VAULTS_TOTAL` (default 50)** against the on-chain vault count instead of `MAX_RELAY_VAULTS_PER_DAY`. Exceeded creates return `DASH_RELAY_VAULT_CAP`. Per-owner overflow returns `DASH_VAULT_LIMIT`.
+**Relay spend cap:** `VaultView` / `list_vaults` do not carry a creation timestamp or block, so the dashboard cannot count “vaults created in the last 24h.” It uses **`MAX_RELAY_VAULTS_TOTAL` (default 10)** against the on-chain vault count instead of `MAX_RELAY_VAULTS_PER_DAY`. Exceeded creates return `DASH_RELAY_VAULT_CAP`. Per-owner overflow returns `DASH_VAULT_LIMIT`. A broken `owner_vault_count` / `list_vaults` value fails closed (`503`, generic `Vault limit check unavailable, try again`).
 
 ## What works without a Privy app ID
 
@@ -85,13 +85,13 @@ Requires Node.js 20+.
 | `OWNER_ALLOWLIST` | server | Optional comma-separated owner pubkeys. If set, only listed wallets may act. If unset, any authenticated Privy Solana wallet may act |
 | `INVITE_TOKEN` | server | Relay invite gate. Attached after Privy auth. Optional; does not require `OWNER_ALLOWLIST`. Never `NEXT_PUBLIC_` |
 | `MAX_VAULTS_PER_OWNER` | server | CreateVault per-owner cap via `owner_vault_count`. Default `1` |
-| `MAX_RELAY_VAULTS_TOTAL` | server | CreateVault global cap via `list_vaults` count. Default `50`. Used because vaults have no created-at field |
+| `MAX_RELAY_VAULTS_TOTAL` | server | CreateVault global cap via `list_vaults` count. Default `10`. Used because vaults have no created-at field |
 | `DEMO_AGENT_ACCOUNT_ID` | server | Attack Lab agent account |
 | `DEMO_AGENT_PRIVATE_KEY` | server | Attack Lab `ed25519:` key. Never commit |
 | `DEMO_AGENT_VAULT_ID` | server | Pinned Attack Lab vault. Required to enable |
 | `ATTACK_LAB_TOKEN` | server | Required header for Attack Lab POST. Disabled if unset |
 
-`POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. `OWNER_ALLOWLIST` is optional: when unset, any authenticated Privy user with a linked Solana wallet may act; when set, only listed wallets may. CreateVault additionally checks `owner_vault_count` (`DASH_VAULT_LIMIT`) and the listed vault total (`DASH_RELAY_VAULT_CAP`). The route requires `Authorization: Bearer <Privy access token>` and the payload owner to be a **Solana** wallet linked to that user (`chain_type === solana`). Non-create actions still rely on the contract's owner checks. On Vercel (`VERCEL=1`), rate-limit IPs come from `x-vercel-forwarded-for` / `x-real-ip`. Off Vercel those headers are ignored and IPs share a `local` bucket; per-owner limits still apply. Never trust client `x-forwarded-for`.
+`GET /api/owner-action` returns the public `{ maxVaultsPerOwner, maxRelayVaultsTotal }` so the create form uses the server `MAX_VAULTS_PER_OWNER` instead of a hard-coded 1. `POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. `OWNER_ALLOWLIST` is optional: when unset, any authenticated Privy user with a linked Solana wallet may act; when set, only listed wallets may. CreateVault additionally checks `owner_vault_count` (`DASH_VAULT_LIMIT`) and the listed vault total (`DASH_RELAY_VAULT_CAP`). The route requires `Authorization: Bearer <Privy access token>` and the payload owner to be a **Solana** wallet linked to that user (`chain_type === solana`). Non-create actions still rely on the contract's owner checks. On Vercel (`VERCEL=1`), rate-limit IPs come from `x-vercel-forwarded-for` / `x-real-ip`. Off Vercel those headers are ignored and IPs share a `local` bucket; per-owner limits still apply. Never trust client `x-forwarded-for`.
 
 ## Vercel deploy
 

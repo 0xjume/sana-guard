@@ -6,7 +6,11 @@ import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { submittedSuccess } from '@/lib/action-result-state';
 import { publicConfig, solanaExplorerAddressUrl } from '@/lib/config';
-import { createVaultUiBlockedReason } from '@/lib/create-vault-limits';
+import {
+  VAULT_LIMIT_UNAVAILABLE,
+  createVaultUiBlockedReason,
+  fetchOwnerActionLimits,
+} from '@/lib/create-vault-limits';
 import type { GuardActionError } from '@/lib/errors';
 import { createViews } from '@/lib/near';
 import { defaultCreatePolicyForm } from '@/lib/policy';
@@ -41,7 +45,26 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
   const [error, setError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [ownerVaultCount, setOwnerVaultCount] = useState<number | null>(null);
+  const [maxVaultsPerOwner, setMaxVaultsPerOwner] = useState<number | null>(null);
   const defaults = useMemo(() => defaultCreatePolicyForm(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchOwnerActionLimits()
+      .then((limits) => {
+        if (!cancelled) {
+          setMaxVaultsPerOwner(limits.maxVaultsPerOwner);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(asActionError(err, VAULT_LIMIT_UNAVAILABLE));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!session.owner) {
@@ -73,14 +96,17 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
   const owner = session.owner;
   const signer = session.signer;
   const blockedReason =
-    ownerVaultCount === null ? null : createVaultUiBlockedReason(ownerVaultCount);
-  const createDisabled = busy || ownerVaultCount === null || Boolean(blockedReason);
+    ownerVaultCount === null || maxVaultsPerOwner === null
+      ? null
+      : createVaultUiBlockedReason(ownerVaultCount, maxVaultsPerOwner);
+  const createDisabled =
+    busy || ownerVaultCount === null || maxVaultsPerOwner === null || Boolean(blockedReason);
 
   async function derive(): Promise<void> {
     setError(null);
     const index = await ownerVaultCountFor(owner);
     setOwnerVaultCount(index);
-    if (createVaultUiBlockedReason(index)) {
+    if (maxVaultsPerOwner !== null && createVaultUiBlockedReason(index, maxVaultsPerOwner)) {
       return;
     }
     setDerived(await previewVaultAddress(owner, index));
@@ -93,7 +119,9 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
     try {
       const index = await ownerVaultCountFor(owner);
       setOwnerVaultCount(index);
-      const blocked = createVaultUiBlockedReason(index);
+      const max = maxVaultsPerOwner ?? (await fetchOwnerActionLimits()).maxVaultsPerOwner;
+      setMaxVaultsPerOwner(max);
+      const blocked = createVaultUiBlockedReason(index, max);
       if (blocked) {
         setError({ code: 'DASH_VAULT_LIMIT', message: blocked });
         return;

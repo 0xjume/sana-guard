@@ -1,11 +1,16 @@
+import { parseVaultCount } from '@sana-guard/sdk';
+
 export const DASH_VAULT_LIMIT = 'DASH_VAULT_LIMIT';
 export const DASH_RELAY_VAULT_CAP = 'DASH_RELAY_VAULT_CAP';
+export const DASH_MALFORMED_ACTION = 'DASH_MALFORMED_ACTION';
 export const ONE_VAULT_PER_OWNER_MESSAGE = 'One vault per owner on the hosted demo';
+export const VAULT_LIMIT_UNAVAILABLE = 'Vault limit check unavailable, try again';
 
 export const DEFAULT_MAX_VAULTS_PER_OWNER = 1;
-export const DEFAULT_MAX_RELAY_VAULTS_TOTAL = 50;
+export const DEFAULT_MAX_RELAY_VAULTS_TOTAL = 10;
 
 export type CreateVaultCapMode = 'total';
+export type AdminActionKind = 'CreateVault' | 'other' | 'malformed' | 'none';
 
 export interface CreateVaultLimits {
   maxVaultsPerOwner: number;
@@ -17,8 +22,8 @@ export interface CreateVaultLimits {
 export type CreateVaultLimitOk = { ok: true };
 export type CreateVaultLimitDenial = {
   ok: false;
-  status: 403;
-  code: typeof DASH_VAULT_LIMIT | typeof DASH_RELAY_VAULT_CAP;
+  status: 400 | 403;
+  code: typeof DASH_VAULT_LIMIT | typeof DASH_RELAY_VAULT_CAP | typeof DASH_MALFORMED_ACTION;
   message: string;
 };
 export type CreateVaultLimitResult = CreateVaultLimitOk | CreateVaultLimitDenial;
@@ -32,9 +37,10 @@ const LIST_PAGE_SIZE = 100;
 
 function denyCreateVault(
   code: CreateVaultLimitDenial['code'],
-  message: string
+  message: string,
+  status: CreateVaultLimitDenial['status'] = 403
 ): CreateVaultLimitDenial {
-  return { ok: false, status: 403, code, message };
+  return { ok: false, status, code, message };
 }
 
 export function parsePositiveInt(raw: string | undefined | null, fallback: number): number {
@@ -61,22 +67,39 @@ export function loadCreateVaultLimits(
   };
 }
 
-export function isCreateVaultAdminMessage(message: string): boolean {
+export function ownerActionLimits(
+  env: Record<string, string | undefined> = process.env
+): Pick<CreateVaultLimits, 'maxVaultsPerOwner' | 'maxRelayVaultsTotal'> {
+  const limits = loadCreateVaultLimits(env);
+  return {
+    maxVaultsPerOwner: limits.maxVaultsPerOwner,
+    maxRelayVaultsTotal: limits.maxRelayVaultsTotal,
+  };
+}
+
+export function readAdminActionKind(message: string): AdminActionKind {
   const actionLine = message.split('\n').find((line) => line.startsWith('action: '));
   if (!actionLine) {
-    return false;
+    return 'none';
   }
   try {
     const action = JSON.parse(actionLine.slice('action: '.length)) as { type?: unknown };
-    return action.type === 'CreateVault';
+    if (!action || typeof action !== 'object' || typeof action.type !== 'string') {
+      return 'malformed';
+    }
+    return action.type === 'CreateVault' ? 'CreateVault' : 'other';
   } catch {
-    return false;
+    return 'malformed';
   }
+}
+
+export function isCreateVaultAdminMessage(message: string): boolean {
+  return readAdminActionKind(message) === 'CreateVault';
 }
 
 export function createVaultUiBlockedReason(
   ownerVaultCount: number,
-  maxVaultsPerOwner: number = DEFAULT_MAX_VAULTS_PER_OWNER
+  maxVaultsPerOwner: number
 ): string | null {
   if (ownerVaultCount >= maxVaultsPerOwner) {
     return ONE_VAULT_PER_OWNER_MESSAGE;
@@ -91,7 +114,11 @@ export function evaluateCreateVaultLimits(args: {
   maxVaultsPerOwner: number;
   maxRelayVaultsTotal: number;
 }): CreateVaultLimitResult {
-  if (!isCreateVaultAdminMessage(args.message)) {
+  const kind = readAdminActionKind(args.message);
+  if (kind === 'malformed') {
+    return denyCreateVault(DASH_MALFORMED_ACTION, 'Malformed owner action', 400);
+  }
+  if (kind !== 'CreateVault') {
     return { ok: true };
   }
   if (args.ownerVaultCount >= args.maxVaultsPerOwner) {
@@ -114,6 +141,9 @@ export async function countListedVaults(
   let from = 0;
   while (count < stopAt) {
     const page = await listVaults(from, LIST_PAGE_SIZE);
+    if (!Array.isArray(page)) {
+      throw new Error('Invalid list_vaults result');
+    }
     if (page.length === 0) {
       break;
     }
@@ -123,7 +153,7 @@ export async function countListedVaults(
       break;
     }
   }
-  return Math.min(count, stopAt);
+  return parseVaultCount(Math.min(count, stopAt), 'list_vaults count');
 }
 
 export async function checkCreateVaultLimits(args: {
@@ -132,11 +162,18 @@ export async function checkCreateVaultLimits(args: {
   views: CreateVaultViews;
   env?: Record<string, string | undefined>;
 }): Promise<CreateVaultLimitResult> {
-  if (!isCreateVaultAdminMessage(args.message)) {
+  const kind = readAdminActionKind(args.message);
+  if (kind === 'malformed') {
+    return denyCreateVault(DASH_MALFORMED_ACTION, 'Malformed owner action', 400);
+  }
+  if (kind !== 'CreateVault') {
     return { ok: true };
   }
   const limits = loadCreateVaultLimits(args.env);
-  const ownerVaultCount = await args.views.getOwnerVaultCount(args.owner);
+  const ownerVaultCount = parseVaultCount(
+    await args.views.getOwnerVaultCount(args.owner),
+    'owner_vault_count'
+  );
   if (ownerVaultCount >= limits.maxVaultsPerOwner) {
     return denyCreateVault(DASH_VAULT_LIMIT, ONE_VAULT_PER_OWNER_MESSAGE);
   }
@@ -147,8 +184,21 @@ export async function checkCreateVaultLimits(args: {
   return evaluateCreateVaultLimits({
     message: args.message,
     ownerVaultCount,
-    totalVaultCount,
+    totalVaultCount: parseVaultCount(totalVaultCount, 'list_vaults count'),
     maxVaultsPerOwner: limits.maxVaultsPerOwner,
     maxRelayVaultsTotal: limits.maxRelayVaultsTotal,
   });
+}
+
+export async function fetchOwnerActionLimits(
+  fetcher: typeof fetch = fetch
+): Promise<{ maxVaultsPerOwner: number }> {
+  const response = await fetcher('/api/owner-action', { method: 'GET' });
+  if (!response.ok) {
+    throw new Error('Vault limit check unavailable, try again');
+  }
+  const body = (await response.json()) as { maxVaultsPerOwner?: unknown };
+  return {
+    maxVaultsPerOwner: parseVaultCount(body.maxVaultsPerOwner, 'maxVaultsPerOwner'),
+  };
 }
