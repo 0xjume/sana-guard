@@ -115,6 +115,16 @@ describe('Views', () => {
     expect(await views.supportedPrograms()).toEqual(['11111111111111111111111111111111']);
   });
 
+  it('getOwnerVaultCount accepts numeric strings and rejects malformed counts', async () => {
+    const { views: ok } = viewsWith({ owner_vault_count: '3' });
+    expect(await ok.getOwnerVaultCount('Owner111')).toBe(3);
+
+    for (const raw of ['nope', -1, Number.NaN, Number.POSITIVE_INFINITY, null]) {
+      const { views } = viewsWith({ owner_vault_count: raw });
+      await expect(views.getOwnerVaultCount('Owner111')).rejects.toThrow(/owner_vault_count/);
+    }
+  });
+
   it('deriveVaultAddress strips the ed25519: prefix from the MPC result', async () => {
     const key = new Uint8Array(32).fill(9);
     const { views, viewFunction } = viewsWith({
