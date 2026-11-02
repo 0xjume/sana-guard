@@ -122,6 +122,7 @@ cargo near deploy guard.djume.testnet --no-docker
 
 - [PLAN.md](./docs/PLAN.md) — Full design, architecture, threat model, milestones
 - [NOTES.md](./docs/NOTES.md) — Research notes, verified facts, citations
+- [Dashboard README](./apps/dashboard/README.md) — Privy onboarding: sign in → one vault (relay pays) → set policy → add agent → fund the vault Solana address
 
 ## Security
 

@@ -26,7 +26,8 @@ export function MissingConfig() {
           <li>
             Set server-only <code>INVITE_TOKEN</code> if the relay still gates CreateVault /
             AddAgent. The browser never receives that token; <code>POST /api/owner-action</code>{' '}
-            attaches it.
+            attaches it after Privy auth. Leave <code>OWNER_ALLOWLIST</code> unset for open sign-up
+            (one vault per owner).
           </li>
         </ol>
         <dl className="mt-6 grid gap-3 text-xs sm:grid-cols-2">

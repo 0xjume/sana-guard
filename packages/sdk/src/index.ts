@@ -86,4 +86,10 @@ export {
 } from './client';
 
 // Views
-export { Views, parseSpend24hJson, parseU64Amount, parseJsonIntegersAsStrings } from './views';
+export {
+  Views,
+  parseSpend24hJson,
+  parseU64Amount,
+  parseVaultCount,
+  parseJsonIntegersAsStrings,
+} from './views';

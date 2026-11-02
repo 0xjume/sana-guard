@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { publicConfig } from '@/lib/config';
-import { gateOwnerAction, parseOwnerAllowlist, readBearerToken } from '@/lib/owner-gate';
+import { createViews } from '@/lib/near';
+import { handleOwnerActionPost, ownerActionLimitsJson } from '@/lib/owner-action-handler';
+import { parseOwnerAllowlist } from '@/lib/owner-gate';
 import { ownerActionDisableReason, verifyPrivyAccessToken } from '@/lib/privy-session';
 import { trustedClientIp } from '@/lib/rate-limit';
 import { postAdminToRelay } from '@/lib/relay';
@@ -10,67 +12,31 @@ export const runtime = 'nodejs';
 const rateStore = new Map<string, number[]>();
 
 /**
+ * Public demo limits. MAX_VAULTS_PER_OWNER is server-only; the UI reads it here
+ * so create-vault disable uses the same value as POST /api/owner-action.
+ */
+export async function GET() {
+  return NextResponse.json(ownerActionLimitsJson());
+}
+
+/**
  * Browser owners POST here. The route verifies a Privy access token, checks
  * the payload owner is a linked Solana wallet (and OWNER_ALLOWLIST when set),
- * then forwards to the relay. INVITE_TOKEN requires OWNER_ALLOWLIST.
+ * then forwards to the relay. OWNER_ALLOWLIST is optional: unset means any
+ * authenticated Privy user with a linked Solana wallet may act.
  */
 export async function POST(request: Request) {
-  if (publicConfig.configError) {
-    return NextResponse.json({ error: publicConfig.configError }, { status: 400 });
-  }
-
-  const disabled = ownerActionDisableReason();
-  if (disabled) {
-    return NextResponse.json({ error: disabled }, { status: 503 });
-  }
-
-  const body = (await request.json().catch(() => null)) as {
-    msg?: unknown;
-    message?: unknown;
-    signature?: unknown;
-    owner?: unknown;
-  } | null;
-
-  const message =
-    typeof body?.msg === 'string'
-      ? body.msg
-      : typeof body?.message === 'string'
-        ? body.message
-        : null;
-  const owner = typeof body?.owner === 'string' ? body.owner : null;
-  const signature = Array.isArray(body?.signature)
-    ? Uint8Array.from(body.signature.map((item) => Number(item)))
-    : null;
-
-  if (!message || !owner || !signature || signature.length !== 64) {
-    return NextResponse.json(
-      { error: 'msg, owner, and 64-byte signature are required' },
-      { status: 400 }
-    );
-  }
-
-  const gate = await gateOwnerAction({
-    configured: true,
-    accessToken: readBearerToken(request),
-    owner,
-    allowlist: parseOwnerAllowlist(process.env.OWNER_ALLOWLIST),
-    ip: trustedClientIp(request.headers),
-    rateStore,
+  return handleOwnerActionPost({
+    request,
+    configError: publicConfig.configError,
+    disableReason: ownerActionDisableReason(),
+    views: createViews(),
+    postAdmin: postAdminToRelay,
     verify: verifyPrivyAccessToken,
+    allowlist: parseOwnerAllowlist(process.env.OWNER_ALLOWLIST),
+    env: process.env,
+    rateStore,
+    ip: trustedClientIp(request.headers),
+    logError: console.error,
   });
-  if (!gate.ok) {
-    return NextResponse.json({ error: gate.error }, { status: gate.status });
-  }
-
-  const result = await postAdminToRelay({
-    message,
-    signature,
-    owner,
-    inviteToken: process.env.INVITE_TOKEN?.trim() || undefined,
-  });
-
-  if (result.success) {
-    return NextResponse.json(result);
-  }
-  return NextResponse.json(result, { status: result.error.httpStatus ?? 502 });
 }

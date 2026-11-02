@@ -124,6 +124,19 @@ export function parseU64Amount(value: unknown): bigint {
 }
 
 /**
+ * Parse a vault / owner-vault count from a contract view.
+ * NaN, non-finite, and negative values fail closed so callers cannot treat
+ * a broken RPC result as "zero vaults" and allow CreateVault.
+ */
+export function parseVaultCount(raw: unknown, label = 'vault count'): number {
+  const value = typeof raw === 'number' || typeof raw === 'string' ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new SanaGuardError(`Invalid ${label}: ${String(raw)}`);
+  }
+  return value;
+}
+
+/**
  * Parse get_spend_24h raw JSON text without losing precision on u64 amounts.
  * Current contract form is `[["SOL","123"]]`; older deploys emit `[["SOL",123]]`.
  */
@@ -240,7 +253,7 @@ export class Views {
    */
   async getOwnerVaultCount(ownerB58: string): Promise<number> {
     const raw = await this.view<number | string>('owner_vault_count', { owner_b58: ownerB58 });
-    return Number(raw);
+    return parseVaultCount(raw, 'owner_vault_count');
   }
 
   /**
