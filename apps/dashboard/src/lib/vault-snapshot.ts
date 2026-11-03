@@ -2,6 +2,8 @@ import { PublicKey } from '@solana/web3.js';
 import type { Mint, Policy, VaultView } from '@sana-guard/sdk';
 import { createViews, getSolanaBalanceLamports } from './near';
 
+export const GENERIC_VAULT_LOAD_ERROR = 'Failed to load vault';
+
 export type VaultSnapshotStatus = 'ok' | 'not_found' | 'error';
 
 export interface VaultSnapshotViews {
@@ -159,6 +161,27 @@ export function serializeVaultSnapshot(snapshot: VaultSnapshot): SerializedVault
   };
 }
 
+/**
+ * Client refresh after SSR first paint. Apply a fresh ok snapshot in place.
+ * Keep painted tiles on a transport error so hydration refresh cannot CLS.
+ */
+export function applyClientVaultRefresh(args: {
+  hasPaintedVault: boolean;
+  snapshot: VaultSnapshot;
+}): { replace: boolean; clearPainted: boolean; error: string | null } {
+  if (args.snapshot.status === 'ok' && args.snapshot.vault) {
+    return { replace: true, clearPainted: false, error: null };
+  }
+  if (args.snapshot.status === 'not_found') {
+    return { replace: false, clearPainted: true, error: 'Vault not found' };
+  }
+  return {
+    replace: false,
+    clearPainted: !args.hasPaintedVault,
+    error: GENERIC_VAULT_LOAD_ERROR,
+  };
+}
+
 export function deserializeVaultSnapshot(snapshot: SerializedVaultSnapshot): VaultSnapshot {
   return {
     vaultId: snapshot.vaultId,
@@ -198,10 +221,11 @@ export async function loadVaultSnapshot(
     vault = await vaultPromise;
   } catch (error) {
     void detailsPromise.catch(() => undefined);
+    console.error('loadVaultSnapshot', { vaultId, error });
     return {
       vaultId,
       status: 'error',
-      error: error instanceof Error ? error.message : 'Failed to load vault',
+      error: GENERIC_VAULT_LOAD_ERROR,
     };
   }
 

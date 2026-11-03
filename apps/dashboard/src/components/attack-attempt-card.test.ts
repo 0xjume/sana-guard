@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   NO_SIGNATURE_NOTE,
+  PRE_SEND_REFUSAL_NOTE,
   attackOutcomeHeading,
   classifyAttackOutcome,
   isOnChainRejection,
+  isPreSendRefusal,
+  networkFailureResult,
   unexpectedOutcomeDetail,
   type AttackLabResult,
 } from './attack-attempt-card';
@@ -94,9 +97,30 @@ describe('classifyAttackOutcome', () => {
   });
 
   it('is failed for HTTP / server errors that never reached request_sign', () => {
-    const result = { ...base, error: 'Unauthorized' };
+    const result = { error: 'Unauthorized' };
     expect(classifyAttackOutcome(result)).toBe('failed');
+    expect(isPreSendRefusal(result)).toBe(false);
     expect(attackOutcomeHeading('failed')).not.toMatch(/Blocked by guard/i);
+  });
+
+  it('is refused for a 409 local-mismatch that never sent request_sign', () => {
+    const result = {
+      ...base,
+      evaluated: 'SG_E067_RECIPIENT_NOT_ALLOWED',
+      error:
+        'Attack payload did not evaluate to SG_E062_PER_TX_LIMIT_EXCEEDED (got SG_E067_RECIPIENT_NOT_ALLOWED). request_sign was not called.',
+    };
+    expect(isPreSendRefusal(result)).toBe(true);
+    expect(classifyAttackOutcome(result)).toBe('refused');
+    expect(attackOutcomeHeading('refused')).toBe('Request refused');
+    expect(PRE_SEND_REFUSAL_NOTE).toMatch(/before sending/i);
+    expect(PRE_SEND_REFUSAL_NOTE).not.toMatch(/network or server error/i);
+  });
+
+  it('is failed for a real transport error from the panel catch', () => {
+    const result = networkFailureResult('over_per_tx_limit');
+    expect(classifyAttackOutcome(result)).toBe('failed');
+    expect(result.error).toMatch(/did not reach the server/i);
   });
 
   it('is null when no attempts ran', () => {

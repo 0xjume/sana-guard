@@ -1,5 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
+import { GENERIC_ROOT_ERROR, logUnexpectedError, publicErrorCopy } from '@/lib/error-display';
+
 export default function GlobalError({
   error,
   reset,
@@ -7,6 +10,12 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    logUnexpectedError('app/global-error', error);
+  }, [error]);
+
+  const { message } = publicErrorCopy(error, GENERIC_ROOT_ERROR);
+
   return (
     <html lang="en">
       <body
@@ -31,9 +40,7 @@ export default function GlobalError({
             Error
           </p>
           <h1 style={{ fontSize: '1.5rem', margin: '0.75rem 0 0' }}>Sana Guard could not load</h1>
-          <p style={{ color: '#b8b8b8', lineHeight: 1.6 }}>
-            {error.message || 'A root-level error stopped the owner console.'}
-          </p>
+          <p style={{ color: '#b8b8b8', lineHeight: 1.6 }}>{message}</p>
           <button
             type="button"
             onClick={reset}

@@ -5,7 +5,6 @@ import type { ReactNode } from 'react';
 import { PrivyProvider } from '@privy-io/react-auth';
 import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
 import { LiveOwnerSessionProvider } from '@/hooks/live-owner-session';
-import { SignReviewProvider } from '@/components/sign-review';
 import { publicConfig } from '@/lib/config';
 
 if (typeof window !== 'undefined' && !window.Buffer) {
@@ -41,9 +40,7 @@ export function PrivyTree({ children }: { children: ReactNode }) {
         },
       }}
     >
-      <SignReviewProvider>
-        <LiveOwnerSessionProvider>{children}</LiveOwnerSessionProvider>
-      </SignReviewProvider>
+      <LiveOwnerSessionProvider>{children}</LiveOwnerSessionProvider>
     </PrivyProvider>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowLeft,
@@ -30,6 +30,8 @@ import {
 import { clonePolicy } from '@/lib/near';
 import { ownerCanEdit } from '@/lib/owner-can-edit';
 import {
+  GENERIC_VAULT_LOAD_ERROR,
+  applyClientVaultRefresh,
   deserializeVaultSnapshot,
   loadVaultSnapshot,
   type SerializedVaultSnapshot,
@@ -176,47 +178,52 @@ export function VaultDetail({
   const [spend, setSpend] = useState<Array<{ mint: string; amount: bigint }>>(initial?.spend ?? []);
   const [balance, setBalance] = useState<bigint | null>(initial?.balance ?? null);
   const [error, setError] = useState<string | null>(
-    initial?.status === 'error' ? (initial.error ?? 'Failed to load vault') : null
+    initial?.status === 'error' ? (initial.error ?? GENERIC_VAULT_LOAD_ERROR) : null
   );
   const [actionError, setActionError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const paintedRef = useRef(Boolean(initial?.vault));
 
   const load = useCallback(async () => {
-    const snapshot = await loadVaultSnapshot(vaultId);
-    if (snapshot.status === 'not_found') {
-      setVault(null);
-      setError('Vault not found');
-      return;
+    try {
+      const snapshot = await loadVaultSnapshot(vaultId);
+      const decision = applyClientVaultRefresh({
+        hasPaintedVault: paintedRef.current,
+        snapshot,
+      });
+      if (decision.replace && snapshot.vault) {
+        setVault(snapshot.vault);
+        setRecipients(snapshot.recipients ?? []);
+        setSpend(snapshot.spend ?? []);
+        setBalance(snapshot.balance ?? null);
+        setError(null);
+        paintedRef.current = true;
+        return;
+      }
+      if (decision.clearPainted) {
+        setVault(null);
+        setError(decision.error);
+        paintedRef.current = false;
+      }
+    } catch (err) {
+      console.error('vault-detail load', err);
+      if (!paintedRef.current) {
+        setError(GENERIC_VAULT_LOAD_ERROR);
+      }
     }
-    if (snapshot.status === 'error' || !snapshot.vault) {
-      setVault(null);
-      setError(snapshot.error ?? 'Failed to load vault');
-      return;
-    }
-    setVault(snapshot.vault);
-    setRecipients(snapshot.recipients ?? []);
-    setSpend(snapshot.spend ?? []);
-    setBalance(snapshot.balance ?? null);
-    setError(null);
   }, [vaultId]);
 
   const reload = useCallback(() => {
-    setError(null);
-    void load().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Failed to load vault');
-    });
+    if (!paintedRef.current) {
+      setError(null);
+    }
+    void load();
   }, [load]);
 
   useEffect(() => {
-    if (initial?.status === 'ok' && initial.vault) {
-      return;
-    }
-    if (initial?.status === 'error') {
-      return;
-    }
-    reload();
-  }, [initial?.status, initial?.vault, reload]);
+    void load();
+  }, [load]);
 
   const run = async (
     fn: () => Promise<{ success: boolean; txHash?: string; error?: GuardActionError }>

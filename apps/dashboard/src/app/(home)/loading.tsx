@@ -1,3 +1,4 @@
+/** Home-only fallback. Kept out of `app/` so `/vaults/[id]` can 404 before a stream. */
 export default function Loading() {
   return (
     <div className="space-y-6" aria-busy="true">

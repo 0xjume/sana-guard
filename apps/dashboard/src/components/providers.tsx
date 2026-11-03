@@ -19,31 +19,60 @@ export function Providers({ children }: { children: ReactNode }) {
     );
   }
 
-  return <LazyPrivy>{children}</LazyPrivy>;
+  return (
+    <SignReviewProvider>
+      <LazyPrivy>{children}</LazyPrivy>
+    </SignReviewProvider>
+  );
 }
 
 function LazyPrivy({ children }: { children: ReactNode }) {
   const [Tree, setTree] = useState<ComponentType<{ children: ReactNode }> | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    void import('./privy-tree').then((mod) => {
-      if (!cancelled) {
-        setTree(() => mod.PrivyTree);
-      }
-    });
+    setFailed(false);
+    void import('./privy-tree')
+      .then((mod) => {
+        if (!cancelled) {
+          setTree(() => mod.PrivyTree);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  if (!Tree) {
-    return (
-      <SignReviewProvider>
-        <OwnerSessionProvider session={pendingSession}>{children}</OwnerSessionProvider>
-      </SignReviewProvider>
-    );
-  }
+  const inner = Tree ? (
+    <Tree>{children}</Tree>
+  ) : (
+    <OwnerSessionProvider session={pendingSession}>{children}</OwnerSessionProvider>
+  );
 
-  return <Tree>{children}</Tree>;
+  return (
+    <>
+      {failed ? (
+        <div
+          role="alert"
+          className="border-b border-warning/40 bg-warning/10 px-4 py-2 text-sm text-foreground"
+        >
+          <button
+            type="button"
+            className="font-medium underline underline-offset-4"
+            onClick={() => setAttempt((current) => current + 1)}
+          >
+            Sign-in failed to load, retry
+          </button>
+        </div>
+      ) : null}
+      {inner}
+    </>
+  );
 }

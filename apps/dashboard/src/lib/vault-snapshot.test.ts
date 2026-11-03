@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import type { VaultView } from '@sana-guard/sdk';
 import { RequestTimeoutError } from './fetch-timeout';
 import {
+  GENERIC_VAULT_LOAD_ERROR,
+  applyClientVaultRefresh,
   deserializeVaultSnapshot,
   loadVaultSnapshot,
   serializeVaultSnapshot,
@@ -129,7 +131,8 @@ describe('loadVaultSnapshot', () => {
     expect(snapshot.balance).toBeNull();
   });
 
-  it('returns a readable error when the vault read times out', async () => {
+  it('returns a generic error and logs the RPC detail when the vault read times out', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const snapshot = await loadVaultSnapshot(0, {
       views: {
         getVault: async () => {
@@ -140,6 +143,40 @@ describe('loadVaultSnapshot', () => {
       },
     });
     expect(snapshot.status).toBe('error');
-    expect(snapshot.error).toBe('NEAR testnet RPC did not respond within 10s');
+    expect(snapshot.error).toBe(GENERIC_VAULT_LOAD_ERROR);
+    expect(snapshot.error).not.toMatch(/NEAR|RPC|10s/);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe('applyClientVaultRefresh', () => {
+  it('replaces painted data with a fresh ok snapshot, including agent count', () => {
+    const snapshot = okSnapshot();
+    snapshot.vault = { ...VAULT, agents: ['a.guard.testnet', 'b.guard.testnet'] };
+    expect(applyClientVaultRefresh({ hasPaintedVault: true, snapshot })).toEqual({
+      replace: true,
+      clearPainted: false,
+      error: null,
+    });
+    expect(snapshot.vault.agents).toHaveLength(2);
+  });
+
+  it('keeps painted tiles when a background refresh errors', () => {
+    expect(
+      applyClientVaultRefresh({
+        hasPaintedVault: true,
+        snapshot: { vaultId: 0, status: 'error', error: GENERIC_VAULT_LOAD_ERROR },
+      })
+    ).toEqual({ replace: false, clearPainted: false, error: GENERIC_VAULT_LOAD_ERROR });
+  });
+
+  it('clears the first paint only when there is no painted vault', () => {
+    expect(
+      applyClientVaultRefresh({
+        hasPaintedVault: false,
+        snapshot: { vaultId: 0, status: 'error', error: GENERIC_VAULT_LOAD_ERROR },
+      })
+    ).toEqual({ replace: false, clearPainted: true, error: GENERIC_VAULT_LOAD_ERROR });
   });
 });

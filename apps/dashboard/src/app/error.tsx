@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect } from 'react';
 import { SgMark } from '@/components/sg-mark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { GENERIC_PAGE_ERROR, logUnexpectedError, publicErrorCopy } from '@/lib/error-display';
 
 export default function Error({
   error,
@@ -11,6 +13,12 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    logUnexpectedError('app/error', error);
+  }, [error]);
+
+  const { message } = publicErrorCopy(error, GENERIC_PAGE_ERROR);
+
   return (
     <Card className="border-rejected-fill/40">
       <CardHeader>
@@ -19,10 +27,7 @@ export default function Error({
           <p className="kicker">Error</p>
         </div>
         <CardTitle className="text-2xl">Something went wrong</CardTitle>
-        <CardDescription>
-          {error.message ||
-            'The owner console hit an unexpected error. Your vaults and policy are unchanged.'}
-        </CardDescription>
+        <CardDescription>{message}</CardDescription>
       </CardHeader>
       <CardContent>
         <Button type="button" onClick={reset}>
