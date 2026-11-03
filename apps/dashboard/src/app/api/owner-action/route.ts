@@ -10,10 +10,11 @@ import { postAdminToRelay } from '@/lib/relay';
 export const runtime = 'nodejs';
 
 const rateStore = new Map<string, number[]>();
+const createVaultInFlight = new Set<string>();
 
 /**
- * Public demo limits. MAX_VAULTS_PER_OWNER is server-only; the UI reads it here
- * so create-vault disable uses the same value as POST /api/owner-action.
+ * Public demo limits. Caps are server-only; the UI reads them here so
+ * create-vault and AddAgent disable use the same values as POST /api/owner-action.
  */
 export async function GET() {
   return NextResponse.json(ownerActionLimitsJson());
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
     allowlist: parseOwnerAllowlist(process.env.OWNER_ALLOWLIST),
     env: process.env,
     rateStore,
+    createVaultInFlight,
     ip: trustedClientIp(request.headers),
     logError: console.error,
   });

@@ -16,6 +16,7 @@ import {
 } from './errors.js';
 import { forgetAccessKey, rememberSignedNonce } from './nonceCache.js';
 import { parseTxStatusJson, sumTokensBurnt, type TxRpcResponse } from './txStatus.js';
+import { parseOwnerVaultCount } from '../viewCount.js';
 
 const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
 
@@ -99,7 +100,7 @@ export class NearClientImpl implements NearClient {
       methodName: 'owner_vault_count',
       args: { owner_b58: ownerB58 },
     });
-    return Number(result);
+    return parseOwnerVaultCount(result);
   }
 
   async getDerivedPublicKey(path: string, predecessor: string): Promise<string> {

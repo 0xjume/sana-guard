@@ -40,6 +40,8 @@ export interface Config extends z.infer<typeof configSchema> {
   globalDailyBudgetYocto: bigint;
   maxDepositPerCallYocto: bigint;
   ownerDailyBudgetYocto: bigint;
+  /** When set, CreateVault rechecks owner_vault_count against this cap. */
+  maxVaultsPerOwner?: number;
 }
 
 /** Default per-owner daily budget is 0.3 of the global daily budget. */
@@ -75,8 +77,19 @@ export function loadConfig(): Config {
     process.env.OWNER_DAILY_BUDGET_NEAR ??
     yoctoToNearString(defaultOwnerDailyBudgetYocto(globalDaily));
 
+  const maxVaultsRaw = process.env.MAX_VAULTS_PER_OWNER?.trim();
+  let maxVaultsPerOwner: number | undefined;
+  if (maxVaultsRaw) {
+    const value = Number(maxVaultsRaw);
+    if (!Number.isInteger(value) || value < 1) {
+      throw new Error('MAX_VAULTS_PER_OWNER must be a positive integer');
+    }
+    maxVaultsPerOwner = value;
+  }
+
   return {
     ...parsed,
+    maxVaultsPerOwner,
     relayBalanceFloorYocto: parseNearToYocto(process.env.RELAY_BALANCE_FLOOR_NEAR ?? '0.5', 'near'),
     maxAgentGasFundingYocto: parseNearToYocto(
       process.env.MAX_AGENT_GAS_FUNDING_NEAR ?? '0.5',

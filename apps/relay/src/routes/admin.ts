@@ -30,6 +30,7 @@ import {
   txHashFromUnknown,
 } from '../near/errors.js';
 import { spentAfterOutcome } from '../resolve.js';
+import { parseOwnerVaultCount } from '../viewCount.js';
 
 const adminRequestSchema = z.object({
   msg: z.string(),
@@ -92,10 +93,11 @@ function parseOnChainError(error: unknown): string {
 type ReserveOutcome =
   | { kind: 'ok' }
   | { kind: 'conflict' }
+  | { kind: 'create-vault-conflict' }
   | { kind: 'reserve-fail'; reason: string }
   | {
       kind: 'bad';
-      status: 400 | 401 | 404 | 503;
+      status: 400 | 401 | 403 | 404 | 503;
       error: string;
       extra?: Record<string, unknown>;
     };
@@ -107,10 +109,52 @@ function nonceConflictBody(): { error: string; code: 'NONCE_IN_FLIGHT' } {
   };
 }
 
+function createVaultInFlightBody(): { error: string; code: 'CREATE_VAULT_IN_FLIGHT' } {
+  return {
+    error: 'CreateVault already in progress for this owner',
+    code: 'CREATE_VAULT_IN_FLIGHT',
+  };
+}
+
 function reserveFailCode(reason: string): 'NONCE_IN_FLIGHT' | 'LIMIT_EXCEEDED' | 'BUDGET_EXCEEDED' {
   if (reason.includes('nonce')) return 'NONCE_IN_FLIGHT';
   if (reason.toLowerCase().includes('limit')) return 'LIMIT_EXCEEDED';
   return 'BUDGET_EXCEEDED';
+}
+
+async function checkCreateVaultReservation(args: {
+  db: RelayDatabase;
+  nearClient: NearClient;
+  config: Config;
+  owner: string;
+}): Promise<ReserveOutcome | null> {
+  if (args.db.hasCreateVaultInFlight(args.owner)) {
+    return { kind: 'create-vault-conflict' };
+  }
+  if (args.config.maxVaultsPerOwner === undefined) {
+    return null;
+  }
+
+  let ownerVaultCount: number;
+  try {
+    ownerVaultCount = parseOwnerVaultCount(await args.nearClient.getOwnerVaultCount(args.owner));
+  } catch {
+    return {
+      kind: 'bad',
+      status: 503,
+      error: 'Could not verify owner vault count',
+      extra: { code: 'VAULT_COUNT_CHECK_FAILED' },
+    };
+  }
+  if (ownerVaultCount >= args.config.maxVaultsPerOwner) {
+    return {
+      kind: 'bad',
+      status: 403,
+      error: 'Owner vault limit reached',
+      extra: { code: 'VAULT_LIMIT' },
+    };
+  }
+  return null;
 }
 
 async function reserveAdminRequest(args: {
@@ -145,6 +189,18 @@ async function reserveAdminRequest(args: {
     db.withOwnerLock(owner, async () => {
       if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
         return { kind: 'conflict' };
+      }
+
+      if (parsedMsg.action.type === 'CreateVault') {
+        const createVaultCheck = await checkCreateVaultReservation({
+          db,
+          nearClient,
+          config,
+          owner,
+        });
+        if (createVaultCheck) {
+          return createVaultCheck;
+        }
       }
 
       if (parsedMsg.action.type !== 'CreateVault') {
@@ -340,6 +396,11 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
         return c.json(nonceConflictBody(), 409);
       }
 
+      if (parsedMsg.action.type === 'CreateVault' && db.hasCreateVaultInFlight(owner)) {
+        log.warn({ owner }, 'CreateVault already in flight');
+        return c.json(createVaultInFlightBody(), 409);
+      }
+
       // Slow RPC views happen before the global lock.
       let vault: VaultInfo | null = null;
       if (parsedMsg.action.type !== 'CreateVault') {
@@ -404,6 +465,9 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
 
       if (reserved.kind === 'conflict') {
         return c.json(nonceConflictBody(), 409);
+      }
+      if (reserved.kind === 'create-vault-conflict') {
+        return c.json(createVaultInFlightBody(), 409);
       }
       if (reserved.kind === 'bad') {
         return c.json({ error: reserved.error, ...reserved.extra }, reserved.status);

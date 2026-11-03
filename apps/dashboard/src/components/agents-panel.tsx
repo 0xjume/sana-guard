@@ -1,11 +1,17 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
+import {
+  DEFAULT_MAX_AGENT_GAS_FUNDING_NEAR,
+  addAgentFundingHint,
+  addAgentUiBlockedReason,
+} from '@/lib/add-agent-limits';
 import { publicConfig } from '@/lib/config';
+import { fetchOwnerActionLimits, VAULT_LIMIT_UNAVAILABLE } from '@/lib/create-vault-limits';
 import { nearToYocto } from '@/lib/format';
 import { ActionResult } from './action-result';
 import { ConfirmButton } from './confirm-button';
@@ -18,6 +24,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
+
+function asActionError(err: unknown, fallback: string): GuardActionError {
+  return { message: err instanceof Error ? err.message : fallback };
+}
+
+function agentCountLabel(count: number, max: number | null): string {
+  if (max === null) {
+    return String(count);
+  }
+  return `${count}/${max}`;
+}
 
 export function AgentsPanel({
   vaultId,
@@ -40,6 +57,32 @@ export function AgentsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [maxAgentsPerVault, setMaxAgentsPerVault] = useState<number | null>(null);
+  const [maxFundingNear, setMaxFundingNear] = useState(DEFAULT_MAX_AGENT_GAS_FUNDING_NEAR);
+  const minFundingNear = '0.15';
+  const blockedReason =
+    maxAgentsPerVault === null ? null : addAgentUiBlockedReason(agents.length, maxAgentsPerVault);
+  const addDisabled =
+    busy || !publicKey || !savedSecret || maxAgentsPerVault === null || Boolean(blockedReason);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchOwnerActionLimits()
+      .then((limits) => {
+        if (!cancelled) {
+          setMaxAgentsPerVault(limits.maxAgentsPerVault);
+          setMaxFundingNear(limits.maxAgentGasFundingNear);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(asActionError(err, VAULT_LIMIT_UNAVAILABLE));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const generate = () => {
     const keypair = nacl.sign.keyPair();
@@ -51,7 +94,7 @@ export function AgentsPanel({
   };
 
   const add = async () => {
-    if (!session.owner || !session.signer || !publicKey) {
+    if (!session.owner || !session.signer || !publicKey || blockedReason) {
       return;
     }
     setBusy(true);
@@ -71,7 +114,7 @@ export function AgentsPanel({
         setError(result.error);
       }
     } catch (err) {
-      setError({ message: err instanceof Error ? err.message : 'AddAgent failed' });
+      setError(asActionError(err, 'AddAgent failed'));
     } finally {
       setBusy(false);
     }
@@ -95,7 +138,7 @@ export function AgentsPanel({
         setError(result.error);
       }
     } catch (err) {
-      setError({ message: err instanceof Error ? err.message : 'RemoveAgent failed' });
+      setError(asActionError(err, 'RemoveAgent failed'));
     } finally {
       setBusy(false);
     }
@@ -117,7 +160,7 @@ export function AgentsPanel({
         }
         action={
           <span className="rounded-pill border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground">
-            {agents.length}
+            {agentCountLabel(agents.length, maxAgentsPerVault)}
           </span>
         }
       />
@@ -173,7 +216,9 @@ export function AgentsPanel({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor={`${fieldId}-funding`}>Gas funding (NEAR)</Label>
+                <Label htmlFor={`${fieldId}-funding`}>
+                  Gas funding ({minFundingNear}–{maxFundingNear} NEAR)
+                </Label>
                 <Input
                   id={`${fieldId}-funding`}
                   value={funding}
@@ -214,13 +259,18 @@ export function AgentsPanel({
                 ) : null}
               </div>
             ) : null}
+            {blockedReason ? (
+              <p role="status" className="mt-4 text-sm text-muted-foreground">
+                {blockedReason}
+              </p>
+            ) : null}
             <Button
               type="button"
               className="mt-4"
-              disabled={busy || !publicKey || !savedSecret}
+              disabled={addDisabled}
               onClick={() => void add()}
             >
-              {busy ? 'Signing…' : 'Add agent (≥ 0.15 NEAR)'}
+              {busy ? 'Signing…' : addAgentFundingHint(minFundingNear, maxFundingNear)}
             </Button>
           </div>
         ) : null}

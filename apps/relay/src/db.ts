@@ -146,6 +146,17 @@ export class RelayDatabase {
     return total.toString();
   }
 
+  hasCreateVaultInFlight(owner: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as count FROM owner_requests
+         WHERE owner = ? AND action_type = 'CreateVault' AND status IN ('pending', 'unknown')`
+      )
+      .get(owner) as { count: number } | undefined;
+
+    return (row?.count ?? 0) > 0;
+  }
+
   checkNonceInFlight(owner: string, nonce: number): boolean {
     const row = this.db
       .prepare(
