@@ -11,9 +11,15 @@ const TONE_VARIANT = {
 export function StatusBadge({
   tone,
   children,
+  className,
 }: {
   tone: 'ok' | 'warn' | 'danger' | 'muted';
   children: ReactNode;
+  className?: string;
 }) {
-  return <Badge variant={TONE_VARIANT[tone]}>{children}</Badge>;
+  return (
+    <Badge variant={TONE_VARIANT[tone]} className={className}>
+      {children}
+    </Badge>
+  );
 }

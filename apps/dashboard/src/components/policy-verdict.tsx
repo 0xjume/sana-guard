@@ -52,7 +52,7 @@ export function PolicyVerdict({
           <p className="kicker">Policy check</p>
           <p
             className={cn(
-              'mt-1 font-heading text-3xl font-semibold tracking-tight',
+              'mt-1 font-heading text-2xl font-semibold tracking-tight',
               rejected ? 'text-rejected' : 'text-accent'
             )}
           >

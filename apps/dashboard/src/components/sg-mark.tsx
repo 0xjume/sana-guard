@@ -23,9 +23,10 @@ export function SgMark({ className, size = 36 }: { className?: string; size?: nu
 
 export function Wordmark({ compact = false }: { compact?: boolean }) {
   return (
-    <span className="flex items-center gap-3">
-      <SgMark />
-      <span className="flex flex-col">
+    <span className="flex items-center gap-2 sm:gap-3">
+      <SgMark size={32} className="sm:hidden" />
+      <SgMark className="hidden sm:block" />
+      <span className={compact ? 'hidden flex-col sm:flex' : 'flex flex-col'}>
         <span className="font-heading text-base font-semibold tracking-tight text-foreground">
           Sana Guard
         </span>

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { AttackAttemptCard } from '@/components/attack-attempt-card';
 import { OwnerSignInCard } from '@/components/gateway-login';
 import { PolicyVerdict } from '@/components/policy-verdict';
+import { AddressChip } from '@/components/address-chip';
 import { ProofLink } from '@/components/proof-link';
 import { ConfirmButton } from '@/components/confirm-button';
 import { useSignReview } from '@/components/sign-review';
@@ -95,7 +96,7 @@ function PreviewTabs() {
               <div className="flex flex-wrap gap-2">
                 <StatusBadge tone="ok">Active</StatusBadge>
                 <StatusBadge tone="warn">Pending loosen</StatusBadge>
-                <ProofLink value={MOCK_SOL} kind="solana-address" />
+                <AddressChip value={MOCK_SOL} chain="solana" label="Address" />
               </div>
               <SpendMeter perTxCap="0.05" dailyUsed="0.09" dailyCap="0.1" />
             </CardContent>
@@ -106,7 +107,7 @@ function PreviewTabs() {
               <CardTitle>Recipients and token accounts</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="break-all font-mono text-xs">{MOCK_SOL}</p>
+              <AddressChip value={MOCK_SOL} chain="solana" display="full" />
               <div className="space-y-2">
                 <Label>Solana address or ATA</Label>
                 <Input readOnly value="" placeholder="Solana address or ATA" />
@@ -122,7 +123,7 @@ function PreviewTabs() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="font-mono text-xs">agent1.guard.djume.testnet</p>
+                <AddressChip value="agent1.guard.djume.testnet" chain="near" />
                 <ConfirmButton
                   title="Remove agent1.guard.djume.testnet?"
                   confirmLabel="Remove agent"

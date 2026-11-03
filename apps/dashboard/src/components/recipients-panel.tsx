@@ -5,6 +5,7 @@ import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { isBase58Pubkey } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
+import { AddressChip } from './address-chip';
 import { ConfirmButton } from './confirm-button';
 import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
@@ -80,7 +81,9 @@ export function RecipientsPanel({
             <TableBody>
               {recipients.map((recipient) => (
                 <TableRow key={recipient}>
-                  <TableCell className="break-all font-mono text-xs">{recipient}</TableCell>
+                  <TableCell className="min-w-0">
+                    <AddressChip value={recipient} chain="solana" />
+                  </TableCell>
                   <TableCell className="text-right">
                     {canEdit ? (
                       <ConfirmButton

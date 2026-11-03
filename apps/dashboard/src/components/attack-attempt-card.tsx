@@ -25,7 +25,31 @@ function isAttackKind(value: string | undefined): value is AttackKind {
   return Boolean(value && value in ATTACK_LABELS);
 }
 
-export type AttackOutcomeKind = 'rejected' | 'bypassed' | 'unexpected';
+export type AttackOutcomeKind = 'rejected' | 'bypassed' | 'unexpected' | 'failed' | 'refused';
+
+export const NO_SIGNATURE_NOTE = 'No signature was produced.';
+export const PRE_SEND_REFUSAL_NOTE =
+  'This request was refused before sending. No on-chain attempt was made.';
+
+export function isPreSendRefusal(result: AttackLabResult): boolean {
+  if (result.attempts?.[0]?.result) {
+    return false;
+  }
+  if (!result.error) {
+    return false;
+  }
+  if (result.expected && result.evaluated) {
+    return true;
+  }
+  return /was not called|skipped/i.test(result.error);
+}
+
+export function networkFailureResult(kind?: string): AttackLabResult {
+  return {
+    kind,
+    error: 'The attack lab request did not reach the server.',
+  };
+}
 
 export function isOnChainRejection(result: AttackLabResult): boolean {
   const attempt = result.attempts?.[0]?.result;
@@ -35,7 +59,10 @@ export function isOnChainRejection(result: AttackLabResult): boolean {
 export function classifyAttackOutcome(result: AttackLabResult): AttackOutcomeKind | null {
   const attempt = result.attempts?.[0]?.result;
   if (!attempt) {
-    return null;
+    if (isPreSendRefusal(result)) {
+      return 'refused';
+    }
+    return result.error ? 'failed' : null;
   }
   if (isOnChainRejection(result)) {
     return 'rejected';
@@ -43,15 +70,24 @@ export function classifyAttackOutcome(result: AttackLabResult): AttackOutcomeKin
   if (attempt.unexpected) {
     return 'bypassed';
   }
+  if (!attempt.code) {
+    return 'failed';
+  }
   return 'unexpected';
 }
 
 export function attackOutcomeHeading(outcome: AttackOutcomeKind): string {
   if (outcome === 'rejected') {
-    return 'REJECTED';
+    return 'Blocked by guard';
   }
   if (outcome === 'bypassed') {
     return 'ALLOWED — guard bypassed';
+  }
+  if (outcome === 'failed') {
+    return 'Request failed';
+  }
+  if (outcome === 'refused') {
+    return 'Request refused';
   }
   return 'Unexpected outcome';
 }
@@ -61,19 +97,61 @@ export function unexpectedOutcomeDetail(result: AttackLabResult): string | undef
   return attempt?.code ?? attempt?.message;
 }
 
-function UnexpectedOutcomeCard({ detail }: { detail?: string }) {
+function UnexpectedOutcomeCard({
+  heading,
+  detail,
+  kicker = 'On-chain result',
+}: {
+  heading: string;
+  detail?: string;
+  kicker?: string;
+}) {
   return (
     <div
       role="status"
       aria-live="polite"
       className="rounded-lg border border-warning/40 bg-warning/10 p-5"
     >
-      <p className="sr-only">Unexpected outcome{detail ? ` ${detail}` : ''}</p>
-      <p className="kicker">On-chain result</p>
-      <p className="mt-1 font-heading text-3xl font-semibold tracking-tight text-warning">
-        Unexpected outcome
+      <p className="sr-only">
+        {heading}
+        {detail ? ` ${detail}` : ''}
+      </p>
+      <p className="kicker">{kicker}</p>
+      <p className="mt-1 font-heading text-2xl font-semibold tracking-tight text-warning">
+        {heading}
       </p>
       {detail ? <p className="mt-2 font-mono text-sm text-foreground">{detail}</p> : null}
+    </div>
+  );
+}
+
+function FailedRequestCard({ detail }: { detail?: string }) {
+  return (
+    <div role="alert" className="rounded-lg border border-warning/40 bg-warning/10 p-5">
+      <p className="sr-only">Request failed{detail ? ` ${detail}` : ''}</p>
+      <p className="kicker">Transport</p>
+      <p className="mt-1 font-heading text-2xl font-semibold tracking-tight text-warning">
+        Request failed
+      </p>
+      {detail ? <p className="mt-2 text-sm text-foreground">{detail}</p> : null}
+      <p className="mt-2 text-sm text-muted-foreground">
+        This is a network or server error, not a policy block. The guard did not evaluate a
+        signature request.
+      </p>
+    </div>
+  );
+}
+
+function RefusedRequestCard({ detail }: { detail?: string }) {
+  return (
+    <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 p-5">
+      <p className="sr-only">Request refused{detail ? ` ${detail}` : ''}</p>
+      <p className="kicker">Local check</p>
+      <p className="mt-1 font-heading text-2xl font-semibold tracking-tight text-warning">
+        Request refused
+      </p>
+      {detail ? <p className="mt-2 text-sm text-foreground">{detail}</p> : null}
+      <p className="mt-2 text-sm text-muted-foreground">{PRE_SEND_REFUSAL_NOTE}</p>
     </div>
   );
 }
@@ -117,8 +195,16 @@ export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
             </p>
           </li>
         </ol>
-        {result.error && !ran ? <p className="text-sm text-rejected">{result.error}</p> : null}
-        {!ran || !outcome ? (
+        {result.error &&
+        (outcome === 'failed' || outcome === 'refused') &&
+        !ran ? null : result.error && !ran ? (
+          <p className="text-sm text-rejected">{result.error}</p>
+        ) : null}
+        {outcome === 'failed' ? (
+          <FailedRequestCard detail={result.error ?? unexpectedOutcomeDetail(result)} />
+        ) : outcome === 'refused' ? (
+          <RefusedRequestCard detail={result.error} />
+        ) : !ran || !outcome ? (
           <p className="text-sm text-muted-foreground">On-chain attempt not run.</p>
         ) : outcome === 'rejected' ? (
           <PolicyVerdict
@@ -127,7 +213,9 @@ export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
             code={attempt?.code}
             expected={result.expected}
             actual={attempt?.code}
-          />
+          >
+            <p className="text-sm text-muted-foreground">{NO_SIGNATURE_NOTE}</p>
+          </PolicyVerdict>
         ) : outcome === 'bypassed' ? (
           <PolicyVerdict
             verdict="allowed"
@@ -137,7 +225,10 @@ export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
             actual={attempt?.unexpected ?? attempt?.code}
           />
         ) : (
-          <UnexpectedOutcomeCard detail={unexpectedOutcomeDetail(result)} />
+          <UnexpectedOutcomeCard
+            heading={attackOutcomeHeading('unexpected')}
+            detail={unexpectedOutcomeDetail(result)}
+          />
         )}
       </CardContent>
     </Card>

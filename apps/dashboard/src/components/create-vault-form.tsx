@@ -5,7 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { submittedSuccess } from '@/lib/action-result-state';
-import { publicConfig, solanaExplorerAddressUrl } from '@/lib/config';
+import { publicConfig } from '@/lib/config';
 import {
   VAULT_LIMIT_UNAVAILABLE,
   createVaultUiBlockedReason,
@@ -16,7 +16,7 @@ import { createViews } from '@/lib/near';
 import { defaultCreatePolicyForm } from '@/lib/policy';
 import { policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
-import { ProofLink } from './proof-link';
+import { AddressChip } from './address-chip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -183,18 +183,9 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
             </div>
             <div>
               <p className="kicker">Vault address</p>
-              <p className="mt-2 break-all font-mono text-sm">{derived}</p>
-              <div className="mt-3">
-                <ProofLink value={derived} kind="solana-address" />
+              <div className="mt-2">
+                <AddressChip value={derived} chain="solana" display="full" label="Address" />
               </div>
-              <a
-                className="mt-2 inline-block text-xs text-accent underline-offset-4 hover:underline"
-                href={solanaExplorerAddressUrl(publicConfig.solanaRpcUrl, derived)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Solana explorer
-              </a>
               <p className="mt-3 text-xs text-muted-foreground">
                 Fund this address on Solana devnet after creation. Default policy: 0.05 SOL / tx,
                 0.1 SOL / 24h, System + ComputeBudget, priority fees capped at 0.001 SOL / tx, 1h

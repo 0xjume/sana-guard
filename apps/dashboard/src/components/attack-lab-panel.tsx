@@ -2,7 +2,11 @@
 
 import { useEffect, useId, useState } from 'react';
 import { ATTACK_EXPECTED, ATTACK_KINDS, ATTACK_LABELS, type AttackKind } from '@/lib/attack-lab';
-import { AttackAttemptCard, type AttackLabResult } from './attack-attempt-card';
+import {
+  AttackAttemptCard,
+  networkFailureResult,
+  type AttackLabResult,
+} from './attack-attempt-card';
 import { StatusBadge } from './status-badge';
 import { Button } from '@/components/ui/button';
 import { FlaskConical } from 'lucide-react';
@@ -40,7 +44,16 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
         },
         body: JSON.stringify({ kind }),
       });
-      setResults((await response.json()) as AttackLabResult);
+      try {
+        setResults((await response.json()) as AttackLabResult);
+      } catch {
+        setResults({
+          kind,
+          error: `Server returned HTTP ${response.status}`,
+        });
+      }
+    } catch {
+      setResults(networkFailureResult(kind));
     } finally {
       setBusy(null);
     }

@@ -77,4 +77,23 @@ export function solanaExplorerAddressUrl(rpcUrl: string, address: string): strin
   return `https://explorer.solana.com/address/${address}?cluster=${cluster}`;
 }
 
+export function nearExplorerAccountUrl(network: NearNetwork, accountId: string): string {
+  const prefix = network === 'mainnet' ? '' : 'testnet.';
+  return `https://${prefix}nearblocks.io/address/${accountId}`;
+}
+
+export type AddressChain = 'solana' | 'near';
+
+export function addressExplorerUrl(args: {
+  chain: AddressChain;
+  value: string;
+  nearNetwork?: NearNetwork;
+  solanaRpcUrl?: string;
+}): string {
+  if (args.chain === 'near') {
+    return nearExplorerAccountUrl(args.nearNetwork ?? publicConfig.nearNetwork, args.value);
+  }
+  return solanaExplorerAddressUrl(args.solanaRpcUrl ?? publicConfig.solanaRpcUrl, args.value);
+}
+
 export const publicConfig = loadPublicConfig();

@@ -14,6 +14,7 @@ import { publicConfig } from '@/lib/config';
 import { fetchOwnerActionLimits, VAULT_LIMIT_UNAVAILABLE } from '@/lib/create-vault-limits';
 import { nearToYocto } from '@/lib/format';
 import { ActionResult } from './action-result';
+import { AddressChip } from './address-chip';
 import { ConfirmButton } from './confirm-button';
 import { CopyButton } from './copy-button';
 import type { GuardActionError } from '@/lib/errors';
@@ -174,7 +175,9 @@ export function AgentsPanel({
             <TableBody>
               {agents.map((agent) => (
                 <TableRow key={agent}>
-                  <TableCell className="font-mono text-xs">{agent}</TableCell>
+                  <TableCell className="min-w-0">
+                    <AddressChip value={agent} chain="near" />
+                  </TableCell>
                   <TableCell className="text-right">
                     {canEdit ? (
                       <ConfirmButton

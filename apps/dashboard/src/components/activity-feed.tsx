@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { publicConfig } from '@/lib/config';
-import type { ActivityItem } from '@/lib/activity';
+import { activityNearAccount, type ActivityItem } from '@/lib/activity';
+import { AddressChip } from './address-chip';
 import { StatusBadge } from './status-badge';
 import { ProofLink } from './proof-link';
 import { Activity } from 'lucide-react';
@@ -77,46 +78,54 @@ export function ActivityFeed({ vaultId }: { vaultId: number }) {
                 : 'No indexed events for this vault yet.'}
             </li>
           ) : null}
-          {items.map((item, index) => (
-            <li
-              key={`${item.txHash ?? 'x'}-${item.kind}-${index}`}
-              className="border-l border-divider pl-3"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge
-                  tone={
-                    item.kind.includes('reject') || item.kind.includes('fail')
-                      ? 'danger'
-                      : item.kind === 'signed'
-                        ? 'ok'
-                        : 'muted'
-                  }
-                >
-                  {item.title}
-                </StatusBadge>
-                {item.timestampMs ? (
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {new Date(item.timestampMs).toISOString()}
-                  </span>
-                ) : null}
-              </div>
-              {item.detail ? (
-                <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
-              ) : null}
-              {item.reqId ? (
-                <p className="mt-1 font-mono text-xs text-muted-foreground">req {item.reqId}</p>
-              ) : null}
-              {item.txHash ? (
-                <div className="mt-2">
-                  <ProofLink
-                    value={item.txHash}
-                    kind="near-tx"
-                    finalized={item.kind === 'signed'}
-                  />
+          {items.map((item, index) => {
+            const account = activityNearAccount(item);
+            return (
+              <li
+                key={`${item.txHash ?? 'x'}-${item.kind}-${index}`}
+                className="border-l border-divider pl-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge
+                    tone={
+                      item.kind.includes('reject') || item.kind.includes('fail')
+                        ? 'danger'
+                        : item.kind === 'signed'
+                          ? 'ok'
+                          : 'muted'
+                    }
+                  >
+                    {item.title}
+                  </StatusBadge>
+                  {item.timestampMs ? (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {new Date(item.timestampMs).toISOString()}
+                    </span>
+                  ) : null}
                 </div>
-              ) : null}
-            </li>
-          ))}
+                {item.detail && item.detail !== account ? (
+                  <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                ) : null}
+                {account ? (
+                  <div className="mt-1">
+                    <AddressChip value={account} chain="near" compact />
+                  </div>
+                ) : null}
+                {item.reqId ? (
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">req {item.reqId}</p>
+                ) : null}
+                {item.txHash ? (
+                  <div className="mt-2">
+                    <ProofLink
+                      value={item.txHash}
+                      kind="near-tx"
+                      finalized={item.kind === 'signed'}
+                    />
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
         </ol>
       </CardContent>
     </Card>

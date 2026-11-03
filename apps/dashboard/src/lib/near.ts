@@ -19,7 +19,8 @@ export async function callNearViewRaw(
   contractId: string,
   methodName: string,
   args: Record<string, unknown> = {},
-  rpcUrl: string = publicConfig.nearRpcUrl
+  rpcUrl: string = publicConfig.nearRpcUrl,
+  options: { revalidate?: number } = {}
 ): Promise<string> {
   const argsBase64 = Buffer.from(JSON.stringify(args)).toString('base64');
   const response = await fetchWithTimeout(
@@ -39,6 +40,7 @@ export async function callNearViewRaw(
           args_base64: argsBase64,
         },
       }),
+      next: options.revalidate === undefined ? undefined : { revalidate: options.revalidate },
     },
     'NEAR testnet RPC'
   );
@@ -67,7 +69,8 @@ export async function callNearViewRaw(
 
 export function createViews(
   guardContract: string = publicConfig.guardContract,
-  rpcUrl: string = publicConfig.nearRpcUrl
+  rpcUrl: string = publicConfig.nearRpcUrl,
+  options: { revalidate?: number } = {}
 ): Views {
   const viewFunction = async (opts: {
     contractId: string;
@@ -75,7 +78,13 @@ export function createViews(
     args?: Record<string, unknown>;
     parse?: (bytes: Uint8Array) => unknown;
   }) => {
-    const text = await callNearViewRaw(opts.contractId, opts.methodName, opts.args ?? {}, rpcUrl);
+    const text = await callNearViewRaw(
+      opts.contractId,
+      opts.methodName,
+      opts.args ?? {},
+      rpcUrl,
+      options
+    );
     if (opts.parse) {
       return opts.parse(Buffer.from(text, 'utf8'));
     }
@@ -124,7 +133,8 @@ export async function listOwnerVaults(
 
 export async function getSolanaBalanceLamports(
   address: string,
-  rpcUrl: string = publicConfig.solanaRpcUrl
+  rpcUrl: string = publicConfig.solanaRpcUrl,
+  options: { revalidate?: number } = {}
 ): Promise<bigint> {
   const response = await fetchWithTimeout(
     rpcUrl,
@@ -137,6 +147,7 @@ export async function getSolanaBalanceLamports(
         method: 'getBalance',
         params: [address],
       }),
+      next: options.revalidate === undefined ? undefined : { revalidate: options.revalidate },
     },
     'Solana RPC'
   );

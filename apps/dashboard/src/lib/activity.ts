@@ -20,6 +20,7 @@ export interface ActivityItem {
   kind: ActivityKind;
   title: string;
   detail?: string;
+  agent?: string;
   vaultId?: number;
   reqId?: string;
   txHash?: string;
@@ -110,6 +111,16 @@ function titleFor(kind: ActivityKind, code?: string): string {
   }
 }
 
+export function activityNearAccount(item: ActivityItem): string | undefined {
+  if (item.agent) {
+    return item.agent;
+  }
+  if (item.detail && /^[a-z0-9._-]{2,64}\.[a-z0-9._-]+$/.test(item.detail)) {
+    return item.detail;
+  }
+  return undefined;
+}
+
 export function parseEventJsonLog(log: string): ActivityItem | null {
   const marker = 'EVENT_JSON:';
   const index = log.indexOf(marker);
@@ -148,12 +159,14 @@ export function parseEventJsonLog(log: string): ActivityItem | null {
           : undefined;
     const reqId = typeof data.req_id === 'string' ? data.req_id : undefined;
     const reason = typeof data.reason === 'string' ? data.reason : undefined;
+    const agent = typeof data.agent === 'string' ? data.agent : undefined;
     const code = reason?.match(/SG_E\d{3}_[A-Z0-9_]+/)?.[0];
     const kind = eventKind(name);
     return {
       kind,
       title: titleFor(kind, code),
-      detail: reason ?? (typeof data.agent === 'string' ? data.agent : undefined),
+      detail: reason ?? agent,
+      agent,
       vaultId: Number.isFinite(vaultId) ? vaultId : undefined,
       reqId,
       code,

@@ -6,7 +6,8 @@ import type { OwnerVaultEntry } from '@/lib/near';
 import { createViews, listOwnerVaults } from '@/lib/near';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { ChevronRight, Wallet } from 'lucide-react';
-import { formatSol, shortenAddress } from '@/lib/format';
+import { formatSol } from '@/lib/format';
+import { AddressChip } from './address-chip';
 import { SectionHeader } from './section-header';
 import { StatusBadge } from './status-badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -91,22 +92,29 @@ export function VaultList({ refreshKey = 0 }: { refreshKey?: number }) {
             const solLimit = vault.policy.perTxLimit.find((item) => item.mint.type === 'sol');
             const solCap = vault.policy.dailyCap.find((item) => item.mint.type === 'sol');
             return (
-              <Link
+              <div
                 key={id}
-                href={`/vaults/${id}`}
                 className="group flex flex-col rounded-md border border-border bg-background/40 p-4 motion-safe:transition hover:border-primary/40 hover:bg-secondary/60"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-heading text-base font-semibold">Vault {id}</p>
-                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                      {shortenAddress(vault.vaultAddress, 6, 6)}
-                    </p>
+                    <Link href={`/vaults/${id}`} className="font-heading text-base font-semibold">
+                      Vault {id}
+                    </Link>
+                    <div className="mt-1">
+                      <AddressChip value={vault.vaultAddress} chain="solana" compact />
+                    </div>
                   </div>
-                  <ChevronRight
-                    aria-hidden
-                    className="size-4 shrink-0 text-muted-foreground motion-safe:transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
-                  />
+                  <Link
+                    href={`/vaults/${id}`}
+                    className="grid size-8 shrink-0 place-items-center rounded-pill text-muted-foreground hover:text-primary"
+                    aria-label={`Open vault ${id}`}
+                  >
+                    <ChevronRight
+                      aria-hidden
+                      className="size-4 motion-safe:transition-transform group-hover:translate-x-0.5"
+                    />
+                  </Link>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   <StatusBadge tone={vault.paused ? 'danger' : 'ok'}>
@@ -134,7 +142,7 @@ export function VaultList({ refreshKey = 0 }: { refreshKey?: number }) {
                     <dd className="mt-0.5 font-mono">{vault.agents.length}</dd>
                   </div>
                 </dl>
-              </Link>
+              </div>
             );
           })}
         </div>

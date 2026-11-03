@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { activityFromTxns, parseEventJsonLog, parseNearblocksTransactions } from './activity';
+import {
+  activityFromTxns,
+  activityNearAccount,
+  parseEventJsonLog,
+  parseNearblocksTransactions,
+} from './activity';
 
 describe('activity parsing', () => {
   it('parses nested NEP-297 Sana Guard events', () => {
@@ -9,6 +14,25 @@ describe('activity parsing', () => {
     expect(item?.kind).toBe('sign_requested');
     expect(item?.vaultId).toBe(0);
     expect(item?.reqId).toBe('ab');
+    expect(item?.agent).toBe('agent1.guard.djume.testnet');
+    expect(activityNearAccount(item!)).toBe('agent1.guard.djume.testnet');
+  });
+
+  it('treats a NEAR account detail as an address for AddressChip', () => {
+    expect(
+      activityNearAccount({
+        kind: 'agent_added',
+        title: 'Agent added',
+        detail: 'agent2.guard.djume.testnet',
+      })
+    ).toBe('agent2.guard.djume.testnet');
+    expect(
+      activityNearAccount({
+        kind: 'failed_receipt',
+        title: 'Request failed',
+        detail: 'Smart contract panicked: SG_E067_RECIPIENT_NOT_ALLOWED',
+      })
+    ).toBeUndefined();
   });
 
   it('parses panic logs that only contain an SG_E code', () => {
