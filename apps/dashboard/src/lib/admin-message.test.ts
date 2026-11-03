@@ -7,20 +7,25 @@ import {
   type Ed25519Signer,
   type Policy,
 } from '@sana-guard/sdk';
-import { describeAdminMessage } from './admin-message';
+import { decodeAdminSignBytes, describeAdminMessage } from './admin-message';
 
 /** Captures the exact bytes the SDK asks the wallet to sign. */
-function capturingSigner(): { signer: Ed25519Signer; signed: () => string } {
+function capturingSigner(): {
+  signer: Ed25519Signer;
+  signed: () => string;
+  signedBytes: () => Uint8Array;
+} {
   let last: Uint8Array = new Uint8Array();
   return {
     signer: {
       publicKey: new Uint8Array(32),
       sign: async (message) => {
-        last = message;
+        last = message.slice();
         return new Uint8Array(64);
       },
     },
-    signed: () => new TextDecoder().decode(last),
+    signed: () => decodeAdminSignBytes(last),
+    signedBytes: () => last,
   };
 }
 
@@ -119,5 +124,17 @@ describe('describeAdminMessage', () => {
         'SANA-GUARD-ADMIN-v1\nnetwork: near-testnet\ncontract: g\nvault: 0\nnonce: 1\nexpires: 1\nnope'
       )
     ).toThrow('missing "action:"');
+  });
+
+  it('rejects non-UTF-8 payloads instead of decoding them lossily', () => {
+    expect(() => decodeAdminSignBytes(new Uint8Array([0xff, 0xfe, 0xfd]))).toThrow();
+  });
+
+  it('reviews the exact UTF-8 bytes the SDK passes to the signer', async () => {
+    const { signer, signed, signedBytes } = capturingSigner();
+    await setPolicyAction('near-testnet', 'guard.djume.testnet', 3, 9, policy(), signer);
+    const bytes = signedBytes();
+    expect(decodeAdminSignBytes(bytes)).toBe(signed());
+    expect(describeAdminMessage(decodeAdminSignBytes(bytes)).title).toBe('Change vault policy');
   });
 });

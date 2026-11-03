@@ -1,7 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import type { Policy } from '@sana-guard/sdk';
-import { isPolicyStricter, mintKey, policyLoosenReasons } from './policy';
+import { defaultCreatePolicyForm, isPolicyStricter, mintKey, policyLoosenReasons } from './policy';
 import { policyFromForm, formFromPolicy, isBase58Pubkey } from './policy-form';
 
 const solMint = { type: 'sol' as const };
@@ -82,6 +82,17 @@ describe('pubkey validation', () => {
     expect(isBase58Pubkey('')).toBe(false);
     expect(isBase58Pubkey('hello')).toBe(false);
     expect(isBase58Pubkey('0x1111111111111111111111111111111111111111')).toBe(false);
+  });
+});
+
+describe('new vault defaults', () => {
+  it('caps new vaults at 1 lamport/CU and 0.001 SOL total priority fee', () => {
+    const form = defaultCreatePolicyForm();
+    expect(form.maxPriorityFeeLamports).toBe('1');
+    expect(form.maxTotalPriorityFeeLamports).toBe('1000000');
+    const encoded = policyFromForm(form);
+    expect(encoded.maxPriorityFeeLamports).toBe(1n);
+    expect(encoded.maxTotalPriorityFeeLamports).toBe(1_000_000n);
   });
 });
 
