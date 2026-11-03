@@ -1,9 +1,8 @@
 'use client';
 
 import { Buffer } from 'buffer';
-import { PrivyProvider } from '@privy-io/react-auth';
-import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
-import { OwnerSessionProvider } from '@/hooks/use-owner-session';
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { OwnerSessionProvider, pendingSession } from '@/hooks/use-owner-session';
 import { SignReviewProvider } from '@/components/sign-review';
 import { publicConfig } from '@/lib/config';
 
@@ -11,7 +10,7 @@ if (typeof window !== 'undefined' && !window.Buffer) {
   window.Buffer = Buffer;
 }
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children }: { children: ReactNode }) {
   if (!publicConfig.privyAppId) {
     return (
       <SignReviewProvider>
@@ -20,33 +19,31 @@ export function Providers({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return (
-    <PrivyProvider
-      appId={publicConfig.privyAppId}
-      clientId={publicConfig.privyClientId ?? undefined}
-      config={{
-        loginMethods: ['email', 'wallet'],
-        appearance: {
-          theme: 'dark',
-          accentColor: '#15c15d',
-          logo: undefined,
-          walletChainType: 'solana-only',
-        },
-        embeddedWallets: {
-          solana: {
-            createOnLogin: 'users-without-wallets',
-          },
-        },
-        externalWallets: {
-          solana: {
-            connectors: toSolanaWalletConnectors(),
-          },
-        },
-      }}
-    >
+  return <LazyPrivy>{children}</LazyPrivy>;
+}
+
+function LazyPrivy({ children }: { children: ReactNode }) {
+  const [Tree, setTree] = useState<ComponentType<{ children: ReactNode }> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void import('./privy-tree').then((mod) => {
+      if (!cancelled) {
+        setTree(() => mod.PrivyTree);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!Tree) {
+    return (
       <SignReviewProvider>
-        <OwnerSessionProvider>{children}</OwnerSessionProvider>
+        <OwnerSessionProvider session={pendingSession}>{children}</OwnerSessionProvider>
       </SignReviewProvider>
-    </PrivyProvider>
-  );
+    );
+  }
+
+  return <Tree>{children}</Tree>;
 }

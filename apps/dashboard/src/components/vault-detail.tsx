@@ -27,13 +27,19 @@ import {
   solExactTitle,
   worstCasePriorityFeeLamports,
 } from '@/lib/format';
-import { clonePolicy, createViews, getSolanaBalanceLamports } from '@/lib/near';
+import { clonePolicy } from '@/lib/near';
+import { ownerCanEdit } from '@/lib/owner-can-edit';
+import {
+  deserializeVaultSnapshot,
+  loadVaultSnapshot,
+  type SerializedVaultSnapshot,
+} from '@/lib/vault-snapshot';
 import { ActionResult } from './action-result';
 import { ActivityFeed } from './activity-feed';
+import { AddressChip } from './address-chip';
 import { AgentsPanel } from './agents-panel';
 import { AttackLabPanel } from './attack-lab-panel';
 import { PolicyEditor } from './policy-editor';
-import { ProofLink } from './proof-link';
 import { RecipientsPanel } from './recipients-panel';
 import { CopyButton } from './copy-button';
 import { LoadError } from './load-error';
@@ -156,44 +162,43 @@ function PolicySummary({ policy }: { policy: Policy }) {
   );
 }
 
-export function VaultDetail({ vaultId }: { vaultId: number }) {
+export function VaultDetail({
+  vaultId,
+  initialSnapshot,
+}: {
+  vaultId: number;
+  initialSnapshot?: SerializedVaultSnapshot;
+}) {
   const session = useOwnerSession();
-  const [vault, setVault] = useState<VaultView | null>(null);
-  const [recipients, setRecipients] = useState<string[]>([]);
-  const [spend, setSpend] = useState<Array<{ mint: string; amount: bigint }>>([]);
-  const [balance, setBalance] = useState<bigint | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const initial = initialSnapshot ? deserializeVaultSnapshot(initialSnapshot) : null;
+  const [vault, setVault] = useState<VaultView | null>(initial?.vault ?? null);
+  const [recipients, setRecipients] = useState<string[]>(initial?.recipients ?? []);
+  const [spend, setSpend] = useState<Array<{ mint: string; amount: bigint }>>(initial?.spend ?? []);
+  const [balance, setBalance] = useState<bigint | null>(initial?.balance ?? null);
+  const [error, setError] = useState<string | null>(
+    initial?.status === 'error' ? (initial.error ?? 'Failed to load vault') : null
+  );
   const [actionError, setActionError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const views = createViews();
-    const vaultPromise = views.getVault(vaultId);
-    const detailsPromise = Promise.all([views.getRecipients(vaultId), views.getSpend24h(vaultId)]);
-    const next = await vaultPromise;
-    if (!next) {
-      void detailsPromise.catch(() => undefined);
+    const snapshot = await loadVaultSnapshot(vaultId);
+    if (snapshot.status === 'not_found') {
       setVault(null);
       setError('Vault not found');
       return;
     }
-    let nextRecipients: string[] = [];
-    let nextSpend: Array<{ mint: string; amount: bigint }> = [];
-    try {
-      [nextRecipients, nextSpend] = await detailsPromise;
-    } catch {
-      // Vault identity loaded; allowlists and spend can stay empty until retry.
+    if (snapshot.status === 'error' || !snapshot.vault) {
+      setVault(null);
+      setError(snapshot.error ?? 'Failed to load vault');
+      return;
     }
-    setVault(next);
-    setRecipients(nextRecipients);
-    setSpend(nextSpend);
+    setVault(snapshot.vault);
+    setRecipients(snapshot.recipients ?? []);
+    setSpend(snapshot.spend ?? []);
+    setBalance(snapshot.balance ?? null);
     setError(null);
-    try {
-      setBalance(await getSolanaBalanceLamports(next.vaultAddress));
-    } catch {
-      setBalance(null);
-    }
   }, [vaultId]);
 
   const reload = useCallback(() => {
@@ -204,8 +209,14 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
   }, [load]);
 
   useEffect(() => {
+    if (initial?.status === 'ok' && initial.vault) {
+      return;
+    }
+    if (initial?.status === 'error') {
+      return;
+    }
     reload();
-  }, [reload]);
+  }, [initial?.status, initial?.vault, reload]);
 
   const run = async (
     fn: () => Promise<{ success: boolean; txHash?: string; error?: GuardActionError }>
@@ -273,7 +284,9 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
   if (!vault) {
     return (
       <div className="space-y-6" aria-busy="true">
-        <h1 className="font-heading text-3xl font-semibold tracking-tight">Vault {vaultId}</h1>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+          Vault {vaultId}
+        </h1>
         <p className="sr-only" role="status">
           Loading vault {vaultId}
         </p>
@@ -298,7 +311,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
 
   const solSpend = spend.find((item) => item.mint === 'SOL' || item.mint === 'Sol');
   const sessionReady = session.ready;
-  const isOwner = Boolean(session.owner && session.owner === vault.owner);
+  const canEdit = ownerCanEdit(session, vault.owner);
   const solLimit = vault.policy.perTxLimit.find((item) => item.mint.type === 'sol');
   const solCap = vault.policy.dailyCap.find((item) => item.mint.type === 'sol');
 
@@ -325,19 +338,21 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-heading text-3xl font-semibold tracking-tight">Vault {vaultId}</h1>
+            <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+              Vault {vaultId}
+            </h1>
             <StatusBadge tone={vault.paused ? 'danger' : 'ok'}>
               {vault.paused ? 'Paused' : vault.state}
             </StatusBadge>
             {vault.pendingLoosen ? <StatusBadge tone="warn">Pending loosen</StatusBadge> : null}
-            {isOwner ? <StatusBadge tone="muted">You own this vault</StatusBadge> : null}
+            {canEdit ? <StatusBadge tone="muted">You own this vault</StatusBadge> : null}
           </div>
           <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{vault.path}</p>
         </div>
         <ActionResult error={actionError} txHash={txHash} />
       </header>
 
-      {sessionReady && !isOwner ? (
+      {sessionReady && !canEdit ? (
         <div className="flex items-start gap-3 rounded-lg border border-info/30 bg-info/[0.06] px-4 py-3 text-sm">
           <Eye aria-hidden className="mt-0.5 size-4 shrink-0 text-info" />
           <p className="text-muted-foreground">
@@ -411,7 +426,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
                   </div>
                 </div>
               ) : null}
-              {isOwner ? (
+              {canEdit ? (
                 <div className="mt-6">
                   <Separator className="mb-5" />
                   <PolicyEditor
@@ -427,13 +442,13 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
           <RecipientsPanel
             vaultId={vaultId}
             recipients={recipients}
-            canEdit={isOwner}
+            canEdit={canEdit}
             onUpdated={() => void load()}
           />
           <AgentsPanel
             vaultId={vaultId}
             agents={vault.agents}
-            canEdit={isOwner}
+            canEdit={canEdit}
             onUpdated={() => void load()}
           />
           <ActivityFeed vaultId={vaultId} />
@@ -447,10 +462,12 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
               <div className="mx-auto w-fit rounded-md bg-white p-3">
                 <QRCodeSVG value={vault.vaultAddress} size={156} />
               </div>
-              <p className="break-all rounded-md border border-border bg-background/40 px-3 py-2 font-mono text-xs leading-5">
-                {vault.vaultAddress}
-              </p>
-              <ProofLink value={vault.vaultAddress} kind="solana-address" label="Address" />
+              <AddressChip
+                value={vault.vaultAddress}
+                chain="solana"
+                display="full"
+                label="Address"
+              />
               <p className="text-xs leading-5 text-muted-foreground">
                 Derived by the NEAR MPC network for this vault and verified on-chain. Only the guard
                 can sign for it.
@@ -458,7 +475,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
             </CardContent>
           </Card>
 
-          {isOwner ? (
+          {canEdit ? (
             <Card className={vault.paused ? 'border-border' : 'border-rejected-fill/40'}>
               <SectionHeader
                 icon={Power}

@@ -76,7 +76,7 @@ const config: Config = {
         e2: '0 4px 12px rgba(0, 0, 0, 0.3)',
       },
       maxWidth: {
-        console: '1400px',
+        console: '1200px',
       },
       transitionDuration: {
         DEFAULT: '200ms',

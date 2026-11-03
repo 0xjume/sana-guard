@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NO_SIGNATURE_NOTE,
   attackOutcomeHeading,
   classifyAttackOutcome,
   isOnChainRejection,
@@ -55,7 +56,8 @@ describe('classifyAttackOutcome', () => {
         attempts: [{ pass: 1, result: { code: 'SG_E062_PER_TX_LIMIT_EXCEEDED' } }],
       })
     ).toBe('rejected');
-    expect(attackOutcomeHeading('rejected')).toBe('REJECTED');
+    expect(attackOutcomeHeading('rejected')).toBe('Blocked by guard');
+    expect(NO_SIGNATURE_NOTE).toMatch(/no signature/i);
   });
 
   it('is bypassed only when a signature actually returned', () => {
@@ -79,14 +81,22 @@ describe('classifyAttackOutcome', () => {
     expect(attackOutcomeHeading('unexpected')).not.toMatch(/ALLOWED/i);
   });
 
-  it('is unexpected for a network/RPC failure with no code, with no ALLOWED wording', () => {
+  it('is failed for a network/RPC failure with no code, distinct from a guard block', () => {
     const result = {
       ...base,
       attempts: [{ pass: 1, result: { message: 'RPC request failed' } }],
     };
-    expect(classifyAttackOutcome(result)).toBe('unexpected');
+    expect(classifyAttackOutcome(result)).toBe('failed');
     expect(unexpectedOutcomeDetail(result)).toBe('RPC request failed');
-    expect(attackOutcomeHeading('unexpected')).not.toMatch(/ALLOWED/i);
+    expect(attackOutcomeHeading('failed')).toBe('Request failed');
+    expect(attackOutcomeHeading('failed')).not.toMatch(/Blocked by guard/i);
+    expect(attackOutcomeHeading('failed')).not.toMatch(/ALLOWED/i);
+  });
+
+  it('is failed for HTTP / server errors that never reached request_sign', () => {
+    const result = { ...base, error: 'Unauthorized' };
+    expect(classifyAttackOutcome(result)).toBe('failed');
+    expect(attackOutcomeHeading('failed')).not.toMatch(/Blocked by guard/i);
   });
 
   it('is null when no attempts ran', () => {

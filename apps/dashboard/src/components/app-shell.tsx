@@ -2,11 +2,11 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { LogIn, LogOut } from 'lucide-react';
 import { publicConfig } from '@/lib/config';
 import { useOwnerSession } from '@/hooks/use-owner-session';
-import { shortenAddress } from '@/lib/format';
+import { AddressChip } from './address-chip';
 import { ContractVersion } from './contract-version';
-import { CopyButton } from './copy-button';
 import { NetworkPill } from './network-pill';
 import { PageBackdrop } from './page-backdrop';
 import { SkipLink } from './skip-link';
@@ -24,34 +24,68 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="relative min-h-screen">
         <SkipLink />
         <PageBackdrop />
-        <header className="sticky top-0 z-40 px-4 pt-4">
+        <header className="sticky top-0 z-40 px-3 pt-3 sm:px-4 sm:pt-4">
           <div className="mx-auto max-w-console">
-            <nav className="flex flex-col gap-3 rounded-pill border border-border bg-card/80 px-4 py-3 shadow-e1 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-              <Link href="/" className="rounded-pill">
+            <nav className="flex items-center justify-between gap-2 overflow-hidden rounded-pill border border-border bg-card/80 px-2.5 py-2 shadow-e1 backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-3">
+              <Link href="/" className="shrink-0 rounded-pill">
                 <Wordmark compact />
               </Link>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="flex min-w-0 items-center justify-end gap-1.5 text-xs sm:gap-2">
                 <NetworkPill network={publicConfig.nearNetwork} />
                 {/* Deployment config is a developer concern; visitors get the setup notice instead. */}
                 {process.env.NODE_ENV === 'development' ? (
-                  <StatusBadge tone={session.privyEnabled ? 'ok' : 'warn'}>
+                  <StatusBadge
+                    tone={session.privyEnabled ? 'ok' : 'warn'}
+                    className="hidden sm:inline-flex"
+                  >
                     {session.privyEnabled ? 'Privy configured' : 'Privy missing'}
                   </StatusBadge>
                 ) : null}
                 {session.authenticated && session.owner ? (
                   <>
-                    <span className="font-mono text-muted-foreground">
-                      {shortenAddress(session.owner)}
-                    </span>
-                    <CopyButton value={session.owner} label="Copy owner" />
-                    <Button type="button" variant="outline" size="sm" onClick={session.logout}>
+                    <AddressChip value={session.owner} chain="solana" compact />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 sm:hidden"
+                      onClick={session.logout}
+                    >
+                      <LogOut aria-hidden className="size-4" />
+                      <span className="sr-only">Sign out</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="hidden shrink-0 sm:inline-flex"
+                      onClick={session.logout}
+                    >
                       Sign out
                     </Button>
                   </>
                 ) : session.privyEnabled ? (
-                  <Button type="button" size="sm" onClick={session.login} disabled={!session.ready}>
-                    Sign in
-                  </Button>
+                  <>
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 sm:hidden"
+                      onClick={session.login}
+                      disabled={!session.ready}
+                    >
+                      <LogIn aria-hidden className="size-4" />
+                      <span className="sr-only">Sign in</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="hidden shrink-0 sm:inline-flex"
+                      onClick={session.login}
+                      disabled={!session.ready}
+                    >
+                      Sign in
+                    </Button>
+                  </>
                 ) : null}
               </div>
             </nav>

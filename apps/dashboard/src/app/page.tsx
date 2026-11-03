@@ -44,7 +44,7 @@ function Hero({ onSignIn }: { onSignIn?: () => void }) {
         className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[radial-gradient(closest-side,hsl(var(--primary)/0.22),transparent)] blur-2xl"
       />
       <p className="kicker">Owner console</p>
-      <h1 className="mt-4 max-w-3xl font-heading text-3xl font-semibold leading-tight tracking-tight sm:text-5xl">
+      <h1 className="mt-4 max-w-3xl font-heading text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
         Policy is <span className="text-primary">on-chain</span>. The dashboard only signs it.
       </h1>
       <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
