@@ -67,6 +67,10 @@
     outline: none;
   }
 
+  input[type='checkbox'] {
+    accent-color: hsl(var(--primary));
+  }
+
   code {
     @apply rounded-sm bg-secondary px-1 py-0.5 font-mono text-[0.85em];
   }

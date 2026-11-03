@@ -6,6 +6,7 @@ import { AttackAttemptCard } from '@/components/attack-attempt-card';
 import { OwnerSignInCard } from '@/components/gateway-login';
 import { PolicyVerdict } from '@/components/policy-verdict';
 import { ProofLink } from '@/components/proof-link';
+import { ConfirmButton } from '@/components/confirm-button';
 import { useSignReview } from '@/components/sign-review';
 import { SpendMeter } from '@/components/spend-meter';
 import { StatusBadge } from '@/components/status-badge';
@@ -65,7 +66,7 @@ function PreviewTabs() {
         </CardHeader>
       </Card>
       <Tabs defaultValue={tab}>
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="policy">Policy</TabsTrigger>
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="attack">Attack lab</TabsTrigger>
@@ -120,15 +121,36 @@ function PreviewTabs() {
               <CardTitle>Function-call identities</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="font-mono text-xs">agent1.guard.djume.testnet</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-mono text-xs">agent1.guard.djume.testnet</p>
+                <ConfirmButton
+                  title="Remove agent1.guard.djume.testnet?"
+                  confirmLabel="Remove agent"
+                  onConfirm={() => undefined}
+                  description={
+                    <>
+                      <p>
+                        This agent stops being able to request signatures from this vault
+                        immediately.
+                      </p>
+                      <p>
+                        Its NEAR account stays on-chain, so this name can't be added again. A
+                        replacement agent needs a new name.
+                      </p>
+                    </>
+                  }
+                >
+                  Remove
+                </ConfirmButton>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Name</Label>
-                  <Input readOnly value="agent1" />
+                  <Label htmlFor="preview-agent-name">Name</Label>
+                  <Input id="preview-agent-name" readOnly value="agent1" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Gas funding (NEAR)</Label>
-                  <Input readOnly value="0.15" />
+                  <Label htmlFor="preview-agent-funding">Gas funding (NEAR)</Label>
+                  <Input id="preview-agent-funding" readOnly value="0.15" />
                 </div>
               </div>
             </CardContent>

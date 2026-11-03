@@ -32,9 +32,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <NetworkPill network={publicConfig.nearNetwork} />
-                <StatusBadge tone={session.privyEnabled ? 'ok' : 'warn'}>
-                  {session.privyEnabled ? 'Privy configured' : 'Privy missing'}
-                </StatusBadge>
+                {/* Deployment config is a developer concern; visitors get the setup notice instead. */}
+                {process.env.NODE_ENV === 'development' ? (
+                  <StatusBadge tone={session.privyEnabled ? 'ok' : 'warn'}>
+                    {session.privyEnabled ? 'Privy configured' : 'Privy missing'}
+                  </StatusBadge>
+                ) : null}
                 {session.authenticated && session.owner ? (
                   <>
                     <span className="font-mono text-muted-foreground">

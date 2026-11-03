@@ -66,7 +66,7 @@ export function ProofLink({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="relative h-7 w-7 after:absolute after:-inset-2 after:content-['']"
             onClick={() => void copy()}
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -77,7 +77,12 @@ export function ProofLink({
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-7 w-7 after:absolute after:-inset-2 after:content-['']"
+            asChild
+          >
             <a href={href} target="_blank" rel="noreferrer">
               <ExternalLink className="h-3.5 w-3.5" />
               <span className="sr-only">Open {kindLabel} in explorer</span>

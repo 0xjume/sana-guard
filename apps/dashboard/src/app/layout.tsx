@@ -22,7 +22,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Sana Guard',
+  title: { default: 'Sana Guard', template: '%s · Sana Guard' },
   description: 'Owner console for policy-enforced AI agent wallets',
 };
 

@@ -117,7 +117,11 @@ export default function HomePage() {
           </CardHeader>
         </Card>
       ) : null}
-      {session.authenticated ? null : <Hero onSignIn={canSignIn ? session.login : undefined} />}
+      {session.authenticated ? (
+        <h1 className="sr-only">Owner console</h1>
+      ) : (
+        <Hero onSignIn={canSignIn ? session.login : undefined} />
+      )}
       {!publicConfig.privyAppId ? <MissingConfig /> : null}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6">

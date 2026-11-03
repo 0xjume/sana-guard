@@ -271,7 +271,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 rounded-pill text-muted-foreground underline-offset-4 hover:text-foreground"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-pill pr-2 text-muted-foreground underline-offset-4 hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Vaults
