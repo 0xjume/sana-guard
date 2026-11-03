@@ -6,6 +6,10 @@ AI agents that hold a hot Solana key can be drained by a leak or a prompt inject
 
 NEAR Hackathon · AI Security & Defense · submit by 14 Nov 2026 (WIB). Testnet / Solana devnet only.
 
+**Demo video:** `<VIDEO_URL>` — recording script in [docs/DEMO.md](./docs/DEMO.md).
+
+Judges can open [vault 0](https://guard.sana.bot/vaults/0) **without logging in**: read-only policy, balance, recipients, and the Attack lab UI. The hosted Attack lab is preconfigured. Self-hosting it needs `ATTACK_LAB_TOKEN` (name only; never commit the value).
+
 ## The problem
 
 An agent with a raw key is a hot wallet with an LLM in front of it. Caps in the prompt are not enforcement. Sana Guard moves the caps on-chain: per-tx limit, rolling 24h cap, recipient and program allowlists, priority-fee caps, expiry, idempotency, and a kill switch. A leaked agent function-call key still cannot spend past those rules.
@@ -54,22 +58,22 @@ Derivation path is `vault/<owner_solana_pubkey>/<vault_id>`. The vault Solana ad
 
 ## Policy model
 
-Every `request_sign` fails closed with a stable `SG_E###` panic. The contract parses legacy and v0 Solana messages (no ALTs, no tx-format v1 / `0x81`), then evaluates policy in this order (`contracts/guard/src/policy.rs`):
+Every `request_sign` fails closed with a stable `SG_E###` panic. Evaluation order matches `process_sign_request` / `check_instruction_policy` in [`contracts/guard/src/policy.rs`](./contracts/guard/src/policy.rs). Messages are legacy or v0 only (no ALTs, no tx-format v1 / `0x81`).
 
-| Rule | What it checks | Code |
+| Step | What it checks | Code |
 | --- | --- | --- |
-| Global / vault pause | `admin_pause_all` or owner kill switch | `SG_E051`, `SG_E055` |
-| Agent binding | Predecessor is a registered, active agent for this vault | `SG_E052`–`E056`, `SG_E076` |
+| Pause + agent/vault | Global pause, registered agent, vault exists and is Active, not paused | `SG_E051`–`E056`, `SG_E076` |
 | Expiry | `now < expires_at_ns` | `SG_E057` |
-| Idempotency | Fresh 32-byte `req_id`; message hash unseen in 24h | `SG_E058`–`E060` |
+| Idempotency | 32-byte `req_id`; message hash unseen in 24h | `SG_E058`–`E060` |
+| Message parse | Size 32–1167, 1 signer, ≤8 ixs, no ALTs, supported programs | `SG_E001`–`E050` |
 | Fee payer | Message signer is the vault address | `SG_E061` |
-| Programs | Every ix is in the vault allowlist ∩ supported set | `SG_E074`, `SG_E018` |
-| Recipients | System / SPL / ATA destinations must be allowlisted | `SG_E067`, `SG_E068`, `SG_E070` |
+| Per-ix programs | Vault allowlist; unsupported program is `E018` during parse | `SG_E074`, `SG_E018` |
+| Per-ix destination | System / SPL / ATA recipient; SPL and ATA mint in policy | `SG_E067`–`E071` |
+| Per-ix CU price + memo | CU micro-lamports vs cap; memo UTF-8 length | `SG_E072`, `SG_E073` |
+| Total priority fee | Optional `max_total_priority_fee_lamports` | `SG_E078` |
 | Per-tx limit | Spend per mint ≤ `per_tx_limit` | `SG_E062`, `SG_E063` |
 | Rolling 24h cap | Hourly buckets, 24h window | `SG_E064`, `SG_E065` |
-| Priority fees | CU price and optional total-fee cap | `SG_E072`, `SG_E078` |
-| Memo | UTF-8, `len ≤ max_memo_len` | `SG_E073`, `SG_E035` |
-| Parser / ALTs | Size 32–1167, 1 signer, ≤8 ixs, no lookup tables | `SG_E001`–`E017` |
+| Prepaid gas | Enough left for MPC sign + callback + buffer | `SG_E066` |
 
 Supported instructions: System `Transfer`, SPL Token `Transfer` / `TransferChecked`, ATA `CreateIdempotent`, ComputeBudget setLimit / setPrice, Memo. Tightening a policy is immediate; loosening waits `loosen_delay_ns`. Spend is reserved when the signature is issued. Full map: [`packages/sdk/src/errors.ts`](./packages/sdk/src/errors.ts) (`SG_E001`–`SG_E078`).
 
@@ -110,9 +114,16 @@ The agent FC-key allowance on-chain is 0.25 NEAR. CreateVault storage deposit is
 
 ### SDK (agent)
 
+`@sana-guard/sdk` is **not on npm** yet. Clone the monorepo and build it:
+
 ```bash
-pnpm add @sana-guard/sdk near-api-js @solana/web3.js
+git clone https://github.com/0xjume/sana-guard
+cd sana-guard
+pnpm install
+pnpm --filter @sana-guard/sdk build
 ```
+
+Depend on it with `"@sana-guard/sdk": "workspace:*"` (this repo) or `"@sana-guard/sdk": "file:../sana-guard/packages/sdk"` (another project).
 
 ```ts
 import { Connection, PublicKey } from '@solana/web3.js';

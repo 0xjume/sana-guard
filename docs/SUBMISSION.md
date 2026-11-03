@@ -91,6 +91,6 @@ MIT. Copyright (c) 2026 Jume / 0xjume.
 
 ## Character counts (if the form truncates)
 
-Short description above is ~520 characters. If the form wants ~280:
+Short description above is ~415 characters. If the form wants ~280:
 
 > Policy-enforced agent wallet: a NEAR contract uses Chain Signatures to sign Solana txs for AI agents only after on-chain caps, allowlists, expiry, and a kill switch. Privy for owners. Testnet/devnet live at guard.sana.bot.
