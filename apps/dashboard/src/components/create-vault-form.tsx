@@ -197,7 +197,8 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
               </a>
               <p className="mt-3 text-xs text-muted-foreground">
                 Fund this address on Solana devnet after creation. Default policy: 0.05 SOL / tx,
-                0.1 SOL / 24h, System + ComputeBudget, 1h loosen delay.
+                0.1 SOL / 24h, System + ComputeBudget, priority fees capped at 0.001 SOL / tx, 1h
+                loosen delay.
               </p>
             </div>
           </div>

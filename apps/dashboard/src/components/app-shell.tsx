@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { publicConfig } from '@/lib/config';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { shortenAddress } from '@/lib/format';
+import { ContractVersion } from './contract-version';
 import { CopyButton } from './copy-button';
 import { NetworkPill } from './network-pill';
 import { PageBackdrop } from './page-backdrop';
@@ -56,6 +57,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main id="content" className="mx-auto max-w-console px-4 py-8">
           {children}
         </main>
+        <footer className="mx-auto max-w-console px-4 pb-8">
+          <div className="border-t border-divider pt-4">
+            <ContractVersion />
+          </div>
+        </footer>
         <Toaster />
       </div>
     </TooltipProvider>

@@ -140,4 +140,25 @@ describe('Views', () => {
       args: { path: 'vault/Owner111/2', predecessor: GUARD, domain_id: 1 },
     });
   });
+
+  it('contractVersion maps the version view and tolerates deployments without it', async () => {
+    const { views } = viewsWith({ version: { version: '0.1.0', git_sha: 'abc123def456' } });
+    expect(await views.contractVersion()).toEqual({ version: '0.1.0', gitSha: 'abc123def456' });
+
+    const viewFunction = jest.fn(async () => {
+      throw new Error('wasm execution failed with error: MethodResolveError(MethodNotFound)');
+    });
+    const old = new Views({ viewFunction } as unknown as NearAccount, GUARD);
+    expect(await old.contractVersion()).toBeNull();
+
+    const failing = new Views(
+      {
+        viewFunction: jest.fn(async () => {
+          throw new Error('fetch failed');
+        }),
+      } as unknown as NearAccount,
+      GUARD
+    );
+    await expect(failing.contractVersion()).rejects.toThrow('fetch failed');
+  });
 });

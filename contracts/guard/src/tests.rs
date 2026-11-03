@@ -288,3 +288,22 @@ mod policy_tests {
     // - gas cap enforcement
     // - spend reservation and release on MPC failure
 }
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+    use near_sdk::test_utils::accounts;
+
+    #[test]
+    fn version_reports_crate_version_and_git_sha() {
+        let contract = Guard::new(
+            "v1.signer-prod.testnet".parse().unwrap(),
+            1,
+            "near-testnet".to_string(),
+            accounts(0),
+        );
+        let v = contract.version();
+        assert_eq!(v.version, env!("CARGO_PKG_VERSION"));
+        assert!(!v.git_sha.is_empty());
+    }
+}

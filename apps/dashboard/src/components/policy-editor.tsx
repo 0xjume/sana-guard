@@ -6,7 +6,12 @@ import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { submittedSuccess } from '@/lib/action-result-state';
 import type { GuardActionError } from '@/lib/errors';
-import { formatDurationNs } from '@/lib/format';
+import {
+  formatDurationNs,
+  KNOWN_PROGRAMS,
+  lamportsToSol,
+  worstCasePriorityFeeLamports,
+} from '@/lib/format';
 import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/lib/policy';
 import { formFromPolicy, policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
@@ -14,18 +19,38 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-const KNOWN_PROGRAMS: Array<{ id: string; label: string }> = [
-  { id: '11111111111111111111111111111111', label: 'System' },
-  { id: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', label: 'SPL Token' },
-  { id: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', label: 'ATA' },
-  { id: 'ComputeBudget111111111111111111111111111111', label: 'Compute Budget' },
-  { id: 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo', label: 'Memo' },
-];
-
 function hasPreservedSplLimits(policy: Policy): boolean {
   return (
     policy.perTxLimit.some((item) => item.mint.type !== 'sol') ||
     policy.dailyCap.some((item) => item.mint.type !== 'sol')
+  );
+}
+
+function parseCount(value: string): bigint | null {
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) ? BigInt(trimmed) : null;
+}
+
+/** Spells out the worst-case fee per transaction so the per-CU unit can't be misread. */
+function PriorityFeeWarning({ perCu, total }: { perCu: string; total: string }) {
+  const perCuValue = parseCount(perCu);
+  const totalValue = total.trim() === '' ? undefined : parseCount(total);
+  if (perCuValue === null || totalValue === null || perCuValue === 0n) {
+    return null;
+  }
+  const worst = worstCasePriorityFeeLamports(perCuValue, totalValue);
+  const uncapped = totalValue === undefined;
+  return (
+    <p
+      className={
+        uncapped
+          ? 'rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning sm:col-span-2'
+          : 'text-xs text-muted-foreground sm:col-span-2'
+      }
+    >
+      Worst case per transaction: up to <strong>{lamportsToSol(worst)} SOL</strong> in priority fees
+      {uncapped ? ' (no total cap set).' : '.'} Fees count toward the SOL per-tx and 24h caps.
+    </p>
   );
 }
 
@@ -106,8 +131,8 @@ export function PolicyEditor({
         ) : (
           <p>
             This change <strong>loosens</strong> policy. The guard will schedule it for{' '}
-            {formatDurationNs(policy.loosenDelayNs)} ({values.loosenDelayHours}h current delay).
-            Tightening is immediate; loosening is never instant.
+            {formatDurationNs(policy.loosenDelayNs)} (the vault's current loosen delay). Tightening
+            is immediate; loosening is never instant.
           </p>
         )}
         {reasons.length > 0 ? (
@@ -128,13 +153,38 @@ export function PolicyEditor({
           <Input id="solDaily" {...field('solDaily')} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="maxPriorityFeeLamports">Max priority fee (lamports)</Label>
-          <Input id="maxPriorityFeeLamports" {...field('maxPriorityFeeLamports')} />
+          <Label htmlFor="maxPriorityFeeLamports">Max compute-unit price (lamports per CU)</Label>
+          <Input
+            id="maxPriorityFeeLamports"
+            inputMode="numeric"
+            aria-describedby="maxPriorityFeeLamports-help"
+            {...field('maxPriorityFeeLamports')}
+          />
+          <p id="maxPriorityFeeLamports-help" className="text-xs text-muted-foreground">
+            <code>max_priority_fee_lamports</code>. Caps SetComputeUnitPrice per compute unit; 1 =
+            1,000,000 micro-lamports/CU. 0 forbids priority fees.
+          </p>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="maxTotalPriorityFeeLamports">Max total priority fee (optional)</Label>
-          <Input id="maxTotalPriorityFeeLamports" {...field('maxTotalPriorityFeeLamports')} />
+          <Label htmlFor="maxTotalPriorityFeeLamports">
+            Max total priority fee per transaction (lamports)
+          </Label>
+          <Input
+            id="maxTotalPriorityFeeLamports"
+            inputMode="numeric"
+            placeholder="No cap"
+            aria-describedby="maxTotalPriorityFeeLamports-help"
+            {...field('maxTotalPriorityFeeLamports')}
+          />
+          <p id="maxTotalPriorityFeeLamports-help" className="text-xs text-muted-foreground">
+            <code>max_total_priority_fee_lamports</code>. The setting that bounds what one
+            transaction can burn in fees. 1,000,000 = 0.001 SOL.
+          </p>
         </div>
+        <PriorityFeeWarning
+          perCu={values.maxPriorityFeeLamports}
+          total={values.maxTotalPriorityFeeLamports}
+        />
         <div className="space-y-2">
           <Label htmlFor="maxMemoLen">Max memo length</Label>
           <Input id="maxMemoLen" {...field('maxMemoLen')} />

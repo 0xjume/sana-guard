@@ -5,8 +5,10 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useSignMessage, useWallets } from '@privy-io/react-auth/solana';
 import bs58 from 'bs58';
 import type { Ed25519Signer } from '@sana-guard/sdk';
+import { decodeAdminSignBytes } from '@/lib/admin-message';
 import { publicConfig } from '@/lib/config';
 import { registerPrivyAccessTokenGetter } from '@/lib/privy-browser-token';
+import { useSignReview } from '@/components/sign-review';
 
 export interface OwnerSession {
   privyEnabled: boolean;
@@ -56,6 +58,7 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
   const privy = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
   const { signMessage } = useSignMessage();
+  const reviewMessage = useSignReview();
 
   const wallet = wallets[0];
   const owner = wallet?.address ?? null;
@@ -67,8 +70,15 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
     return {
       publicKey: bs58.decode(owner),
       sign: async (message: Uint8Array) => {
+        // Snapshot the bytes first so the review text and the Privy payload cannot diverge
+        // if the caller reused the buffer. Fatal UTF-8: reject instead of showing a lossy stand-in.
+        const bytes = message.slice();
+        const text = decodeAdminSignBytes(bytes);
+        if (!(await reviewMessage(text))) {
+          throw new Error('Signing cancelled');
+        }
         const signed = await signMessage({
-          message,
+          message: bytes,
           wallet,
           options: { uiOptions: { title: 'Sana Guard owner action' } },
         });
@@ -79,7 +89,7 @@ function LiveOwnerSessionProvider({ children }: { children: React.ReactNode }) {
         return signature;
       },
     };
-  }, [owner, signMessage, wallet]);
+  }, [owner, reviewMessage, signMessage, wallet]);
 
   useEffect(() => {
     registerPrivyAccessTokenGetter(() => privy.getAccessToken());

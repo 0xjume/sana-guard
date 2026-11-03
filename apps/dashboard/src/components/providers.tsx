@@ -4,6 +4,7 @@ import { Buffer } from 'buffer';
 import { PrivyProvider } from '@privy-io/react-auth';
 import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
 import { OwnerSessionProvider } from '@/hooks/use-owner-session';
+import { SignReviewProvider } from '@/components/sign-review';
 import { publicConfig } from '@/lib/config';
 
 if (typeof window !== 'undefined' && !window.Buffer) {
@@ -12,7 +13,11 @@ if (typeof window !== 'undefined' && !window.Buffer) {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   if (!publicConfig.privyAppId) {
-    return <OwnerSessionProvider>{children}</OwnerSessionProvider>;
+    return (
+      <SignReviewProvider>
+        <OwnerSessionProvider>{children}</OwnerSessionProvider>
+      </SignReviewProvider>
+    );
   }
 
   return (
@@ -39,7 +44,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       }}
     >
-      <OwnerSessionProvider>{children}</OwnerSessionProvider>
+      <SignReviewProvider>
+        <OwnerSessionProvider>{children}</OwnerSessionProvider>
+      </SignReviewProvider>
     </PrivyProvider>
   );
 }
