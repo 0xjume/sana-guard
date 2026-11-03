@@ -1,6 +1,7 @@
 import { Account as NearAccount } from 'near-api-js';
 import { Views, parseJsonIntegersAsStrings, type Policy, type VaultView } from '@sana-guard/sdk';
 import { publicConfig } from './config';
+import { fetchWithTimeout } from './fetch-timeout';
 
 interface NearRpcError {
   message?: string;
@@ -21,22 +22,26 @@ export async function callNearViewRaw(
   rpcUrl: string = publicConfig.nearRpcUrl
 ): Promise<string> {
   const argsBase64 = Buffer.from(JSON.stringify(args)).toString('base64');
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 'sana-guard-dashboard',
-      method: 'query',
-      params: {
-        request_type: 'call_function',
-        finality: 'optimistic',
-        account_id: contractId,
-        method_name: methodName,
-        args_base64: argsBase64,
-      },
-    }),
-  });
+  const response = await fetchWithTimeout(
+    rpcUrl,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'sana-guard-dashboard',
+        method: 'query',
+        params: {
+          request_type: 'call_function',
+          finality: 'optimistic',
+          account_id: contractId,
+          method_name: methodName,
+          args_base64: argsBase64,
+        },
+      }),
+    },
+    'NEAR testnet RPC'
+  );
 
   if (!response.ok) {
     throw new Error(`NEAR RPC HTTP ${response.status}`);
@@ -121,16 +126,20 @@ export async function getSolanaBalanceLamports(
   address: string,
   rpcUrl: string = publicConfig.solanaRpcUrl
 ): Promise<bigint> {
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'getBalance',
-      params: [address],
-    }),
-  });
+  const response = await fetchWithTimeout(
+    rpcUrl,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getBalance',
+        params: [address],
+      }),
+    },
+    'Solana RPC'
+  );
   if (!response.ok) {
     throw new Error(`Solana RPC HTTP ${response.status}`);
   }

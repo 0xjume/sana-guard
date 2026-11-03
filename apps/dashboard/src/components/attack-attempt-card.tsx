@@ -90,7 +90,9 @@ export function AttackAttemptCard({ result }: { result: AttackLabResult }) {
         <p className="kicker">Attack attempt</p>
         <div className="flex flex-wrap items-center gap-2">
           <ShieldX className="h-5 w-5 text-rejected" aria-hidden />
-          <CardTitle className="text-lg">{kindLabel ?? 'Policy probe'}</CardTitle>
+          <CardTitle as="h3" className="text-lg">
+            {kindLabel ?? 'Policy probe'}
+          </CardTitle>
           {result.kind ? <Badge variant="muted">{result.kind}</Badge> : null}
         </div>
       </CardHeader>

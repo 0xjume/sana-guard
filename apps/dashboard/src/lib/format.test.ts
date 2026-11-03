@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDurationNs,
+  formatSol,
   hoursToNs,
   lamportsToSol,
   worstCasePriorityFeeLamports,
@@ -8,6 +9,7 @@ import {
   nsToHours,
   pluralizeCount,
   shortenAddress,
+  solExactTitle,
   solToLamports,
   yoctoToNear,
 } from './format';
@@ -18,6 +20,15 @@ describe('format', () => {
     expect(solToLamports('1.000000001')).toBe(1_000_000_001n);
     expect(lamportsToSol(50_000_000n)).toBe('0.05');
     expect(lamportsToSol(1_000_000_000n)).toBe('1');
+  });
+
+  it('formats user-facing SOL with at most 4 decimals', () => {
+    expect(formatSol(50_000_000n)).toBe('0.05 SOL');
+    expect(formatSol(100_000_000n)).toBe('0.1 SOL');
+    expect(formatSol(914_598_798n)).toBe('0.9146 SOL');
+    expect(formatSol(99_999n)).toBe('< 0.0001 SOL');
+    expect(formatSol(0n, { unit: false })).toBe('0');
+    expect(solExactTitle(914_598_798n)).toBe('0.914598798 SOL');
   });
 
   it('rejects invalid SOL amounts', () => {

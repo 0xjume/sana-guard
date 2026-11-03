@@ -3,9 +3,12 @@
 import { useEffect, useState } from 'react';
 import { publicConfig } from '@/lib/config';
 import { createViews } from '@/lib/near';
-import { pluralizeCount } from '@/lib/format';
+import { Server } from 'lucide-react';
+import { programLabel } from '@/lib/format';
+import { LoadError } from './load-error';
+import { SectionHeader } from './section-header';
 import { StatusBadge } from './status-badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface Snapshot {
@@ -16,9 +19,11 @@ interface Snapshot {
 
 export function NetworkStatus() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setSnapshot(null);
     (async () => {
       try {
         const views = createViews();
@@ -42,36 +47,46 @@ export function NetworkStatus() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <Card>
-      <CardHeader>
-        <p className="kicker">Live testnet</p>
-        <CardTitle>Guard contract</CardTitle>
-        <p className="break-all font-mono text-sm text-muted-foreground">
-          {publicConfig.guardContract}
-        </p>
-      </CardHeader>
-      <CardContent>
+      <SectionHeader
+        icon={Server}
+        kicker={`Live ${publicConfig.nearNetwork}`}
+        title="Guard contract"
+        description={
+          <span className="break-all font-mono text-xs">{publicConfig.guardContract}</span>
+        }
+      />
+      <CardContent className="min-h-[9.5rem]">
         {!snapshot ? (
-          <div className="flex flex-wrap gap-2">
-            <Skeleton className="h-6 w-32" />
-            <Skeleton className="h-6 w-20" />
-            <Skeleton className="h-6 w-24" />
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-16 w-3/4" />
           </div>
         ) : snapshot.error ? (
-          <p className="text-sm text-rejected">{snapshot.error}</p>
+          <LoadError
+            title="Couldn't reach the guard contract"
+            detail={snapshot.error}
+            onRetry={() => setAttempt((value) => value + 1)}
+          />
         ) : (
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge tone="ok">
-              {pluralizeCount(snapshot.vaultCount, 'vault')} visible
-            </StatusBadge>
-            {snapshot.programs.map((program) => (
-              <StatusBadge key={program} tone="muted">
-                {program.startsWith('1111') ? 'System' : program.slice(0, 12)}
-              </StatusBadge>
-            ))}
+          <div className="space-y-4">
+            <div className="flex items-baseline justify-between rounded-md border border-border bg-background/40 px-4 py-3">
+              <span className="text-xs text-muted-foreground">Vaults on contract</span>
+              <span className="font-mono text-lg">{snapshot.vaultCount}</span>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Supported programs</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {snapshot.programs.map((program) => (
+                  <StatusBadge key={program} tone="muted">
+                    {programLabel(program)}
+                  </StatusBadge>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </CardContent>

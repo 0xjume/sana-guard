@@ -8,8 +8,8 @@ import { submittedSuccess } from '@/lib/action-result-state';
 import type { GuardActionError } from '@/lib/errors';
 import {
   formatDurationNs,
+  formatSol,
   KNOWN_PROGRAMS,
-  lamportsToSol,
   worstCasePriorityFeeLamports,
 } from '@/lib/format';
 import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/lib/policy';
@@ -48,7 +48,7 @@ function PriorityFeeWarning({ perCu, total }: { perCu: string; total: string }) 
           : 'text-xs text-muted-foreground sm:col-span-2'
       }
     >
-      Worst case per transaction: up to <strong>{lamportsToSol(worst)} SOL</strong> in priority fees
+      Worst case per transaction: up to <strong>{formatSol(worst)}</strong> in priority fees
       {uncapped ? ' (no total cap set).' : '.'} Fees count toward the SOL per-tx and 24h caps.
     </p>
   );
@@ -161,8 +161,8 @@ export function PolicyEditor({
             {...field('maxPriorityFeeLamports')}
           />
           <p id="maxPriorityFeeLamports-help" className="text-xs text-muted-foreground">
-            <code>max_priority_fee_lamports</code>. Caps SetComputeUnitPrice per compute unit; 1 =
-            1,000,000 micro-lamports/CU. 0 forbids priority fees.
+            Highest priority-fee price an agent may set, per compute unit (1 = 1,000,000
+            micro-lamports). 0 forbids priority fees.
           </p>
         </div>
         <div className="space-y-2">
@@ -177,8 +177,8 @@ export function PolicyEditor({
             {...field('maxTotalPriorityFeeLamports')}
           />
           <p id="maxTotalPriorityFeeLamports-help" className="text-xs text-muted-foreground">
-            <code>max_total_priority_fee_lamports</code>. The setting that bounds what one
-            transaction can burn in fees. 1,000,000 = 0.001 SOL.
+            The setting that bounds what one transaction can spend on priority fees. 1,000,000
+            lamports = 0.001 SOL.
           </p>
         </div>
         <PriorityFeeWarning

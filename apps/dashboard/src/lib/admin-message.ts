@@ -1,8 +1,8 @@
 import bs58 from 'bs58';
 import {
   formatDurationNs,
+  formatSol,
   formatTimestampNs,
-  lamportsToSol,
   programLabel,
   shortenAddress,
   worstCasePriorityFeeLamports,
@@ -22,31 +22,73 @@ export function decodeAdminSignBytes(message: Uint8Array): string {
  * be signed (SANA-GUARD-ADMIN-v1, 7 lines). Nothing here comes from UI state, so what the owner
  * reviews is what they sign.
  */
+export type ReviewTone = 'default' | 'warning' | 'destructive';
+
+export interface AdminMessageRow {
+  label: string;
+  value: string;
+  /** Present only when the signed message itself implies the prior state. */
+  previous?: string;
+}
+
 export interface AdminMessageReview {
   actionType: string;
   title: string;
+  tone: ReviewTone;
   network: string;
   contract: string;
   vault: string;
   nonce: string;
   expires: string;
-  rows: Array<{ label: string; value: string }>;
+  rows: AdminMessageRow[];
   warnings: string[];
 }
 
-const TITLES: Record<string, string> = {
-  CreateVault: 'Create vault',
-  SetPolicy: 'Change vault policy',
-  AddRecipient: 'Allowlist a recipient',
-  RemoveRecipient: 'Remove a recipient',
-  RegisterTokenAccount: 'Register a vault token account',
-  AddAgent: 'Add an agent',
-  RemoveAgent: 'Remove an agent',
-  Pause: 'Pause vault (kill switch)',
-  Unpause: 'Unpause vault',
-  Release: 'Release a reserved spend',
-  BackfillRecipients: 'Backfill recipient index',
-};
+function actionTitle(actionType: string, vaultId: string): string {
+  const n = vaultId === 'null' ? null : vaultId;
+  switch (actionType) {
+    case 'CreateVault':
+      return 'Create vault';
+    case 'SetPolicy':
+      return n === null ? 'Change vault policy' : `Change vault #${n} policy`;
+    case 'AddRecipient':
+      return n === null ? 'Allowlist a recipient' : `Allowlist a recipient on vault #${n}`;
+    case 'RemoveRecipient':
+      return n === null ? 'Remove a recipient' : `Remove a recipient from vault #${n}`;
+    case 'RegisterTokenAccount':
+      return n === null
+        ? 'Register a vault token account'
+        : `Register a token account on vault #${n}`;
+    case 'AddAgent':
+      return n === null ? 'Add an agent' : `Add an agent to vault #${n}`;
+    case 'RemoveAgent':
+      return n === null ? 'Remove an agent' : `Remove agent from vault #${n}`;
+    case 'Pause':
+      return n === null ? 'Pause vault' : `Pause vault #${n}`;
+    case 'Unpause':
+      return n === null ? 'Unpause vault' : `Unpause vault #${n}`;
+    case 'Release':
+      return n === null ? 'Release a reserved spend' : `Release a reserved spend on vault #${n}`;
+    case 'BackfillRecipients':
+      return n === null ? 'Backfill recipient index' : `Backfill recipient index on vault #${n}`;
+    default:
+      return actionType;
+  }
+}
+
+function reviewTone(actionType: string): ReviewTone {
+  switch (actionType) {
+    case 'Pause':
+    case 'RemoveAgent':
+    case 'RemoveRecipient':
+      return 'destructive';
+    case 'Unpause':
+    case 'SetPolicy':
+      return 'warning';
+    default:
+      return 'default';
+  }
+}
 
 type RawMint = 'Sol' | { Spl: number[] };
 
@@ -55,7 +97,7 @@ function mintLabel(mint: RawMint): string {
 }
 
 function amountLabel(mint: RawMint, amount: string): string {
-  return mint === 'Sol' ? `${lamportsToSol(BigInt(amount))} SOL` : `${amount} base units`;
+  return mint === 'Sol' ? formatSol(BigInt(amount)) : `${amount} base units`;
 }
 
 function policyRows(policy: Record<string, unknown>): {
@@ -83,13 +125,13 @@ function policyRows(policy: Record<string, unknown>): {
   rows.push({ label: 'Max compute-unit price', value: `${perCu} lamports / CU` });
   rows.push({
     label: 'Max total priority fee / tx',
-    value: total === undefined ? 'No cap' : `${lamportsToSol(total)} SOL`,
+    value: total === undefined ? 'No cap' : formatSol(total),
   });
   if (perCu > 0n && total === undefined) {
     warnings.push(
-      `No total priority fee cap: one transaction may pay up to ${lamportsToSol(
+      `No total priority fee cap: one transaction may pay up to ${formatSol(
         worstCasePriorityFeeLamports(perCu)
-      )} SOL in priority fees.`
+      )} in priority fees.`
     );
   }
   rows.push({ label: 'Max memo length', value: String(policy.max_memo_len ?? '—') });
@@ -142,8 +184,14 @@ export function describeAdminMessage(text: string): AdminMessageReview {
       break;
     }
     case 'AddRecipient':
-    case 'RemoveRecipient':
       rows.push({ label: 'Recipient', value: String(action.recipient) });
+      break;
+    case 'RemoveRecipient':
+      rows.push({
+        label: 'Recipient',
+        previous: String(action.recipient),
+        value: 'Removed',
+      });
       break;
     case 'RegisterTokenAccount':
       rows.push({ label: 'Token account', value: String(action.ata) });
@@ -159,7 +207,17 @@ export function describeAdminMessage(text: string): AdminMessageReview {
       });
       break;
     case 'RemoveAgent':
-      rows.push({ label: 'Agent account', value: String(action.agent) });
+      rows.push({
+        label: 'Agent account',
+        previous: String(action.agent),
+        value: 'Removed',
+      });
+      break;
+    case 'Pause':
+      rows.push({ label: 'Vault state', previous: 'Active', value: 'Paused' });
+      break;
+    case 'Unpause':
+      rows.push({ label: 'Vault state', previous: 'Paused', value: 'Active' });
       break;
     case 'Release':
       rows.push({ label: 'Request id', value: String(action.req_id) });
@@ -170,7 +228,8 @@ export function describeAdminMessage(text: string): AdminMessageReview {
 
   return {
     actionType,
-    title: TITLES[actionType] ?? actionType,
+    title: actionTitle(actionType, vault),
+    tone: reviewTone(actionType),
     network,
     contract,
     vault: vault === 'null' ? 'new vault' : `#${vault}`,

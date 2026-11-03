@@ -59,7 +59,7 @@ export function PolicyVerdict({
             {title}
           </p>
           {code ? (
-            <p className="mt-2 font-mono text-sm text-foreground">
+            <p className="mt-2 break-all font-mono text-sm text-foreground">
               {code}
               {resolvedRule ? (
                 <span className="text-muted-foreground"> · {resolvedRule}</span>

@@ -55,7 +55,8 @@ describe('describeAdminMessage', () => {
 
     const review = describeAdminMessage(signed());
 
-    expect(review.title).toBe('Change vault policy');
+    expect(review.title).toBe('Change vault #3 policy');
+    expect(review.tone).toBe('warning');
     expect(review.vault).toBe('#3');
     expect(review.nonce).toBe('9');
     expect(review.contract).toBe('guard.djume.testnet');
@@ -106,15 +107,22 @@ describe('describeAdminMessage', () => {
     );
     const addReview = describeAdminMessage(agent.signed());
     const addRows = Object.fromEntries(addReview.rows.map((row) => [row.label, row.value]));
-    expect(addReview.title).toBe('Add an agent');
+    expect(addReview.title).toBe('Add an agent to vault #0');
+    expect(addReview.tone).toBe('default');
     expect(addRows['Agent account']).toBe('bot.guard.djume.testnet');
     expect(addRows['Gas funding']).toBe('0.2 NEAR');
 
     const pause = capturingSigner();
     await pauseAction('near-testnet', 'guard.djume.testnet', 5, 3, pause.signer);
     const pauseReview = describeAdminMessage(pause.signed());
-    expect(pauseReview.title).toBe('Pause vault (kill switch)');
+    expect(pauseReview.title).toBe('Pause vault #5');
+    expect(pauseReview.tone).toBe('destructive');
     expect(pauseReview.vault).toBe('#5');
+    expect(pauseReview.rows).toContainEqual({
+      label: 'Vault state',
+      previous: 'Active',
+      value: 'Paused',
+    });
   });
 
   it('rejects text that is not an admin message', () => {
@@ -135,6 +143,6 @@ describe('describeAdminMessage', () => {
     await setPolicyAction('near-testnet', 'guard.djume.testnet', 3, 9, policy(), signer);
     const bytes = signedBytes();
     expect(decodeAdminSignBytes(bytes)).toBe(signed());
-    expect(describeAdminMessage(decodeAdminSignBytes(bytes)).title).toBe('Change vault policy');
+    expect(describeAdminMessage(decodeAdminSignBytes(bytes)).title).toBe('Change vault #3 policy');
   });
 });

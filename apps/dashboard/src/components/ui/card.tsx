@@ -22,15 +22,17 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 );
 CardHeader.displayName = 'CardHeader';
 
-const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3
-      ref={ref}
-      className={cn('font-heading text-xl font-semibold tracking-tight', className)}
-      {...props}
-    />
-  )
-);
+/** Section heading. Pages own the `h1`; cards are `h2` unless nested inside another section. */
+const CardTitle = React.forwardRef<
+  HTMLHeadingElement,
+  React.HTMLAttributes<HTMLHeadingElement> & { as?: 'h1' | 'h2' | 'h3' }
+>(({ className, as: Heading = 'h2', ...props }, ref) => (
+  <Heading
+    ref={ref}
+    className={cn('font-heading text-xl font-semibold tracking-tight', className)}
+    {...props}
+  />
+));
 CardTitle.displayName = 'CardTitle';
 
 const CardDescription = React.forwardRef<

@@ -1,5 +1,8 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { DesignPreview } from './preview';
+
+export const metadata: Metadata = { title: 'Design preview' };
 
 function designPreviewEnabled() {
   return (
