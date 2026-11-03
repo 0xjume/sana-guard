@@ -27,7 +27,7 @@ Prettier (`pnpm format:check`) runs over all TypeScript, JavaScript and JSON. Ma
 
 ## Next (per PLAN.md §9)
 
-1. Self-audit against PLAN.md §7, longer fuzzing, gas profiling.
+1. Self-audit done: [docs/audit.md](./docs/audit.md). Open items: request/bucket pruning (O1), a contract-level per-owner vault cap (O2), `deny_unknown_fields` on admin JSON (O3), nightly fuzzing and recorded MPC latency (O4). `request_sign` gas is measured in CI (~10–11 Tgas).
 2. End-to-end owner flows on the deployed dashboard once a Privy app ID and relay CORS origin are set.
 
 ## Security
