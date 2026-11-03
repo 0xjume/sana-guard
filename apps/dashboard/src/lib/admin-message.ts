@@ -10,6 +10,14 @@ import {
 } from './format';
 
 /**
+ * Decode the exact bytes that will be passed to the wallet signer.
+ * Invalid UTF-8 is rejected (fatal) so the review dialog never shows a lossy stand-in.
+ */
+export function decodeAdminSignBytes(message: Uint8Array): string {
+  return new TextDecoder('utf-8', { fatal: true }).decode(message);
+}
+
+/**
  * Human-readable view of an owner admin message, decoded from the exact text that is about to
  * be signed (SANA-GUARD-ADMIN-v1, 7 lines). Nothing here comes from UI state, so what the owner
  * reviews is what they sign.
