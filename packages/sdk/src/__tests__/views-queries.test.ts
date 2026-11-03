@@ -119,7 +119,7 @@ describe('Views', () => {
     const { views: ok } = viewsWith({ owner_vault_count: '3' });
     expect(await ok.getOwnerVaultCount('Owner111')).toBe(3);
 
-    for (const raw of ['nope', -1, Number.NaN, Number.POSITIVE_INFINITY, null]) {
+    for (const raw of ['nope', '', '1.5', 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, null]) {
       const { views } = viewsWith({ owner_vault_count: raw });
       await expect(views.getOwnerVaultCount('Owner111')).rejects.toThrow(/owner_vault_count/);
     }

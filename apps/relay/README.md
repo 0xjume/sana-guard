@@ -109,6 +109,7 @@ Security settings:
 
 - `RELAY_BALANCE_FLOOR_NEAR` — refuse requests below this balance (default: 0.5)
 - `MAX_AGENT_GAS_FUNDING_NEAR` — cap for AddAgent gas_funding (default: 0.5)
+- `MAX_VAULTS_PER_OWNER` — optional. When set, CreateVault rechecks `owner_vault_count` and returns 403 `VAULT_LIMIT` if the owner is already at this cap. A pending or unknown CreateVault reservation for the same owner is always refused with 409 `CREATE_VAULT_IN_FLIGHT`
 - `GLOBAL_DAILY_BUDGET_NEAR` — total NEAR spending limit per day (default: **1.0**)
 - `MAX_DEPOSIT_PER_CALL_NEAR` — hard cap on any single deposit (default: 2.0)
 - `OWNER_RATE_LIMIT_PER_HOUR` — max requests per owner per hour (default: 30)

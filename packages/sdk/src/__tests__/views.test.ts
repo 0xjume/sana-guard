@@ -1,4 +1,4 @@
-import { parseVaultState, parseSpend24hJson, parseU64Amount } from '../views';
+import { parseVaultState, parseSpend24hJson, parseU64Amount, parseVaultCount } from '../views';
 import { SanaGuardError } from '../errors';
 
 describe('parseVaultState', () => {
@@ -42,5 +42,44 @@ describe('parseSpend24hJson', () => {
     expect(parseU64Amount(BigInt(7))).toBe(BigInt(7));
     expect(() => parseU64Amount(-1)).toThrow(SanaGuardError);
     expect(() => parseU64Amount('not-a-number')).toThrow(SanaGuardError);
+  });
+});
+
+describe('parseVaultCount', () => {
+  it('accepts non-negative safe integers and their decimal strings', () => {
+    expect(parseVaultCount(0)).toBe(0);
+    expect(parseVaultCount(3)).toBe(3);
+    expect(parseVaultCount('0')).toBe(0);
+    expect(parseVaultCount('12', 'owner_vault_count')).toBe(12);
+    expect(parseVaultCount(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('fails closed on empty string instead of treating it as zero', () => {
+    expect(() => parseVaultCount('')).toThrow(SanaGuardError);
+    expect(() => parseVaultCount('')).toThrow(/vault count/);
+  });
+
+  it('fails closed on fractional values', () => {
+    expect(() => parseVaultCount(1.5)).toThrow(SanaGuardError);
+    expect(() => parseVaultCount('1.5')).toThrow(/vault count/);
+    expect(() => parseVaultCount('0.0')).toThrow(SanaGuardError);
+  });
+
+  it('rejects other non-integers so callers never treat them as zero', () => {
+    for (const raw of [
+      ' ',
+      '01',
+      '1e2',
+      '-1',
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      null,
+      undefined,
+      true,
+      9007199254740993,
+      '9007199254740993',
+    ]) {
+      expect(() => parseVaultCount(raw)).toThrow(SanaGuardError);
+    }
   });
 });

@@ -44,11 +44,15 @@ function denyCreateVault(
 }
 
 export function parsePositiveInt(raw: string | undefined | null, fallback: number): number {
-  if (raw === undefined || raw === null || raw.trim() === '') {
+  if (raw === undefined || raw === null) {
     return fallback;
   }
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) {
+  const trimmed = raw.trim();
+  if (trimmed === '' || !/^[1-9][0-9]*$/.test(trimmed)) {
+    return fallback;
+  }
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value)) {
     return fallback;
   }
   return value;
@@ -190,15 +194,32 @@ export async function checkCreateVaultLimits(args: {
   });
 }
 
-export async function fetchOwnerActionLimits(
-  fetcher: typeof fetch = fetch
-): Promise<{ maxVaultsPerOwner: number }> {
+export async function fetchOwnerActionLimits(fetcher: typeof fetch = fetch): Promise<{
+  maxVaultsPerOwner: number;
+  maxRelayVaultsTotal: number;
+  maxAgentsPerVault: number;
+  maxAgentGasFundingNear: string;
+}> {
   const response = await fetcher('/api/owner-action', { method: 'GET' });
   if (!response.ok) {
     throw new Error('Vault limit check unavailable, try again');
   }
-  const body = (await response.json()) as { maxVaultsPerOwner?: unknown };
+  const body = (await response.json()) as {
+    maxVaultsPerOwner?: unknown;
+    maxRelayVaultsTotal?: unknown;
+    maxAgentsPerVault?: unknown;
+    maxAgentGasFundingNear?: unknown;
+  };
+  if (
+    typeof body.maxAgentGasFundingNear !== 'string' ||
+    body.maxAgentGasFundingNear.trim() === ''
+  ) {
+    throw new Error('Vault limit check unavailable, try again');
+  }
   return {
     maxVaultsPerOwner: parseVaultCount(body.maxVaultsPerOwner, 'maxVaultsPerOwner'),
+    maxRelayVaultsTotal: parseVaultCount(body.maxRelayVaultsTotal, 'maxRelayVaultsTotal'),
+    maxAgentsPerVault: parseVaultCount(body.maxAgentsPerVault, 'maxAgentsPerVault'),
+    maxAgentGasFundingNear: body.maxAgentGasFundingNear,
   };
 }

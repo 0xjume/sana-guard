@@ -402,6 +402,7 @@ describe('loadConfig', () => {
       ...Object.keys(extra),
       'CLIENT_IP_HEADER',
       'RATE_LIMIT_IPV6_PREFIX',
+      'MAX_VAULTS_PER_OWNER',
     ];
     const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
     try {
@@ -420,6 +421,18 @@ describe('loadConfig', () => {
   it('rejects an invalid CLIENT_IP_HEADER at config load', () => {
     withEnv({ CLIENT_IP_HEADER: 'x-real-ip; injected' }, () => {
       expect(() => loadConfig()).toThrow(/CLIENT_IP_HEADER/);
+    });
+  });
+
+  it('parses optional MAX_VAULTS_PER_OWNER and rejects invalid values', () => {
+    withEnv({}, () => {
+      expect(loadConfig().maxVaultsPerOwner).toBeUndefined();
+    });
+    withEnv({ MAX_VAULTS_PER_OWNER: '1' }, () => {
+      expect(loadConfig().maxVaultsPerOwner).toBe(1);
+    });
+    withEnv({ MAX_VAULTS_PER_OWNER: '0' }, () => {
+      expect(() => loadConfig()).toThrow(/MAX_VAULTS_PER_OWNER/);
     });
   });
 });
