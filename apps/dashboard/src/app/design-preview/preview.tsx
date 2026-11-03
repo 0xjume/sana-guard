@@ -59,14 +59,14 @@ function PreviewTabs() {
       <Card>
         <CardHeader>
           <p className="kicker">Design preview</p>
-          <CardTitle>Presentational mocks</CardTitle>
+          <CardTitle as="h1">Presentational mocks</CardTitle>
           <CardDescription>
             Static samples only. No Privy session, NEAR views, or owner-action / attack-lab calls.
           </CardDescription>
         </CardHeader>
       </Card>
       <Tabs defaultValue={tab}>
-        <TabsList className="max-w-full justify-start overflow-x-auto">
+        <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
           <TabsTrigger value="policy">Policy</TabsTrigger>
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="attack">Attack lab</TabsTrigger>

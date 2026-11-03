@@ -25,7 +25,7 @@ CardHeader.displayName = 'CardHeader';
 /** Section heading. Pages own the `h1`; cards are `h2` unless nested inside another section. */
 const CardTitle = React.forwardRef<
   HTMLHeadingElement,
-  React.HTMLAttributes<HTMLHeadingElement> & { as?: 'h2' | 'h3' }
+  React.HTMLAttributes<HTMLHeadingElement> & { as?: 'h1' | 'h2' | 'h3' }
 >(({ className, as: Heading = 'h2', ...props }, ref) => (
   <Heading
     ref={ref}

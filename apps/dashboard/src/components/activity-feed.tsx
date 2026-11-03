@@ -69,7 +69,8 @@ export function ActivityFeed({ vaultId }: { vaultId: number }) {
       <CardContent>
         {reason ? <p className="mb-3 text-xs text-warning">{reason}</p> : null}
         <ol className="space-y-3">
-          {items.length === 0 ? (
+          {/* When the indexer failed, the reason above already says why; don't claim it was empty. */}
+          {items.length === 0 && !(degraded && reason) ? (
             <li className="text-sm text-muted-foreground">
               {degraded
                 ? 'No history source. NearBlocks returned no transactions for this contract.'

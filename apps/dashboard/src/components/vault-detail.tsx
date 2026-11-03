@@ -245,15 +245,21 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
 
   if (!vault) {
     return (
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-8 w-48" />
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-24 w-full" />
-        </CardContent>
-      </Card>
+      <div className="space-y-6" aria-busy="true">
+        <h1 className="font-heading text-3xl font-semibold tracking-tight">Vault {vaultId}</h1>
+        <p className="sr-only" role="status">
+          Loading vault {vaultId}
+        </p>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-8 w-48" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 

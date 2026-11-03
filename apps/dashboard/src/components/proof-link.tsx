@@ -66,7 +66,7 @@ export function ProofLink({
             type="button"
             variant="ghost"
             size="icon"
-            className="relative h-7 w-7 after:absolute after:-inset-2 after:content-['']"
+            className="relative h-7 w-7 shrink-0 after:absolute after:-inset-2 after:content-['']"
             onClick={() => void copy()}
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -80,7 +80,7 @@ export function ProofLink({
           <Button
             variant="ghost"
             size="icon"
-            className="relative h-7 w-7 after:absolute after:-inset-2 after:content-['']"
+            className="relative h-7 w-7 shrink-0 after:absolute after:-inset-2 after:content-['']"
             asChild
           >
             <a href={href} target="_blank" rel="noreferrer">

@@ -9,6 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog';
 
 /**
@@ -35,41 +36,36 @@ export function ConfirmButton({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <>
-      <Button
-        type="button"
-        variant={variant}
-        size={size}
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-      >
-        {children}
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="space-y-2 text-sm leading-6 text-muted-foreground">{description}</div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Keep it
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => {
-                setOpen(false);
-                onConfirm();
-              }}
-            >
-              {confirmLabel}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <Dialog open={open} onOpenChange={setOpen}>
+      {/* DialogTrigger lets Radix return focus here when the dialog closes. */}
+      <DialogTrigger asChild>
+        <Button type="button" variant={variant} size={size} disabled={disabled}>
+          {children}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm leading-6 text-muted-foreground">{description}</div>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Keep it
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              setOpen(false);
+              onConfirm();
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
