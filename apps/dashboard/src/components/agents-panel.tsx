@@ -5,8 +5,11 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
+import { publicConfig } from '@/lib/config';
 import { nearToYocto } from '@/lib/format';
 import { ActionResult } from './action-result';
+import { ConfirmButton } from './confirm-button';
+import { CopyButton } from './copy-button';
 import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Bot } from 'lucide-react';
@@ -33,14 +36,17 @@ export function AgentsPanel({
   const [funding, setFunding] = useState('0.15');
   const [secret, setSecret] = useState<string | null>(null);
   const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [savedSecret, setSavedSecret] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const generate = () => {
     const keypair = nacl.sign.keyPair();
-    setSecret(bs58.encode(Buffer.from(keypair.secretKey)));
+    // near-api-js KeyPair.fromString (used by the MCP server) expects the ed25519: prefix.
+    setSecret(`ed25519:${bs58.encode(Buffer.from(keypair.secretKey))}`);
     setPublicKey(`ed25519:${bs58.encode(Buffer.from(keypair.publicKey))}`);
+    setSavedSecret(false);
   };
 
   const add = async () => {
@@ -99,16 +105,13 @@ export function AgentsPanel({
       <SectionHeader
         icon={Bot}
         kicker="Agents"
-        title="Function-call identities"
+        title="Agent accounts"
         description={
           <>
-            AddAgent creates{' '}
-            <code>
-              {'{name}.'}
-              {'{guard}'}
-            </code>{' '}
-            with one function-call key. The secret is generated in this browser and shown once; it
-            is never sent to a server.
+            Each agent gets its own NEAR account (
+            <span className="font-mono">name.{publicConfig.guardContract}</span>) with a key that
+            can only request signatures from this vault. The key is created in your browser and
+            never sent to a server.
           </>
         }
         action={
@@ -130,15 +133,26 @@ export function AgentsPanel({
                   <TableCell className="font-mono text-xs">{agent}</TableCell>
                   <TableCell className="text-right">
                     {canEdit ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
+                      <ConfirmButton
                         disabled={busy}
-                        onClick={() => void remove(agent)}
+                        title={`Remove ${agent}?`}
+                        confirmLabel="Remove agent"
+                        onConfirm={() => void remove(agent)}
+                        description={
+                          <>
+                            <p>
+                              This agent stops being able to request signatures from this vault
+                              immediately.
+                            </p>
+                            <p>
+                              Its NEAR account stays on-chain, so this name can't be added again. A
+                              replacement agent needs a new name.
+                            </p>
+                          </>
+                        }
                       >
                         Remove
-                      </Button>
+                      </ConfirmButton>
                     ) : null}
                   </TableCell>
                 </TableRow>
@@ -172,21 +186,37 @@ export function AgentsPanel({
               </div>
             </div>
             {publicKey ? (
-              <div className="mt-3 rounded-md border border-primary/30 bg-secondary p-3 text-xs">
-                <p className="text-muted-foreground">Public key (submitted)</p>
-                <p className="mt-1 break-all font-mono">{publicKey}</p>
+              <div className="mt-3 space-y-3 rounded-md border border-primary/30 bg-secondary p-3 text-xs">
+                <div>
+                  <p className="text-muted-foreground">Public key (sent to the contract)</p>
+                  <p className="mt-1 break-all font-mono">{publicKey}</p>
+                </div>
                 {secret ? (
-                  <>
-                    <p className="mt-3 text-rejected">Secret (shown once, copy now)</p>
-                    <p className="mt-1 break-all font-mono">{secret}</p>
-                  </>
+                  <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
+                    <p className="font-medium text-warning">
+                      Agent secret key: save it now. It is not stored anywhere and can't be shown
+                      again.
+                    </p>
+                    <p className="mt-2 break-all font-mono text-foreground">{secret}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <CopyButton value={secret} label="Copy secret key" />
+                      <label className="flex min-h-11 items-center gap-2 text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={savedSecret}
+                          onChange={(event) => setSavedSecret(event.target.checked)}
+                        />
+                        I've saved this key (NEAR_PRIVATE_KEY for the MCP server)
+                      </label>
+                    </div>
+                  </div>
                 ) : null}
               </div>
             ) : null}
             <Button
               type="button"
               className="mt-4"
-              disabled={busy || !publicKey}
+              disabled={busy || !publicKey || !savedSecret}
               onClick={() => void add()}
             >
               {busy ? 'Signing…' : 'Add agent (≥ 0.15 NEAR)'}

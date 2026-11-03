@@ -154,7 +154,7 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
         <CardDescription>
           Sign in, create one vault (the relay pays ~0.5 NEAR storage + gas), set policy, add an
           agent key, then fund the vault Solana address. This hosted demo allows one vault per
-          owner. <code>INVITE_TOKEN</code> stays on the server and is never shipped to the browser.
+          owner.
         </CardDescription>
       </CardHeader>
       <CardContent>

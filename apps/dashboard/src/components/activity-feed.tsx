@@ -7,6 +7,7 @@ import { StatusBadge } from './status-badge';
 import { ProofLink } from './proof-link';
 import { Activity } from 'lucide-react';
 import { SectionHeader } from './section-header';
+import { fetchWithTimeout } from '@/lib/fetch-timeout';
 import { Card, CardContent } from '@/components/ui/card';
 
 export function ActivityFeed({ vaultId }: { vaultId: number }) {
@@ -18,7 +19,11 @@ export function ActivityFeed({ vaultId }: { vaultId: number }) {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`/api/activity?vaultId=${vaultId}`);
+        const response = await fetchWithTimeout(
+          `/api/activity?vaultId=${vaultId}`,
+          {},
+          'The activity feed'
+        );
         const body = (await response.json()) as {
           items?: ActivityItem[];
           degraded?: boolean;

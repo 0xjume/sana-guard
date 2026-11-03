@@ -33,6 +33,8 @@ import { AttackLabPanel } from './attack-lab-panel';
 import { PolicyEditor } from './policy-editor';
 import { ProofLink } from './proof-link';
 import { RecipientsPanel } from './recipients-panel';
+import { CopyButton } from './copy-button';
+import { LoadError } from './load-error';
 import { SectionHeader } from './section-header';
 import { StatTile, UsageBar } from './stat-tile';
 import { StatusBadge } from './status-badge';
@@ -50,7 +52,7 @@ function Countdown({ effectiveNs }: { effectiveNs: bigint }) {
   }, []);
   const remainingMs = nsToDate(effectiveNs).getTime() - now;
   if (remainingMs <= 0) {
-    return <StatusBadge tone="ok">Delay elapsed — anyone can apply_pending_policy</StatusBadge>;
+    return <StatusBadge tone="ok">Delay passed · ready to apply</StatusBadge>;
   }
   const seconds = Math.floor(remainingMs / 1000);
   const hours = Math.floor(seconds / 3600);
@@ -60,6 +62,29 @@ function Countdown({ effectiveNs }: { effectiveNs: bigint }) {
     <StatusBadge tone="warn">
       Effective in {hours}h {minutes}m {rem}s
     </StatusBadge>
+  );
+}
+
+/**
+ * The owner signs with a Solana wallet and has no NEAR account in this app, so applying a due
+ * loosening (a permissionless contract call) is done from any NEAR account with the CLI.
+ */
+function ApplyPendingHelp({ vaultId }: { vaultId: number }) {
+  const command = `near contract call-function as-transaction ${publicConfig.guardContract} apply_pending_policy json-args '{"vault_id":${vaultId}}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as <your-account> network-config ${publicConfig.nearNetwork} sign-with-keychain send`;
+  return (
+    <details className="mt-3 rounded-md border border-warning/30 bg-background/40 text-xs">
+      <summary className="cursor-pointer px-3 py-2 text-foreground">How to apply it</summary>
+      <div className="space-y-2 border-t border-warning/20 px-3 py-3 text-muted-foreground">
+        <p>
+          Once the delay has passed, anyone can apply it from any NEAR account (it costs a little
+          gas and changes nothing before the delay ends):
+        </p>
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-sm bg-secondary p-2 font-mono text-[11px] text-foreground">
+          {command}
+        </pre>
+        <CopyButton value={command} label="Copy command" />
+      </div>
+    </details>
   );
 }
 
@@ -144,11 +169,16 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
     }
   }, [vaultId]);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
+    setError(null);
     void load().catch((err: unknown) => {
       setError(err instanceof Error ? err.message : 'Failed to load vault');
     });
   }, [load]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const run = async (
     fn: () => Promise<{ success: boolean; txHash?: string; error?: GuardActionError }>
@@ -185,17 +215,31 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
 
   if (error && !vault) {
     return (
-      <Card>
-        <CardContent className="p-6">
-          <p className="text-rejected">{error}</p>
-          <Link
-            href="/"
-            className="mt-3 inline-block text-sm text-accent underline-offset-4 hover:underline"
-          >
-            Back
-          </Link>
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <Link
+          href="/"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-pill pr-2 text-sm text-muted-foreground underline-offset-4 hover:text-foreground"
+        >
+          <ArrowLeft aria-hidden className="size-4" />
+          All vaults
+        </Link>
+        {error === 'Vault not found' ? (
+          <Card>
+            <CardContent className="p-6">
+              <h1 className="font-heading text-2xl font-semibold">Vault {vaultId} not found</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                No vault with this number exists on {publicConfig.guardContract}.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <LoadError
+            title={`Couldn't load vault ${vaultId}`}
+            detail={`${error}. The network may be slow; your vault and its policy are unaffected.`}
+            onRetry={reload}
+          />
+        )}
+      </div>
     );
   }
 
@@ -313,14 +357,15 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
               {vault.pendingLoosen ? (
                 <div className="mt-5 rounded-md border border-warning/30 bg-warning/10 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong className="text-warning">Pending loosen</strong>
+                    <strong className="text-warning">Looser policy scheduled</strong>
                     <Countdown effectiveNs={vault.pendingLoosen.effectiveNs} />
                   </div>
-                  <p className="mt-2 text-xs text-warning">
-                    There is no dedicated cancel method. Re-submitting the current policy is treated
-                    as stricter and clears <code>pending_loosen</code> immediately. After the delay,
-                    anyone can call <code>apply_pending_policy</code> on-chain.
+                  <p className="mt-2 text-xs leading-5 text-warning">
+                    The limits below take effect only after the delay, and only once someone applies
+                    them on-chain. Until then the current limits stay in force. To cancel, use
+                    “Cancel pending loosen” in the kill-switch panel.
                   </p>
+                  <ApplyPendingHelp vaultId={vaultId} />
                   <div className="mt-3">
                     <PolicySummary policy={vault.pendingLoosen.policy} />
                   </div>

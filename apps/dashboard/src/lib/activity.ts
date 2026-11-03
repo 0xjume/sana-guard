@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './fetch-timeout';
+
 export type ActivityKind =
   | 'sign_requested'
   | 'sign_rejected'
@@ -223,10 +225,11 @@ export async function fetchVaultActivity(args: {
   const url = `${host}/v1/account/${args.accountId}/txns?per_page=25&order=desc`;
 
   try {
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      next: { revalidate: 15 },
-    });
+    const response = await fetchWithTimeout(
+      url,
+      { headers: { Accept: 'application/json' }, next: { revalidate: 15 } },
+      'NearBlocks'
+    );
     if (!response.ok) {
       return {
         items: [],

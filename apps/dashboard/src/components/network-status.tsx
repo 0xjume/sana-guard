@@ -5,6 +5,7 @@ import { publicConfig } from '@/lib/config';
 import { createViews } from '@/lib/near';
 import { Server } from 'lucide-react';
 import { programLabel } from '@/lib/format';
+import { LoadError } from './load-error';
 import { SectionHeader } from './section-header';
 import { StatusBadge } from './status-badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,9 +19,11 @@ interface Snapshot {
 
 export function NetworkStatus() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setSnapshot(null);
     (async () => {
       try {
         const views = createViews();
@@ -44,7 +47,7 @@ export function NetworkStatus() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <Card>
@@ -63,7 +66,11 @@ export function NetworkStatus() {
             <Skeleton className="h-6 w-3/4" />
           </div>
         ) : snapshot.error ? (
-          <p className="text-sm text-rejected">{snapshot.error}</p>
+          <LoadError
+            title="Couldn't reach the guard contract"
+            detail={snapshot.error}
+            onRetry={() => setAttempt((value) => value + 1)}
+          />
         ) : (
           <div className="space-y-4">
             <div className="flex items-baseline justify-between rounded-md border border-border bg-background/40 px-4 py-3">

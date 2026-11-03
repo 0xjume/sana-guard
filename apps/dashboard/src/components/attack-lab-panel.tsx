@@ -52,19 +52,16 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
         icon={FlaskConical}
         tone="warn"
         kicker="Attack lab"
-        title="Policy-violating agent requests"
+        title="Try to break the policy"
         description={
           <>
-            Buttons call a server route that uses <code>DEMO_AGENT_*</code> to submit{' '}
-            <code>request_sign</code>. Agent keys never enter this browser bundle. This page is
-            vault {vaultId}. Attacks always run against pinned vault{' '}
-            {pinnedVaultId === null ? (
-              <code>DEMO_AGENT_VAULT_ID</code>
-            ) : (
-              <strong>{pinnedVaultId}</strong>
-            )}{' '}
-            (the client vault id is ignored) and require <code>X-Attack-Lab-Token</code>. Every
-            payload is evaluated against a TS port of the contract rules before it is sent.
+            Each button sends a request that breaks one rule, as a compromised agent would. The
+            guard contract should reject every one. Attacks run as the demo agent against{' '}
+            {pinnedVaultId === null ? 'its demo vault' : <strong>vault {pinnedVaultId}</strong>}
+            {pinnedVaultId !== null && pinnedVaultId !== vaultId
+              ? `, not the vault you are viewing (${vaultId})`
+              : ''}
+            . The demo agent's key stays on the server.
           </>
         }
       />
@@ -77,10 +74,7 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
               Demo agent configured · pinned vault {pinnedVaultId}
             </StatusBadge>
           ) : (
-            <StatusBadge tone="warn">
-              Disabled — set DEMO_AGENT_ACCOUNT_ID, DEMO_AGENT_PRIVATE_KEY, DEMO_AGENT_VAULT_ID, and
-              ATTACK_LAB_TOKEN
-            </StatusBadge>
+            <StatusBadge tone="warn">Attack lab is not set up on this deployment</StatusBadge>
           )}
         </div>
         <div className="mt-4 space-y-2">
@@ -91,7 +85,7 @@ export function AttackLabPanel({ vaultId }: { vaultId: number }) {
             autoComplete="off"
             value={token}
             onChange={(event) => setToken(event.target.value)}
-            placeholder="X-Attack-Lab-Token (not stored)"
+            placeholder="Provided by the deployment owner (not stored)"
           />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">

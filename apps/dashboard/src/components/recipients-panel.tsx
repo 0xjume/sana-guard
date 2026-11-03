@@ -5,6 +5,7 @@ import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { isBase58Pubkey } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
+import { ConfirmButton } from './confirm-button';
 import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { ListChecks } from 'lucide-react';
@@ -82,12 +83,11 @@ export function RecipientsPanel({
                   <TableCell className="break-all font-mono text-xs">{recipient}</TableCell>
                   <TableCell className="text-right">
                     {canEdit ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
+                      <ConfirmButton
                         disabled={busy || !session.signer}
-                        onClick={() =>
+                        title="Remove this recipient?"
+                        confirmLabel="Remove recipient"
+                        onConfirm={() =>
                           void run(() =>
                             ownerActionHelpers(session.owner!, session.signer!).removeRecipient(
                               vaultId,
@@ -95,9 +95,20 @@ export function RecipientsPanel({
                             )
                           )
                         }
+                        description={
+                          <>
+                            <p className="break-all font-mono text-xs text-foreground">
+                              {recipient}
+                            </p>
+                            <p>
+                              Agents can no longer pay this address, starting immediately. You can
+                              add it back later.
+                            </p>
+                          </>
+                        }
                       >
                         Remove
-                      </Button>
+                      </ConfirmButton>
                     ) : null}
                   </TableCell>
                 </TableRow>
