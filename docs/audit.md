@@ -118,7 +118,10 @@ those PRs.
 
 ### Operational note
 
-The hosted demo vault 0 uses a compute-unit price cap of 100,000 lamports/CU with no total
-priority-fee cap. Since #17, fees count toward its 0.05 SOL per-tx and 0.1 SOL daily caps, so this
-is not a way around the policy. A tighter showcase setting is a 1 lamport/CU price cap with a
-1,000,000 lamport (0.001 SOL) total cap; tightening applies immediately.
+The hosted demo vault 0 uses a compute-unit price cap of 1 lamport/CU and a 1,000,000
+lamport (0.001 SOL) total priority-fee cap per transaction. That setting was applied on
+2026-11-03 (~21:24 WIB) via an owner-signed SetPolicy on guard.djume.testnet
+([NEAR testnet tx 1aUgiwp3SqAeWHjYHh1GsCiEhbijiNACpfM9ai7m6ET](https://testnet.nearblocks.io/txns/1aUgiwp3SqAeWHjYHh1GsCiEhbijiNACpfM9ai7m6ET)).
+No other policy fields changed. Since #17, fees count toward its 0.05 SOL per-tx and
+0.1 SOL daily caps, so this is not a way around the policy. Loosening it back would be
+subject to the loosen delay.
