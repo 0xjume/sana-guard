@@ -54,11 +54,11 @@ sequenceDiagram
   Relay->>Guard: owner_action(signed Pause / SetPolicy / …)
 ```
 
-Derivation path is `vault/<owner_solana_pubkey>/<vault_id>`. The vault Solana address is the MPC `derived_public_key` for that path, predecessor `guard.djume.testnet`, domain `1`. Hosted vault 0 is `Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU`.
+Derivation path is `vault/<owner_solana_pubkey>/<n>`, where `n` is the owner's own vault count at creation (`owner_vault_count`: 0 for an owner's first vault), not the global vault id. The vault Solana address is the MPC `derived_public_key` for that path, predecessor `guard.djume.testnet`, domain `1`. Hosted vault 0 is `Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU`.
 
 ## Policy model
 
-Every `request_sign` fails closed with a stable `SG_E###` panic. Evaluation order matches `process_sign_request` / `check_instruction_policy` in [`contracts/guard/src/policy.rs`](./contracts/guard/src/policy.rs). Messages are legacy or v0 only (no ALTs, no tx-format v1 / `0x81`).
+Every policy rejection fails closed with a stable `SG_E###` panic, before any MPC call. Evaluation order matches `process_sign_request` / `check_instruction_policy` in [`contracts/guard/src/policy.rs`](./contracts/guard/src/policy.rs). Messages are legacy or v0 only (no ALTs, no tx-format v1 / `0x81`).
 
 | Step | What it checks | Code |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ Every `request_sign` fails closed with a stable `SG_E###` panic. Evaluation orde
 | Rolling 24h cap | Hourly buckets, 24h window | `SG_E064`, `SG_E065` |
 | Prepaid gas | Enough left for MPC sign + callback + buffer | `SG_E066` |
 
-Supported instructions: System `Transfer`, SPL Token `Transfer` / `TransferChecked`, ATA `CreateIdempotent`, ComputeBudget setLimit / setPrice, Memo. Tightening a policy is immediate; loosening waits `loosen_delay_ns`. Spend is reserved when the signature is issued. Full map: [`packages/sdk/src/errors.ts`](./packages/sdk/src/errors.ts) (`SG_E001`–`SG_E078`).
+Supported instructions: System `Transfer`, SPL Token `Transfer` / `TransferChecked`, ATA `CreateIdempotent`, ComputeBudget setLimit / setPrice, Memo. Tightening a policy is immediate; loosening waits `loosen_delay_ns`. Spend is reserved as soon as a request passes policy, before MPC signs, and released if the MPC call fails. Full map: [`packages/sdk/src/errors.ts`](./packages/sdk/src/errors.ts) (`SG_E001`–`SG_E078`).
 
 Live vault 0 (verified against `get_vault`): **0.05 SOL** per tx, **0.1 SOL** / 24h, CU price cap **100000** lamports, no total priority-fee cap, System + Compute Budget, recipient `DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB`, agent `agent1.guard.djume.testnet`, expiry 29 Nov 2026 12:17 UTC, 1h loosen delay.
 
@@ -94,6 +94,8 @@ On-chain `version()` reports `0.1.0` / git `9cb56bd5c761`. Hosted relay health i
 ## Security model and limits
 
 **On-chain.** Policy lives in the guard. The agent key is a function-call key on `<name>.guard.djume.testnet` that can only call `request_sign`. The relay only forwards owner-signed messages (`ed25519_verify` + nonce + network/contract tags). Compromising the relay is censorship / DoS, not spend.
+
+**What the owner signs.** Before Privy asks for a signature, the dashboard decodes the exact `SANA-GUARD-ADMIN-v1` bytes it is about to sign and shows them for review: a plain-language summary (limits in SOL, programs, fee caps, old → new vault state for pause / unpause), warnings such as a missing total priority-fee cap, and the raw message. Cancelling stops before any signature exists.
 
 **Hosted demo caps** (live `GET /api/owner-action`):
 
@@ -202,7 +204,7 @@ docs/                    PLAN, NOTES, TESTING, DEMO, SUBMISSION
 
 | Job | Checks |
 | --- | --- |
-| Rust | `cargo fmt`, clippy `-D warnings`, `cargo test`, WASM build |
+| Rust | `cargo fmt`, clippy `-D warnings`, `cargo test` (unit + near-workspaces end to end with a mock MPC), `request_sign` gas report, WASM build |
 | TypeScript | Prettier (TS/JS/JSON), SDK + MCP lint / typecheck / test / build |
 | Dashboard | lint, typecheck, vitest, `next build` |
 | Relay | lint, typecheck, vitest |
@@ -218,6 +220,8 @@ cd contracts/guard && cargo test
 ```
 
 Live tests (`SANA_GUARD_LIVE=1`, `RELAY_LIVE=1`) are opt-in and not run in CI.
+
+The near-workspaces tests run a real sandbox node: an agent created by `AddAgent` calls `request_sign` with its function-call key, a mock MPC signs (or fails), and `on_signed` records the result. They cover the signed path, release of reserved spend when MPC fails, and rejection before MPC. Measured gas per `request_sign` (all receipts): **~10 Tgas** for 1 transfer, **~11 Tgas** for 8 (the parser maximum). Details: [`docs/TESTING.md`](./docs/TESTING.md).
 
 ## Roadmap
 
