@@ -15,11 +15,16 @@ TypeScript SDK for [Sana Guard](https://github.com/0xjume/sana-guard) – policy
 
 ## Installation
 
+`@sana-guard/sdk` is **not on npm** yet. From the monorepo root:
+
 ```bash
-npm install @sana-guard/sdk near-api-js @solana/web3.js
-# or
-pnpm add @sana-guard/sdk near-api-js @solana/web3.js
+git clone https://github.com/0xjume/sana-guard
+cd sana-guard
+pnpm install
+pnpm --filter @sana-guard/sdk build
 ```
+
+Depend on it with `"@sana-guard/sdk": "workspace:*"` (this repo) or `"@sana-guard/sdk": "file:../sana-guard/packages/sdk"` (another project).
 
 ## Quickstart: Agent
 
