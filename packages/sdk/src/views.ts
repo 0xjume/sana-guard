@@ -287,6 +287,23 @@ export class Views {
   }
 
   /**
+   * Version of the deployed guard (`version()` view). Returns null for deployments built
+   * before the view existed, so callers can show "unknown" instead of failing.
+   */
+  async contractVersion(): Promise<{ version: string; gitSha: string } | null> {
+    try {
+      const result = await this.view<{ version: string; git_sha: string }>('version');
+      return { version: result.version, gitSha: result.git_sha };
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (/MethodNotFound|MethodResolveError|method.*not.*found/i.test(text)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Derive vault address via MPC derived_public_key
    *
    * @param mpcContract - MPC signer contract (e.g. v1.signer-prod.testnet)

@@ -409,6 +409,15 @@ impl Guard {
             .collect()
     }
 
+    /// Crate version and the git commit it was built from, so clients can tell which code is
+    /// deployed.
+    pub fn version(&self) -> ContractVersion {
+        ContractVersion {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            git_sha: env!("SANA_GUARD_GIT_SHA").to_string(),
+        }
+    }
+
     pub fn supported_programs(&self) -> Vec<String> {
         SUPPORTED_PROGRAMS
             .iter()

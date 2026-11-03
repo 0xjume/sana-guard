@@ -3,6 +3,7 @@ import {
   formatDurationNs,
   hoursToNs,
   lamportsToSol,
+  worstCasePriorityFeeLamports,
   nearToYocto,
   nsToHours,
   pluralizeCount,
@@ -47,5 +48,17 @@ describe('format', () => {
     expect(pluralizeCount(1, 'vault')).toBe('1 vault');
     expect(pluralizeCount(0, 'vault')).toBe('0 vaults');
     expect(pluralizeCount(2, 'vault')).toBe('2 vaults');
+  });
+});
+
+describe('worstCasePriorityFeeLamports', () => {
+  it('multiplies the per-CU cap by the 1.4M CU ceiling', () => {
+    expect(worstCasePriorityFeeLamports(1n)).toBe(1_400_000n);
+    expect(worstCasePriorityFeeLamports(100_000n)).toBe(140_000_000_000n);
+  });
+
+  it('is bounded by the total cap when it is lower', () => {
+    expect(worstCasePriorityFeeLamports(100_000n, 1_000_000n)).toBe(1_000_000n);
+    expect(worstCasePriorityFeeLamports(1n, 5_000_000n)).toBe(1_400_000n);
   });
 });

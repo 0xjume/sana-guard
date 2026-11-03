@@ -13,6 +13,19 @@ export function programLabel(id: string): string {
   return KNOWN_PROGRAMS.find((program) => program.id === id)?.label ?? shortenAddress(id, 6, 4);
 }
 
+/** Solana's per-transaction compute unit ceiling. */
+export const MAX_COMPUTE_UNITS = 1_400_000n;
+
+/**
+ * Most a single transaction can pay in priority fees under a policy: the per-CU price cap
+ * (`max_priority_fee_lamports`, lamports per compute unit) at the runtime CU ceiling, bounded by
+ * `max_total_priority_fee_lamports` when set.
+ */
+export function worstCasePriorityFeeLamports(perCuCap: bigint, totalCap?: bigint): bigint {
+  const byPrice = perCuCap * MAX_COMPUTE_UNITS;
+  return totalCap !== undefined && totalCap < byPrice ? totalCap : byPrice;
+}
+
 export function lamportsToSol(lamports: bigint): string {
   const negative = lamports < 0n;
   const value = negative ? -lamports : lamports;

@@ -180,3 +180,31 @@ fn test_total_priority_fee_within_cap_signs() {
     let _ = contract.request_sign(0, price_only_message(1_000_000), "ab".repeat(32));
     assert_eq!(spent(&contract), 1_000 + 400_000 + 5_000);
 }
+
+#[test]
+fn test_huge_per_cu_cap_does_not_overflow() {
+    // max_fee * 1_000_000 overflows u64; the cap must allow the price rather than panic.
+    let mut contract = setup(Some(u64::MAX));
+    contract
+        .vaults
+        .get_mut(&0)
+        .unwrap()
+        .policy
+        .max_priority_fee_lamports = U64(u64::MAX);
+    let _ = contract.request_sign(0, price_only_message(1_000_000), "cd".repeat(32));
+    assert_eq!(spent(&contract), 1_000 + 400_000 + 5_000);
+}
+
+#[test]
+#[should_panic(expected = "SG_E072_PRIORITY_FEE_TOO_HIGH")]
+fn test_per_cu_cap_is_lamports_per_compute_unit() {
+    // A cap of 1 lamport/CU allows at most 1_000_000 micro-lamports/CU.
+    let mut contract = setup(None);
+    contract
+        .vaults
+        .get_mut(&0)
+        .unwrap()
+        .policy
+        .max_priority_fee_lamports = U64(1);
+    let _ = contract.request_sign(0, price_only_message(1_000_001), "ef".repeat(32));
+}

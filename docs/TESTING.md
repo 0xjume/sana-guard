@@ -165,3 +165,37 @@ When modifying the contract:
 5. **Deploy to testnet** for end-to-end validation
 
 Admin signatures are the security foundation: every new `OwnerAction` variant must have both a valid operation test and attack tests (wrong key, tampered fields).
+
+### 5. near-workspaces integration tests (`contracts/guard/tests/`)
+
+Real sandbox node, real wasm, and a mock MPC contract (`contracts/mock-mpc`) that answers
+`derived_public_key` and `sign` in the live response shapes.
+
+- `workspaces_policy.rs`: SetPolicy delay for `max_total_priority_fee_lamports`.
+- `workspaces_sign_flow.rs`: end to end `request_sign` as an agent created by AddAgent (its
+  function-call key), through mock MPC `sign` (1 yocto attached by the guard) and `on_signed`:
+  - success for 1 and 8 transfer instructions, with gas printed for each
+  - MPC failure (`set_fail_sign`) marks the request Failed and releases its 24h spend
+  - policy violations (SG_E062) and non-agents (SG_E052) are rejected before MPC is called
+
+```bash
+cd contracts/guard
+cargo test --test workspaces_sign_flow -- --nocapture
+```
+
+Needs `cargo-near` and the NEAR sandbox binary, which requires an open-file limit of 65535
+(`ulimit -n`). CI prints the gas numbers in the "request_sign gas report" step.
+
+Measured in CI (sandbox, mock MPC, Nov 2 2026), total gas burnt per `request_sign` across all
+receipts (guard parse + policy, mock `sign`, `on_signed`):
+
+| Message | Gas burnt |
+|---|---|
+| 1 SystemProgram transfer | ~10 Tgas |
+| 8 SystemProgram transfers (parser maximum) | ~11 Tgas |
+
+Parsing and policy checks add about 1 Tgas going from 1 to 8 instructions, so the 300 Tgas
+transaction limit is not a concern. The real MPC `sign` (yield/resume) costs more than the mock;
+the guard reserves 50 Tgas for it plus 15 Tgas for the callback. Note that prepaid gas is charged
+up front: an agent whose function-call key has a 0.25 NEAR allowance cannot attach 300 Tgas at the
+sandbox gas price, and the tests attach 150 Tgas.

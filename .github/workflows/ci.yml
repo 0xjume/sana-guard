@@ -48,6 +48,12 @@ jobs:
       - name: Run tests
         run: cargo test
 
+      - name: request_sign gas report (near-workspaces + mock MPC)
+        run: |
+          set -o pipefail
+          cargo test --test workspaces_sign_flow agent_request_sign_end_to_end -- --nocapture 2>&1 \
+            | grep -E "request_sign gas|test result"
+
       - name: Build WASM
         run: |
           cargo near build non-reproducible-wasm --no-abi

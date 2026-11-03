@@ -293,10 +293,12 @@ impl Guard {
                 }
             }
             ParsedInstruction::ComputeBudgetSetPrice { micro_lamports } => {
-                // Will be validated with limit in calculate_spend
-                // For now just check that price is not absurdly high
+                // Per-CU price cap; the total fee is checked against
+                // max_total_priority_fee_lamports after calculate_spend.
                 let max_fee = vault.policy.max_priority_fee_lamports.0;
-                if *micro_lamports > max_fee * 1_000_000 {
+                // max_priority_fee_lamports is lamports per compute unit; a cap too large for
+                // u64 micro-lamports allows every price instead of panicking on overflow.
+                if *micro_lamports > max_fee.saturating_mul(1_000_000) {
                     env::panic_str("SG_E072_PRIORITY_FEE_TOO_HIGH");
                 }
             }

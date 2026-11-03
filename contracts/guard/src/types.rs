@@ -190,3 +190,10 @@ pub struct SignRequestView {
 pub enum MpcSignature {
     Ed25519 { signature: Vec<u8> },
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(crate = "near_sdk::serde")]
+pub struct ContractVersion {
+    pub version: String,
+    pub git_sha: String,
+}
