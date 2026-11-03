@@ -666,6 +666,138 @@ describe('POST /v1/admin', () => {
     expect(body.txHash).toBe('failhash');
     expect(body.error).toBe('SG_E074_PROGRAM_NOT_ALLOWED');
   });
+
+  it('returns 409 when the owner already has a pending CreateVault reservation', async () => {
+    db.reserveBudget(owner, 1, 'CreateVault', CREATE_VAULT_DEPOSIT.toString(), Date.now());
+    const action = {
+      type: 'CreateVault',
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [['SOL', '1']],
+        daily_cap: [['SOL', '1']],
+        programs: ['11111111111111111111111111111111'],
+        max_priority_fee_lamports: '0',
+        max_memo_len: 0,
+        expires_at_ns: '1',
+        loosen_delay_ns: '1',
+      },
+    };
+    const msg = makeAdminMsg({ vault: 'null', nonce: 6, action });
+    const res = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-invite-token': 'secret-invite',
+      },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'CREATE_VAULT_IN_FLIGHT' });
+    expect(near.submitted.length).toBe(0);
+  });
+
+  it('does not 409 CreateVault for a pending reservation past expiry + grace', async () => {
+    const now = Date.now();
+    db.reserveBudget(owner, 1, 'CreateVault', '1', now - 20 * 60 * 1000, {
+      expiresAtMs: now - 10 * 60 * 1000,
+    });
+    const action = {
+      type: 'CreateVault',
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [['SOL', '1']],
+        daily_cap: [['SOL', '1']],
+        programs: ['11111111111111111111111111111111'],
+        max_priority_fee_lamports: '0',
+        max_memo_len: 0,
+        expires_at_ns: '1',
+        loosen_delay_ns: '1',
+      },
+    };
+    const msg = makeAdminMsg({ vault: 'null', nonce: 6, action });
+    const res = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-invite-token': 'secret-invite',
+      },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
+    });
+    expect(res.status).not.toBe(409);
+    expect(near.submitted.length).toBe(1);
+  });
+
+  it('returns 409 when the owner has an unknown CreateVault reservation', async () => {
+    db.reserveBudget(owner, 2, 'CreateVault', CREATE_VAULT_DEPOSIT.toString(), Date.now());
+    db.markUnknown(owner, 2, 'unknown-hash');
+    const action = {
+      type: 'CreateVault',
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [['SOL', '1']],
+        daily_cap: [['SOL', '1']],
+        programs: ['11111111111111111111111111111111'],
+        max_priority_fee_lamports: '0',
+        max_memo_len: 0,
+        expires_at_ns: '1',
+        loosen_delay_ns: '1',
+      },
+    };
+    const msg = makeAdminMsg({ vault: 'null', nonce: 6, action });
+    const res = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-invite-token': 'secret-invite',
+      },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('CREATE_VAULT_IN_FLIGHT');
+    expect(near.submitted.length).toBe(0);
+  });
+
+  it('rechecks owner_vault_count against MAX_VAULTS_PER_OWNER when configured', async () => {
+    db.close();
+    await unlink('./test-admin.db').catch(() => {});
+    db = new RelayDatabase('sqlite:./test-admin.db');
+    near = new MockNear();
+    near.vault = { ...near.vault!, owner };
+    near.derivedPublicKey = `ed25519:${owner}`;
+    near.ownerVaultCount = 1;
+    app = new Hono();
+    app.route('/', createAdminRouter(near, db, testConfig({ maxVaultsPerOwner: 1 })));
+
+    const action = {
+      type: 'CreateVault',
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [['SOL', '1']],
+        daily_cap: [['SOL', '1']],
+        programs: ['11111111111111111111111111111111'],
+        max_priority_fee_lamports: '0',
+        max_memo_len: 0,
+        expires_at_ns: '1',
+        loosen_delay_ns: '1',
+      },
+    };
+    const msg = makeAdminMsg({ vault: 'null', nonce: 6, action });
+    const res = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-invite-token': 'secret-invite',
+      },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe('VAULT_LIMIT');
+    expect(near.submitted.length).toBe(0);
+  });
 });
 
 describe('GET /v1/quote', () => {

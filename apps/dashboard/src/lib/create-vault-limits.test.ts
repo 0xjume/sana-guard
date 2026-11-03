@@ -78,6 +78,7 @@ describe('loadCreateVaultLimits', () => {
       maxVaultsPerOwner: 1,
       maxRelayVaultsTotal: 10,
     });
+    expect(ownerActionLimits({})).not.toHaveProperty('maxAgentsPerVault');
   });
 
   it('reads MAX_VAULTS_PER_OWNER and MAX_RELAY_VAULTS_TOTAL', () => {
@@ -98,6 +99,19 @@ describe('loadCreateVaultLimits', () => {
       loadCreateVaultLimits({
         MAX_VAULTS_PER_OWNER: '0',
         MAX_RELAY_VAULTS_TOTAL: 'nope',
+      })
+    ).toEqual({
+      maxVaultsPerOwner: 1,
+      maxRelayVaultsTotal: 10,
+      capMode: 'total',
+    });
+  });
+
+  it('rejects scientific and hex env values instead of Number() coercion', () => {
+    expect(
+      loadCreateVaultLimits({
+        MAX_VAULTS_PER_OWNER: '1e1',
+        MAX_RELAY_VAULTS_TOTAL: '0x3',
       })
     ).toEqual({
       maxVaultsPerOwner: 1,
@@ -273,11 +287,22 @@ describe('checkCreateVaultLimits', () => {
 });
 
 describe('fetchOwnerActionLimits', () => {
-  it('reads maxVaultsPerOwner from GET /api/owner-action', async () => {
+  it('reads vault and AddAgent caps from GET /api/owner-action', async () => {
     const fetcher = (async () =>
-      new Response(JSON.stringify({ maxVaultsPerOwner: 3, maxRelayVaultsTotal: 10 }), {
-        status: 200,
-      })) as typeof fetch;
-    await expect(fetchOwnerActionLimits(fetcher)).resolves.toEqual({ maxVaultsPerOwner: 3 });
+      new Response(
+        JSON.stringify({
+          maxVaultsPerOwner: 3,
+          maxRelayVaultsTotal: 10,
+          maxAgentsPerVault: 2,
+          maxAgentGasFundingNear: '0.4',
+        }),
+        { status: 200 }
+      )) as typeof fetch;
+    await expect(fetchOwnerActionLimits(fetcher)).resolves.toEqual({
+      maxVaultsPerOwner: 3,
+      maxRelayVaultsTotal: 10,
+      maxAgentsPerVault: 2,
+      maxAgentGasFundingNear: '0.4',
+    });
   });
 });

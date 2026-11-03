@@ -11,7 +11,7 @@ Judges can self-onboard without being allowlisted:
 1. **Sign in with Privy** (email or a Solana wallet). Privy creates an embedded Solana wallet if you do not already have one.
 2. **Create one vault.** The relay pays ~0.5 NEAR storage + gas. The dashboard enforces `MAX_VAULTS_PER_OWNER` (default 1) via the contract `owner_vault_count` view and a global `MAX_RELAY_VAULTS_TOTAL` cap (default 10) from `list_vaults`. The UI reads that owner limit from `GET /api/owner-action` so it stays in sync with the server. Create vault is hidden/disabled with `One vault per owner on the hosted demo` once you already own one.
 3. **Set policy** (tighten immediately; loosening is delayed).
-4. **Add an agent key.**
+4. **Add an agent key.** The dashboard caps agents per vault (`MAX_AGENTS_PER_VAULT`, default 3) and AddAgent `gas_funding` (`MAX_AGENT_GAS_FUNDING_NEAR`, default 0.25, at least the contract min 0.15 and at most the relay 0.5).
 5. **Fund the vault Solana address** shown after create (QR + explorer link).
 
 `OWNER_ALLOWLIST` is optional. If set, only listed wallets can act. If unset, any authenticated Privy user with a linked Solana wallet may act on vaults they own. `INVITE_TOKEN` is still attached server-side so the public relay's CreateVault gate stays closed to anonymous callers.
@@ -86,12 +86,14 @@ Requires Node.js 20+.
 | `INVITE_TOKEN` | server | Relay invite gate. Attached after Privy auth. Optional; does not require `OWNER_ALLOWLIST`. Never `NEXT_PUBLIC_` |
 | `MAX_VAULTS_PER_OWNER` | server | CreateVault per-owner cap via `owner_vault_count`. Default `1` |
 | `MAX_RELAY_VAULTS_TOTAL` | server | CreateVault global cap via `list_vaults` count. Default `10`. Used because vaults have no created-at field |
+| `MAX_AGENTS_PER_VAULT` | server | AddAgent per-vault cap via `get_vault.agents`. Default `3` |
+| `MAX_AGENT_GAS_FUNDING_NEAR` | server | AddAgent `gas_funding` cap. Default `0.25`. Must be ≥ `0.15` and ≤ relay `0.5` |
 | `DEMO_AGENT_ACCOUNT_ID` | server | Attack Lab agent account |
 | `DEMO_AGENT_PRIVATE_KEY` | server | Attack Lab `ed25519:` key. Never commit |
 | `DEMO_AGENT_VAULT_ID` | server | Pinned Attack Lab vault. Required to enable |
 | `ATTACK_LAB_TOKEN` | server | Required header for Attack Lab POST. Disabled if unset |
 
-`GET /api/owner-action` returns the public `{ maxVaultsPerOwner, maxRelayVaultsTotal }` so the create form uses the server `MAX_VAULTS_PER_OWNER` instead of a hard-coded 1. `POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. `OWNER_ALLOWLIST` is optional: when unset, any authenticated Privy user with a linked Solana wallet may act; when set, only listed wallets may. CreateVault additionally checks `owner_vault_count` (`DASH_VAULT_LIMIT`) and the listed vault total (`DASH_RELAY_VAULT_CAP`). The route requires `Authorization: Bearer <Privy access token>` and the payload owner to be a **Solana** wallet linked to that user (`chain_type === solana`). Non-create actions still rely on the contract's owner checks. On Vercel (`VERCEL=1`), rate-limit IPs come from `x-vercel-forwarded-for` / `x-real-ip`. Off Vercel those headers are ignored and IPs share a `local` bucket; per-owner limits still apply. Never trust client `x-forwarded-for`.
+`GET /api/owner-action` returns the public `{ maxVaultsPerOwner, maxRelayVaultsTotal, maxAgentsPerVault, maxAgentGasFundingNear }` so the create form and AddAgent UI use the same server caps as POST. `POST /api/owner-action` is disabled (503) until `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET` are set. `OWNER_ALLOWLIST` is optional: when unset, any authenticated Privy user with a linked Solana wallet may act; when set, only listed wallets may. CreateVault additionally checks `owner_vault_count` (`DASH_VAULT_LIMIT`) and the listed vault total (`DASH_RELAY_VAULT_CAP`). The route requires `Authorization: Bearer <Privy access token>` and the payload owner to be a **Solana** wallet linked to that user (`chain_type === solana`). Non-create actions still rely on the contract's owner checks. On Vercel (`VERCEL=1`), rate-limit IPs come from `x-vercel-forwarded-for` / `x-real-ip`. Off Vercel those headers are ignored and IPs share a `local` bucket; per-owner limits still apply. Never trust client `x-forwarded-for`.
 
 ## Vercel deploy
 

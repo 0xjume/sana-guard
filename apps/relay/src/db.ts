@@ -28,6 +28,9 @@ export interface UnknownReservation {
 
 const MAX_OWNER_LOCKS = 256;
 
+/** Pending rows older than message expiry (or insert time) plus this grace are stale. */
+export const PENDING_STALE_GRACE_MS = 5 * 60 * 1000;
+
 export function utcDate(nowMs: number): string {
   return new Date(nowMs).toISOString().split('T')[0]!;
 }
@@ -144,6 +147,39 @@ export class RelayDatabase {
       total += BigInt(row.spent_yocto);
     }
     return total.toString();
+  }
+
+  /** Crash leftovers: every pending row becomes unknown so the resolver can settle it. */
+  promotePendingToUnknown(): number {
+    const result = this.db
+      .prepare(`UPDATE owner_requests SET status = 'unknown' WHERE status = 'pending'`)
+      .run();
+    return result.changes;
+  }
+
+  promoteStalePendingToUnknown(nowMs: number): number {
+    const result = this.db
+      .prepare(
+        `UPDATE owner_requests SET status = 'unknown'
+         WHERE status = 'pending'
+           AND COALESCE(expires_at_ms, timestamp) + ? < ?`
+      )
+      .run(PENDING_STALE_GRACE_MS, nowMs);
+    return result.changes;
+  }
+
+  hasCreateVaultInFlight(owner: string, nowMs: number = Date.now()): boolean {
+    this.promoteStalePendingToUnknown(nowMs);
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as count FROM owner_requests
+         WHERE owner = ? AND action_type = 'CreateVault'
+           AND status IN ('pending', 'unknown')
+           AND COALESCE(expires_at_ms, timestamp) + ? >= ?`
+      )
+      .get(owner, PENDING_STALE_GRACE_MS, nowMs) as { count: number } | undefined;
+
+    return (row?.count ?? 0) > 0;
   }
 
   checkNonceInFlight(owner: string, nonce: number): boolean {

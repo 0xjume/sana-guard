@@ -125,15 +125,33 @@ export function parseU64Amount(value: unknown): bigint {
 
 /**
  * Parse a vault / owner-vault count from a contract view.
- * NaN, non-finite, and negative values fail closed so callers cannot treat
- * a broken RPC result as "zero vaults" and allow CreateVault.
+ * Only non-negative safe integers are accepted. Empty strings, fractions,
+ * scientific notation, and unsafe integers fail closed so callers cannot
+ * treat a broken RPC result as "zero vaults" and allow CreateVault.
  */
 export function parseVaultCount(raw: unknown, label = 'vault count'): number {
-  const value = typeof raw === 'number' || typeof raw === 'string' ? Number(raw) : Number.NaN;
-  if (!Number.isFinite(value) || value < 0) {
+  const value = readNonNegativeSafeInteger(raw);
+  if (value === null) {
     throw new SanaGuardError(`Invalid ${label}: ${String(raw)}`);
   }
   return value;
+}
+
+function readNonNegativeSafeInteger(raw: unknown): number | null {
+  if (typeof raw === 'number') {
+    if (!Number.isSafeInteger(raw) || raw < 0) {
+      return null;
+    }
+    return raw;
+  }
+  if (typeof raw === 'string' && /^(0|[1-9]\d*)$/.test(raw)) {
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value)) {
+      return null;
+    }
+    return value;
+  }
+  return null;
 }
 
 /**
