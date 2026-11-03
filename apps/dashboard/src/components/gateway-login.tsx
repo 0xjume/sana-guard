@@ -1,7 +1,6 @@
 'use client';
 
 import { Mail, Wallet } from 'lucide-react';
-import { useOwnerSession } from '@/hooks/use-owner-session';
 import { SgMark } from '@/components/sg-mark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -45,9 +44,4 @@ export function OwnerSignInCard({
       </Card>
     </div>
   );
-}
-
-export function GatewayLogin() {
-  const session = useOwnerSession();
-  return <OwnerSignInCard ready={session.ready} onSignIn={session.login} />;
 }

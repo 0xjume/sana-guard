@@ -9,7 +9,9 @@ import { nearToYocto } from '@/lib/format';
 import { ActionResult } from './action-result';
 import type { GuardActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Bot } from 'lucide-react';
+import { SectionHeader } from './section-header';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
@@ -17,10 +19,12 @@ import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 export function AgentsPanel({
   vaultId,
   agents,
+  canEdit = true,
   onUpdated,
 }: {
   vaultId: number;
   agents: string[];
+  canEdit?: boolean;
   onUpdated?: () => void;
 }) {
   const session = useOwnerSession();
@@ -92,22 +96,32 @@ export function AgentsPanel({
 
   return (
     <Card>
-      <CardHeader>
-        <p className="kicker">Agents</p>
-        <CardTitle>Function-call identities</CardTitle>
-        <CardDescription>
-          AddAgent creates{' '}
-          <code>
-            {'{name}.'}
-            {'{guard}'}
-          </code>{' '}
-          with one FC key. The secret is generated in this browser and shown once — it is not sent
-          to the dashboard server.
-        </CardDescription>
-      </CardHeader>
+      <SectionHeader
+        icon={Bot}
+        kicker="Agents"
+        title="Function-call identities"
+        description={
+          <>
+            AddAgent creates{' '}
+            <code>
+              {'{name}.'}
+              {'{guard}'}
+            </code>{' '}
+            with one function-call key. The secret is generated in this browser and shown once; it
+            is never sent to a server.
+          </>
+        }
+        action={
+          <span className="rounded-pill border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground">
+            {agents.length}
+          </span>
+        }
+      />
       <CardContent>
         {agents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No agents yet.</p>
+          <p className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+            No agents yet.
+          </p>
         ) : (
           <Table>
             <TableBody>
@@ -115,64 +129,70 @@ export function AgentsPanel({
                 <TableRow key={agent}>
                   <TableCell className="font-mono text-xs">{agent}</TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => void remove(agent)}
-                    >
-                      Remove
-                    </Button>
+                    {canEdit ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void remove(agent)}
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor={`${fieldId}-name`}>Name</Label>
-            <Input
-              id={`${fieldId}-name`}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${fieldId}-funding`}>Gas funding (NEAR)</Label>
-            <Input
-              id={`${fieldId}-funding`}
-              value={funding}
-              onChange={(event) => setFunding(event.target.value)}
-            />
-          </div>
-          <div className="flex items-end">
-            <Button type="button" variant="outline" className="w-full" onClick={generate}>
-              Generate key
+        {canEdit ? (
+          <div className="mt-6 rounded-md border border-border bg-background/40 p-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor={`${fieldId}-name`}>Name</Label>
+                <Input
+                  id={`${fieldId}-name`}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${fieldId}-funding`}>Gas funding (NEAR)</Label>
+                <Input
+                  id={`${fieldId}-funding`}
+                  value={funding}
+                  onChange={(event) => setFunding(event.target.value)}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="button" variant="outline" className="w-full" onClick={generate}>
+                  Generate key
+                </Button>
+              </div>
+            </div>
+            {publicKey ? (
+              <div className="mt-3 rounded-md border border-primary/30 bg-secondary p-3 text-xs">
+                <p className="text-muted-foreground">Public key (submitted)</p>
+                <p className="mt-1 break-all font-mono">{publicKey}</p>
+                {secret ? (
+                  <>
+                    <p className="mt-3 text-rejected">Secret (shown once, copy now)</p>
+                    <p className="mt-1 break-all font-mono">{secret}</p>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            <Button
+              type="button"
+              className="mt-4"
+              disabled={busy || !publicKey}
+              onClick={() => void add()}
+            >
+              {busy ? 'Signing…' : 'Add agent (≥ 0.15 NEAR)'}
             </Button>
           </div>
-        </div>
-        {publicKey ? (
-          <div className="mt-3 rounded-md border border-primary/30 bg-secondary p-3 text-xs">
-            <p className="text-muted-foreground">Public key (submitted)</p>
-            <p className="mt-1 break-all font-mono">{publicKey}</p>
-            {secret ? (
-              <>
-                <p className="mt-3 text-rejected">Secret (shown once, copy now)</p>
-                <p className="mt-1 break-all font-mono">{secret}</p>
-              </>
-            ) : null}
-          </div>
         ) : null}
-        <Button
-          type="button"
-          className="mt-4"
-          disabled={busy || !publicKey}
-          onClick={() => void add()}
-        >
-          {busy ? 'Signing…' : 'Add agent (≥ 0.15 NEAR)'}
-        </Button>
         <div className="mt-3">
           <ActionResult error={error} txHash={txHash} />
         </div>

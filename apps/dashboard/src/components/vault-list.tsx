@@ -5,12 +5,21 @@ import { useEffect, useState } from 'react';
 import type { OwnerVaultEntry } from '@/lib/near';
 import { createViews, listOwnerVaults } from '@/lib/near';
 import { useOwnerSession } from '@/hooks/use-owner-session';
-import { lamportsToSol } from '@/lib/format';
+import { ChevronRight, Wallet } from 'lucide-react';
+import { lamportsToSol, shortenAddress } from '@/lib/format';
+import { SectionHeader } from './section-header';
+import { Button } from '@/components/ui/button';
 import { StatusBadge } from './status-badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export function VaultList({ refreshKey = 0 }: { refreshKey?: number }) {
+export function VaultList({
+  refreshKey = 0,
+  onSignIn,
+}: {
+  refreshKey?: number;
+  onSignIn?: () => void;
+}) {
   const session = useOwnerSession();
   const [rows, setRows] = useState<OwnerVaultEntry[] | null>(null);
   const [count, setCount] = useState(0);
@@ -44,67 +53,101 @@ export function VaultList({ refreshKey = 0 }: { refreshKey?: number }) {
   if (!session.authenticated) {
     return (
       <Card>
-        <CardHeader>
-          <p className="kicker">Vaults</p>
-          <CardTitle>Sign in to see your vaults</CardTitle>
-          <CardDescription>
-            Owner identity is a Privy embedded Solana wallet. The dashboard reads{' '}
-            <code>owner_vault_count</code> and filters <code>list_vaults</code> by that pubkey.
-          </CardDescription>
-        </CardHeader>
+        <SectionHeader
+          icon={Wallet}
+          kicker="Vaults"
+          title="Sign in to see your vaults"
+          description="Your owner identity is a Privy Solana wallet. Vaults are listed by that public key."
+          action={
+            onSignIn ? (
+              <Button type="button" size="sm" onClick={onSignIn}>
+                Sign in
+              </Button>
+            ) : undefined
+          }
+        />
       </Card>
     );
   }
 
   return (
     <Card>
-      <CardHeader>
-        <p className="kicker">Vaults</p>
-        <div className="flex items-end justify-between gap-3">
-          <CardTitle>Your vaults</CardTitle>
-          <span className="font-mono text-xs text-muted-foreground">owner_vault_count {count}</span>
-        </div>
-      </CardHeader>
+      <SectionHeader
+        icon={Wallet}
+        kicker="Vaults"
+        title="Your vaults"
+        action={
+          <span className="rounded-pill border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground">
+            {count} total
+          </span>
+        }
+      />
       <CardContent>
         {error ? <p className="mb-3 text-sm text-rejected">{error}</p> : null}
         {rows && rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No vaults yet for this owner.</p>
-        ) : null}
-        {!rows && !error ? (
-          <div className="grid gap-3">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
+          <div className="grid place-items-center rounded-md border border-dashed border-border px-6 py-10 text-center">
+            <Wallet aria-hidden className="size-8 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium">No vaults yet</p>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Create one below. Its Solana address is derived by the MPC network and verified
+              on-chain.
+            </p>
           </div>
         ) : null}
-        <div className="grid gap-3">
+        {!rows && !error ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2">
           {rows?.map(({ id, vault }) => {
             const solLimit = vault.policy.perTxLimit.find((item) => item.mint.type === 'sol');
+            const solCap = vault.policy.dailyCap.find((item) => item.mint.type === 'sol');
             return (
               <Link
                 key={id}
                 href={`/vaults/${id}`}
-                className="block rounded-md border border-border bg-secondary/60 p-4 shadow-e0 motion-safe:transition-shadow hover:shadow-e2"
+                className="group flex flex-col rounded-md border border-border bg-background/40 p-4 motion-safe:transition hover:border-primary/40 hover:bg-secondary/60"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-heading text-base font-semibold">Vault {id}</p>
+                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                      {shortenAddress(vault.vaultAddress, 6, 6)}
+                    </p>
+                  </div>
+                  <ChevronRight
+                    aria-hidden
+                    className="size-4 shrink-0 text-muted-foreground motion-safe:transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <StatusBadge tone={vault.paused ? 'danger' : 'ok'}>
+                    {vault.paused ? 'Paused' : vault.state}
+                  </StatusBadge>
+                  {vault.pendingLoosen ? (
+                    <StatusBadge tone="warn">Pending loosen</StatusBadge>
+                  ) : null}
+                </div>
+                <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-divider pt-3 text-xs">
                   <div>
-                    <div className="font-mono text-sm">Vault #{id}</div>
-                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                      {vault.vaultAddress}
-                    </div>
+                    <dt className="text-muted-foreground">Per-tx</dt>
+                    <dd className="mt-0.5 font-mono">
+                      {solLimit ? `${lamportsToSol(solLimit.amount)}` : '—'}
+                    </dd>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <StatusBadge tone={vault.paused ? 'danger' : 'ok'}>
-                      {vault.paused ? 'Paused' : vault.state}
-                    </StatusBadge>
-                    {vault.pendingLoosen ? (
-                      <StatusBadge tone="warn">Pending loosen</StatusBadge>
-                    ) : null}
+                  <div>
+                    <dt className="text-muted-foreground">24h cap</dt>
+                    <dd className="mt-0.5 font-mono">
+                      {solCap ? `${lamportsToSol(solCap.amount)}` : '—'}
+                    </dd>
                   </div>
-                </div>
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Per-tx {solLimit ? `${lamportsToSol(solLimit.amount)} SOL` : '—'} ·{' '}
-                  {vault.agents.length} agents
-                </div>
+                  <div>
+                    <dt className="text-muted-foreground">Agents</dt>
+                    <dd className="mt-0.5 font-mono">{vault.agents.length}</dd>
+                  </div>
+                </dl>
               </Link>
             );
           })}

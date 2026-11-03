@@ -1,5 +1,18 @@
 const LAMPORTS_PER_SOL = 1_000_000_000n;
 
+/** Programs the guard contract can parse, with human labels for the UI. */
+export const KNOWN_PROGRAMS: Array<{ id: string; label: string }> = [
+  { id: '11111111111111111111111111111111', label: 'System' },
+  { id: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', label: 'SPL Token' },
+  { id: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', label: 'ATA' },
+  { id: 'ComputeBudget111111111111111111111111111111', label: 'Compute Budget' },
+  { id: 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo', label: 'Memo' },
+];
+
+export function programLabel(id: string): string {
+  return KNOWN_PROGRAMS.find((program) => program.id === id)?.label ?? shortenAddress(id, 6, 4);
+}
+
 export function lamportsToSol(lamports: bigint): string {
   const negative = lamports < 0n;
   const value = negative ? -lamports : lamports;

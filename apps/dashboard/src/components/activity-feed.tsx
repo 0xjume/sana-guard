@@ -5,7 +5,9 @@ import { publicConfig } from '@/lib/config';
 import type { ActivityItem } from '@/lib/activity';
 import { StatusBadge } from './status-badge';
 import { ProofLink } from './proof-link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Activity } from 'lucide-react';
+import { SectionHeader } from './section-header';
+import { Card, CardContent } from '@/components/ui/card';
 
 export function ActivityFeed({ vaultId }: { vaultId: number }) {
   const [items, setItems] = useState<ActivityItem[]>([]);
@@ -41,22 +43,24 @@ export function ActivityFeed({ vaultId }: { vaultId: number }) {
 
   return (
     <Card>
-      <CardHeader>
-        <p className="kicker">Activity</p>
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle>Recent sign attempts</CardTitle>
-          {degraded ? (
+      <SectionHeader
+        icon={Activity}
+        kicker="Activity"
+        title="Recent sign attempts"
+        description={
+          <>
+            From the public NearBlocks history for {publicConfig.guardContract}. An empty indexer
+            response is shown as <strong>no history source</strong>, not as an empty vault.
+          </>
+        }
+        action={
+          degraded ? (
             <StatusBadge tone="warn">
               {reason === 'no history source' ? 'no history source' : 'Indexer degraded'}
             </StatusBadge>
-          ) : null}
-        </div>
-        <CardDescription>
-          Pulled from the public NearBlocks testnet account history for {publicConfig.guardContract}
-          . The relay has no activity endpoint. An empty indexer response is shown as{' '}
-          <strong>no history source</strong>, not as an empty vault.
-        </CardDescription>
-      </CardHeader>
+          ) : undefined
+        }
+      />
       <CardContent>
         {reason ? <p className="mb-3 text-xs text-warning">{reason}</p> : null}
         <ol className="space-y-3">

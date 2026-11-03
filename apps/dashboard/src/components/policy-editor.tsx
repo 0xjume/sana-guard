@@ -6,21 +6,13 @@ import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { submittedSuccess } from '@/lib/action-result-state';
 import type { GuardActionError } from '@/lib/errors';
-import { formatDurationNs } from '@/lib/format';
+import { formatDurationNs, KNOWN_PROGRAMS } from '@/lib/format';
 import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/lib/policy';
 import { formFromPolicy, policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-
-const KNOWN_PROGRAMS: Array<{ id: string; label: string }> = [
-  { id: '11111111111111111111111111111111', label: 'System' },
-  { id: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', label: 'SPL Token' },
-  { id: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', label: 'ATA' },
-  { id: 'ComputeBudget111111111111111111111111111111', label: 'Compute Budget' },
-  { id: 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo', label: 'Memo' },
-];
 
 function hasPreservedSplLimits(policy: Policy): boolean {
   return (
