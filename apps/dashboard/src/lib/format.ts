@@ -36,6 +36,35 @@ export function lamportsToSol(lamports: bigint): string {
   return negative ? `-${formatted}` : formatted;
 }
 
+/** 0.0001 SOL — smallest amount shown as an exact 4-decimal figure. */
+const SOL_DISPLAY_UNIT = 100_000n;
+
+/**
+ * User-facing SOL amount: at most 4 decimals, trailing zeros trimmed.
+ * Below 0.0001 SOL shows `< 0.0001`. Put the exact 9-decimal value in `title` via `solExactTitle`.
+ */
+export function formatSol(lamports: bigint, options?: { unit?: boolean }): string {
+  const suffix = options?.unit === false ? '' : ' SOL';
+  if (lamports === 0n) {
+    return `0${suffix}`;
+  }
+  const negative = lamports < 0n;
+  const abs = negative ? -lamports : lamports;
+  const sign = negative ? '-' : '';
+  if (abs < SOL_DISPLAY_UNIT) {
+    return `${sign}< 0.0001${suffix}`;
+  }
+  const rounded = (abs + SOL_DISPLAY_UNIT / 2n) / SOL_DISPLAY_UNIT;
+  const whole = rounded / 10_000n;
+  const frac = rounded % 10_000n;
+  const fracStr = frac === 0n ? '' : `.${frac.toString().padStart(4, '0').replace(/0+$/, '')}`;
+  return `${sign}${whole}${fracStr}${suffix}`;
+}
+
+export function solExactTitle(lamports: bigint): string {
+  return `${lamportsToSol(lamports)} SOL`;
+}
+
 export function solToLamports(sol: string): bigint {
   const trimmed = sol.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {

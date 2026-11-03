@@ -40,7 +40,19 @@ function ReviewBody({ pending }: { pending: Pending }) {
             {review.rows.map((row) => (
               <div key={row.label} className="contents">
                 <dt className="text-muted-foreground">{row.label}</dt>
-                <dd className="break-all font-mono">{row.value}</dd>
+                <dd className="break-all font-mono">
+                  {row.previous ? (
+                    <>
+                      <span className="text-muted-foreground">{row.previous}</span>
+                      <span aria-hidden className="px-1.5 text-muted-foreground">
+                        →
+                      </span>
+                      <span>{row.value}</span>
+                    </>
+                  ) : (
+                    row.value
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
@@ -79,6 +91,18 @@ function ReviewBody({ pending }: { pending: Pending }) {
   );
 }
 
+function signVariant(
+  tone: AdminMessageReview['tone'] | undefined
+): 'default' | 'destructive' | 'warning' {
+  if (tone === 'destructive') {
+    return 'destructive';
+  }
+  if (tone === 'warning') {
+    return 'warning';
+  }
+  return 'default';
+}
+
 /**
  * Hosts the "review before signing" dialog. The owner signer awaits `review(message)` before it
  * asks the wallet for a signature, so every owner action goes through this screen.
@@ -113,8 +137,8 @@ export function SignReviewProvider({ children }: { children: React.ReactNode }) 
     <SignReviewContext.Provider value={review}>
       {children}
       <Dialog open={pending !== null} onOpenChange={(open) => (open ? undefined : settle(false))}>
-        <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-6 pb-2 pt-6">
             <p className="kicker">Review before signing</p>
             <DialogTitle>{pending?.review?.title ?? 'Owner action'}</DialogTitle>
             <DialogDescription>
@@ -122,12 +146,18 @@ export function SignReviewProvider({ children }: { children: React.ReactNode }) 
               signature and applies it on-chain.
             </DialogDescription>
           </DialogHeader>
-          {pending ? <ReviewBody pending={pending} /> : null}
-          <DialogFooter>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            {pending ? <ReviewBody pending={pending} /> : null}
+          </div>
+          <DialogFooter className="shrink-0 border-t border-border bg-card px-6 py-4 sm:justify-between">
             <Button type="button" variant="outline" onClick={() => settle(false)}>
               Cancel
             </Button>
-            <Button type="button" onClick={() => settle(true)}>
+            <Button
+              type="button"
+              variant={signVariant(pending?.review?.tone)}
+              onClick={() => settle(true)}
+            >
               Sign with wallet
             </Button>
           </DialogFooter>

@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 export function RecipientsPanel({
   vaultId,
   recipients,
-  canEdit = true,
+  canEdit = false,
   onUpdated,
 }: {
   vaultId: number;

@@ -55,7 +55,7 @@ export function UsageBar({ percent, label }: { percent: number; label: string })
     >
       <div
         className={cn('h-full rounded-pill motion-safe:transition-all', tone)}
-        style={{ width: `${clamped}%` }}
+        style={{ width: clamped === 0 ? '0%' : `max(2px, ${clamped}%)` }}
       />
     </div>
   );

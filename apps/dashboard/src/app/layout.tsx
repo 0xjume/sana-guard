@@ -1,24 +1,34 @@
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
+import localFont from 'next/font/local';
 import { AppShell } from '@/components/app-shell';
 import { Providers } from '@/components/providers';
 import './globals.css';
 
-const inter = Inter({
-  subsets: ['latin'],
+const inter = localFont({
+  src: [
+    { path: '../fonts/inter-latin-400.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/inter-latin-500.woff2', weight: '500', style: 'normal' },
+  ],
   variable: '--font-sans',
+  display: 'swap',
+  adjustFontFallback: 'Arial',
 });
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
+const spaceGrotesk = localFont({
+  src: [{ path: '../fonts/space-grotesk-latin-600.woff2', weight: '600', style: 'normal' }],
   variable: '--font-heading',
+  display: 'swap',
+  adjustFontFallback: 'Arial',
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
+const jetbrainsMono = localFont({
+  src: [
+    { path: '../fonts/jetbrains-mono-latin-400.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/jetbrains-mono-latin-500.woff2', weight: '500', style: 'normal' },
+  ],
   variable: '--font-mono',
+  display: 'swap',
+  adjustFontFallback: 'Arial',
 });
 
 export const metadata: Metadata = {

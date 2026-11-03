@@ -59,11 +59,11 @@ export function NetworkStatus() {
           <span className="break-all font-mono text-xs">{publicConfig.guardContract}</span>
         }
       />
-      <CardContent>
+      <CardContent className="min-h-[9.5rem]">
         {!snapshot ? (
           <div className="space-y-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-16 w-3/4" />
           </div>
         ) : snapshot.error ? (
           <LoadError

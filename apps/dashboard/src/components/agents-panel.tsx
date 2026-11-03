@@ -22,7 +22,7 @@ import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 export function AgentsPanel({
   vaultId,
   agents,
-  canEdit = true,
+  canEdit = false,
   onUpdated,
 }: {
   vaultId: number;
@@ -43,6 +43,7 @@ export function AgentsPanel({
 
   const generate = () => {
     const keypair = nacl.sign.keyPair();
+    // Created in-memory only: never logged, never written to storage. The owner must copy it now.
     // near-api-js KeyPair.fromString (used by the MCP server) expects the ed25519: prefix.
     setSecret(`ed25519:${bs58.encode(Buffer.from(keypair.secretKey))}`);
     setPublicKey(`ed25519:${bs58.encode(Buffer.from(keypair.publicKey))}`);

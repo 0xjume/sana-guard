@@ -117,7 +117,14 @@ export default function HomePage() {
           </CardHeader>
         </Card>
       ) : null}
-      {session.authenticated ? (
+      {!session.ready ? (
+        <div
+          className="min-h-[28rem] rounded-lg border border-border bg-card/70 sm:min-h-[32rem]"
+          aria-busy="true"
+        >
+          <p className="sr-only">Loading owner session</p>
+        </div>
+      ) : session.authenticated ? (
         <h1 className="sr-only">Owner console</h1>
       ) : (
         <Hero onSignIn={canSignIn ? session.login : undefined} />
@@ -127,7 +134,7 @@ export default function HomePage() {
         <div className="min-w-0 space-y-6">
           {publicConfig.configError ? null : (
             <>
-              <VaultList refreshKey={refreshKey} onSignIn={canSignIn ? session.login : undefined} />
+              <VaultList refreshKey={refreshKey} />
               {session.authenticated ? (
                 <CreateVaultForm onCreated={() => setRefreshKey((value) => value + 1)} />
               ) : (

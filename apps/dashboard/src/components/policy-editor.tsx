@@ -8,8 +8,8 @@ import { submittedSuccess } from '@/lib/action-result-state';
 import type { GuardActionError } from '@/lib/errors';
 import {
   formatDurationNs,
+  formatSol,
   KNOWN_PROGRAMS,
-  lamportsToSol,
   worstCasePriorityFeeLamports,
 } from '@/lib/format';
 import { isPolicyStricter, policyLoosenReasons, type PolicyFormValues } from '@/lib/policy';
@@ -48,7 +48,7 @@ function PriorityFeeWarning({ perCu, total }: { perCu: string; total: string }) 
           : 'text-xs text-muted-foreground sm:col-span-2'
       }
     >
-      Worst case per transaction: up to <strong>{lamportsToSol(worst)} SOL</strong> in priority fees
+      Worst case per transaction: up to <strong>{formatSol(worst)}</strong> in priority fees
       {uncapped ? ' (no total cap set).' : '.'} Fees count toward the SOL per-tx and 24h caps.
     </p>
   );

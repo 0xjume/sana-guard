@@ -20,10 +20,12 @@ import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig } from '@/lib/config';
 import {
   formatDurationNs,
+  formatSol,
   formatTimestampNs,
-  lamportsToSol,
   nsToDate,
   programLabel,
+  solExactTitle,
+  worstCasePriorityFeeLamports,
 } from '@/lib/format';
 import { clonePolicy, createViews, getSolanaBalanceLamports } from '@/lib/near';
 import { ActionResult } from './action-result';
@@ -92,46 +94,65 @@ function PolicySummary({ policy }: { policy: Policy }) {
   const solLimit = policy.perTxLimit.find((item) => item.mint.type === 'sol');
   const solCap = policy.dailyCap.find((item) => item.mint.type === 'sol');
   return (
-    <dl className="grid gap-3 text-sm sm:grid-cols-2">
-      <div>
-        <dt className="text-xs text-muted-foreground">Per-tx SOL</dt>
-        <dd className="font-mono">{solLimit ? `${lamportsToSol(solLimit.amount)} SOL` : '—'}</dd>
-      </div>
-      <div>
-        <dt className="text-xs text-muted-foreground">Rolling 24h SOL cap</dt>
-        <dd className="font-mono">{solCap ? `${lamportsToSol(solCap.amount)} SOL` : '—'}</dd>
-      </div>
-      <div>
-        <dt className="text-xs text-muted-foreground">Max compute-unit price</dt>
-        <dd className="font-mono">{policy.maxPriorityFeeLamports.toString()} lamports / CU</dd>
-      </div>
-      <div>
-        <dt className="text-xs text-muted-foreground">Max total priority fee / tx</dt>
-        <dd className="font-mono">
-          {policy.maxTotalPriorityFeeLamports === undefined
-            ? 'No cap'
-            : `${lamportsToSol(policy.maxTotalPriorityFeeLamports)} SOL`}
-        </dd>
-      </div>
-      <div>
-        <dt className="text-xs text-muted-foreground">Expiry</dt>
-        <dd>{formatTimestampNs(policy.expiresAtNs)}</dd>
-      </div>
-      <div>
-        <dt className="text-xs text-muted-foreground">Loosen delay</dt>
-        <dd>{formatDurationNs(policy.loosenDelayNs)}</dd>
-      </div>
-      <div className="sm:col-span-2">
-        <dt className="text-xs text-muted-foreground">Programs</dt>
-        <dd className="mt-1 flex flex-wrap gap-2">
-          {policy.programs.map((program) => (
-            <StatusBadge key={program} tone="muted">
-              {programLabel(program)}
-            </StatusBadge>
-          ))}
-        </dd>
-      </div>
-    </dl>
+    <div>
+      <dl className="grid gap-3 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-muted-foreground">Per-tx SOL</dt>
+          <dd className="font-mono" title={solLimit ? solExactTitle(solLimit.amount) : undefined}>
+            {solLimit ? formatSol(solLimit.amount) : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Rolling 24h SOL cap</dt>
+          <dd className="font-mono" title={solCap ? solExactTitle(solCap.amount) : undefined}>
+            {solCap ? formatSol(solCap.amount) : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Max compute-unit price</dt>
+          <dd className="font-mono">{policy.maxPriorityFeeLamports.toString()} lamports / CU</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Max total priority fee / tx</dt>
+          <dd
+            className="font-mono"
+            title={
+              policy.maxTotalPriorityFeeLamports === undefined
+                ? undefined
+                : solExactTitle(policy.maxTotalPriorityFeeLamports)
+            }
+          >
+            {policy.maxTotalPriorityFeeLamports === undefined
+              ? 'No cap'
+              : formatSol(policy.maxTotalPriorityFeeLamports)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Expiry</dt>
+          <dd>{formatTimestampNs(policy.expiresAtNs)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Loosen delay</dt>
+          <dd>{formatDurationNs(policy.loosenDelayNs)}</dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="text-xs text-muted-foreground">Programs</dt>
+          <dd className="mt-1 flex flex-wrap gap-2">
+            {policy.programs.map((program) => (
+              <StatusBadge key={program} tone="muted">
+                {programLabel(program)}
+              </StatusBadge>
+            ))}
+          </dd>
+        </div>
+      </dl>
+      {policy.maxTotalPriorityFeeLamports === undefined && policy.maxPriorityFeeLamports > 0n ? (
+        <p className="mt-4 flex gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+          No total priority fee cap. One transaction may pay up to{' '}
+          {formatSol(worstCasePriorityFeeLamports(policy.maxPriorityFeeLamports))} in priority fees.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -148,16 +169,16 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
 
   const load = useCallback(async () => {
     const views = createViews();
-    const next = await views.getVault(vaultId);
+    const vaultPromise = views.getVault(vaultId);
+    const detailsPromise = Promise.all([views.getRecipients(vaultId), views.getSpend24h(vaultId)]);
+    const next = await vaultPromise;
     if (!next) {
+      void detailsPromise.catch(() => undefined);
       setVault(null);
       setError('Vault not found');
       return;
     }
-    const [nextRecipients, nextSpend] = await Promise.all([
-      views.getRecipients(vaultId),
-      views.getSpend24h(vaultId),
-    ]);
+    const [nextRecipients, nextSpend] = await detailsPromise;
     setVault(next);
     setRecipients(nextRecipients);
     setSpend(nextSpend);
@@ -250,6 +271,12 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
         <p className="sr-only" role="status">
           Loading vault {vaultId}
         </p>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <Skeleton className="h-[7.5rem] w-full rounded-lg" />
+          <Skeleton className="h-[7.5rem] w-full rounded-lg" />
+          <Skeleton className="h-[7.5rem] w-full rounded-lg" />
+          <Skeleton className="h-[7.5rem] w-full rounded-lg" />
+        </div>
         <Card>
           <CardHeader>
             <Skeleton className="h-4 w-20" />
@@ -264,7 +291,8 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
   }
 
   const solSpend = spend.find((item) => item.mint === 'SOL' || item.mint === 'Sol');
-  const isOwner = session.owner === vault.owner;
+  const sessionReady = session.ready;
+  const isOwner = Boolean(session.owner && session.owner === vault.owner);
   const solLimit = vault.policy.perTxLimit.find((item) => item.mint.type === 'sol');
   const solCap = vault.policy.dailyCap.find((item) => item.mint.type === 'sol');
 
@@ -303,7 +331,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
         <ActionResult error={actionError} txHash={txHash} />
       </header>
 
-      {!isOwner ? (
+      {sessionReady && !isOwner ? (
         <div className="flex items-start gap-3 rounded-lg border border-info/30 bg-info/[0.06] px-4 py-3 text-sm">
           <Eye aria-hidden className="mt-0.5 size-4 shrink-0 text-info" />
           <p className="text-muted-foreground">
@@ -317,23 +345,23 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
         <StatTile
           icon={Coins}
           label="Vault balance"
-          value={balance === null ? '—' : lamportsToSol(balance)}
+          value={balance === null ? '—' : formatSol(balance, { unit: false })}
           unit="SOL"
           hint="Solana devnet"
         />
         <StatTile
           icon={Gauge}
           label="Spent, rolling 24h"
-          value={lamportsToSol(dailyUsed)}
+          value={formatSol(dailyUsed, { unit: false })}
           unit="SOL"
-          hint={solCap ? `of ${lamportsToSol(solCap.amount)} SOL cap` : 'No SOL cap set'}
+          hint={solCap ? `of ${formatSol(solCap.amount)} cap` : 'No SOL cap set'}
         >
           <UsageBar percent={dailyPercent} label="Rolling 24h SOL spend" />
         </StatTile>
         <StatTile
           icon={ShieldCheck}
           label="Per-transaction cap"
-          value={solLimit ? lamportsToSol(solLimit.amount) : '—'}
+          value={solLimit ? formatSol(solLimit.amount, { unit: false }) : '—'}
           unit="SOL"
           hint="Larger transfers are rejected"
         />
@@ -441,6 +469,7 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
                 {vault.paused ? (
                   <Button
                     type="button"
+                    variant="outline"
                     disabled={busy}
                     onClick={() =>
                       void run(() =>

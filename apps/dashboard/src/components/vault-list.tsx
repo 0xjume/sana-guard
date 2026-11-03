@@ -6,20 +6,13 @@ import type { OwnerVaultEntry } from '@/lib/near';
 import { createViews, listOwnerVaults } from '@/lib/near';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { ChevronRight, Wallet } from 'lucide-react';
-import { lamportsToSol, shortenAddress } from '@/lib/format';
+import { formatSol, shortenAddress } from '@/lib/format';
 import { SectionHeader } from './section-header';
-import { Button } from '@/components/ui/button';
 import { StatusBadge } from './status-badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export function VaultList({
-  refreshKey = 0,
-  onSignIn,
-}: {
-  refreshKey?: number;
-  onSignIn?: () => void;
-}) {
+export function VaultList({ refreshKey = 0 }: { refreshKey?: number }) {
   const session = useOwnerSession();
   const [rows, setRows] = useState<OwnerVaultEntry[] | null>(null);
   const [count, setCount] = useState(0);
@@ -56,15 +49,8 @@ export function VaultList({
         <SectionHeader
           icon={Wallet}
           kicker="Vaults"
-          title="Sign in to see your vaults"
-          description="Your owner identity is a Privy Solana wallet. Vaults are listed by that public key."
-          action={
-            onSignIn ? (
-              <Button type="button" size="sm" onClick={onSignIn}>
-                Sign in
-              </Button>
-            ) : undefined
-          }
+          title="Your vaults"
+          description="Sign in with the owner wallet above to list vaults for that public key."
         />
       </Card>
     );
@@ -134,13 +120,13 @@ export function VaultList({
                   <div>
                     <dt className="text-muted-foreground">Per-tx</dt>
                     <dd className="mt-0.5 font-mono">
-                      {solLimit ? `${lamportsToSol(solLimit.amount)}` : '—'}
+                      {solLimit ? formatSol(solLimit.amount, { unit: false }) : '—'}
                     </dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">24h cap</dt>
                     <dd className="mt-0.5 font-mono">
-                      {solCap ? `${lamportsToSol(solCap.amount)}` : '—'}
+                      {solCap ? formatSol(solCap.amount, { unit: false }) : '—'}
                     </dd>
                   </div>
                   <div>

@@ -66,7 +66,7 @@ function PreviewTabs() {
         </CardHeader>
       </Card>
       <Tabs defaultValue={tab}>
-        <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
+        <TabsList className="w-full min-w-0 max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="policy">Policy</TabsTrigger>
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="attack">Attack lab</TabsTrigger>
