@@ -178,7 +178,13 @@ export function VaultDetail({ vaultId }: { vaultId: number }) {
       setError('Vault not found');
       return;
     }
-    const [nextRecipients, nextSpend] = await detailsPromise;
+    let nextRecipients: string[] = [];
+    let nextSpend: Array<{ mint: string; amount: bigint }> = [];
+    try {
+      [nextRecipients, nextSpend] = await detailsPromise;
+    } catch {
+      // Vault identity loaded; allowlists and spend can stay empty until retry.
+    }
     setVault(next);
     setRecipients(nextRecipients);
     setSpend(nextSpend);
