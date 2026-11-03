@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MIN_AGENT_FUNDING } from '@sana-guard/sdk';
 import {
+  AGENT_LIMIT_UNAVAILABLE,
   DASH_AGENT_FUNDING,
   DASH_AGENT_LIMIT,
   MAX_AGENTS_PER_VAULT_MESSAGE,
@@ -68,6 +69,7 @@ async function post(
     logError?: ReturnType<typeof vi.fn>;
     env?: Record<string, string | undefined>;
     createVaultInFlight?: Set<string>;
+    addAgentInFlight?: Set<string>;
   } = {}
 ) {
   const postAdmin =
@@ -93,6 +95,7 @@ async function post(
     env: { MAX_VAULTS_PER_OWNER: '1', MAX_RELAY_VAULTS_TOTAL: '10', ...overrides.env },
     rateStore: new Map(),
     createVaultInFlight: overrides.createVaultInFlight ?? new Set(),
+    addAgentInFlight: overrides.addAgentInFlight ?? new Set(),
     ip: '1.2.3.4',
     logError,
   });
@@ -289,6 +292,7 @@ describe('handleOwnerActionPost AddAgent caps', () => {
       },
     });
     expect(response.status).toBe(503);
+    expect(body.error).toBe(AGENT_LIMIT_UNAVAILABLE);
     expect(JSON.stringify(body)).not.toMatch(/secret-token|NEAR RPC/);
     expect(postAdmin).not.toHaveBeenCalled();
   });
@@ -336,6 +340,52 @@ describe('handleOwnerActionPost CreateVault in-flight guard', () => {
     });
     expect(second.response.status).toBe(409);
     expect(second.body.code).toBe('DASH_CREATE_VAULT_IN_FLIGHT');
+    expect(secondAdmin).not.toHaveBeenCalled();
+    release();
+    const first = await firstPromise;
+    expect(first.response.status).toBe(200);
+    expect(firstAdmin).toHaveBeenCalledOnce();
+  });
+});
+
+describe('handleOwnerActionPost AddAgent in-flight guard', () => {
+  it('returns 409 for a second concurrent AddAgent from the same owner', async () => {
+    const addAgentInFlight = new Set<string>();
+    let started!: () => void;
+    const startedP = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstAdmin = vi.fn(async () => {
+      started();
+      await held;
+      return { success: true as const, txHash: 'tx-1' };
+    });
+    const secondAdmin = vi.fn(async () => ({ success: true as const, txHash: 'tx-2' }));
+    const views = {
+      getOwnerVaultCount: async () => 1,
+      listVaults: async () => [],
+      getVault: async () => ({ agents: [] }),
+    };
+
+    const firstPromise = post({
+      message: addAgentMessage(),
+      views,
+      postAdmin: firstAdmin,
+      addAgentInFlight,
+    });
+    await startedP;
+    const second = await post({
+      message: addAgentMessage(),
+      views,
+      postAdmin: secondAdmin,
+      addAgentInFlight,
+    });
+    expect(second.response.status).toBe(409);
+    expect(second.body.code).toBe('DASH_ADD_AGENT_IN_FLIGHT');
     expect(secondAdmin).not.toHaveBeenCalled();
     release();
     const first = await firstPromise;

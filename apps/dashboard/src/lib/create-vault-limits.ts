@@ -44,11 +44,15 @@ function denyCreateVault(
 }
 
 export function parsePositiveInt(raw: string | undefined | null, fallback: number): number {
-  if (raw === undefined || raw === null || raw.trim() === '') {
+  if (raw === undefined || raw === null) {
     return fallback;
   }
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) {
+  const trimmed = raw.trim();
+  if (trimmed === '' || !/^[1-9][0-9]*$/.test(trimmed)) {
+    return fallback;
+  }
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value)) {
     return fallback;
   }
   return value;

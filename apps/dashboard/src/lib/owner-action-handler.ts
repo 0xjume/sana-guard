@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { addAgentActionLimits, checkAddAgentLimits, type AddAgentViews } from './add-agent-limits';
+import {
+  AGENT_LIMIT_UNAVAILABLE,
+  addAgentActionLimits,
+  checkAddAgentLimits,
+  isAddAgentAdminMessage,
+  type AddAgentViews,
+} from './add-agent-limits';
 import {
   VAULT_LIMIT_UNAVAILABLE,
   checkCreateVaultLimits,
@@ -12,6 +18,7 @@ import { trustedClientIp } from './rate-limit';
 import type { RelayAdminResult } from './relay';
 
 export const DASH_CREATE_VAULT_IN_FLIGHT = 'DASH_CREATE_VAULT_IN_FLIGHT';
+export const DASH_ADD_AGENT_IN_FLIGHT = 'DASH_ADD_AGENT_IN_FLIGHT';
 
 export type OwnerActionLog = (message: string, detail?: Record<string, string>) => void;
 
@@ -75,7 +82,7 @@ export function ownerActionLimitsJson(
   };
 }
 
-function acquireCreateVaultGuard(inFlight: Set<string>, owner: string): boolean {
+function acquireOwnerGuard(inFlight: Set<string>, owner: string): boolean {
   if (inFlight.has(owner)) {
     return false;
   }
@@ -87,13 +94,31 @@ function ownerLimitDenialResponse(result: OwnerLimitDenial): NextResponse {
   return NextResponse.json({ error: result.message, code: result.code }, { status: result.status });
 }
 
-function ownerLimitUnavailableResponse(err: unknown, logError: OwnerActionLog): NextResponse {
-  return NextResponse.json({ error: logVaultLimitFailure(err, logError) }, { status: 503 });
+function logAgentLimitFailure(
+  err: unknown,
+  log: OwnerActionLog = console.error
+): typeof AGENT_LIMIT_UNAVAILABLE {
+  log('Agent limit check unavailable', {
+    name: err instanceof Error ? err.name : 'Error',
+    message: err instanceof Error ? err.message : 'unknown',
+  });
+  return AGENT_LIMIT_UNAVAILABLE;
+}
+
+function ownerLimitUnavailableResponse(
+  err: unknown,
+  logError: OwnerActionLog,
+  kind: 'vault' | 'agent'
+): NextResponse {
+  const error =
+    kind === 'agent' ? logAgentLimitFailure(err, logError) : logVaultLimitFailure(err, logError);
+  return NextResponse.json({ error }, { status: 503 });
 }
 
 async function enforceOwnerActionLimit(
   check: () => Promise<OwnerLimitResult>,
-  logError: OwnerActionLog
+  logError: OwnerActionLog,
+  kind: 'vault' | 'agent' = 'vault'
 ): Promise<NextResponse | null> {
   try {
     const result = await check();
@@ -102,7 +127,7 @@ async function enforceOwnerActionLimit(
     }
     return null;
   } catch (err) {
-    return ownerLimitUnavailableResponse(err, logError);
+    return ownerLimitUnavailableResponse(err, logError, kind);
   }
 }
 
@@ -122,6 +147,7 @@ export async function handleOwnerActionPost(args: {
   env?: Record<string, string | undefined>;
   rateStore: Map<string, number[]>;
   createVaultInFlight?: Set<string>;
+  addAgentInFlight?: Set<string>;
   ip?: string;
   logError?: OwnerActionLog;
 }): Promise<NextResponse> {
@@ -157,8 +183,10 @@ export async function handleOwnerActionPost(args: {
   }
 
   const createVaultInFlight = args.createVaultInFlight ?? new Set<string>();
+  const addAgentInFlight = args.addAgentInFlight ?? new Set<string>();
   const holdingCreateVault = isCreateVaultAdminMessage(message);
-  if (holdingCreateVault && !acquireCreateVaultGuard(createVaultInFlight, owner)) {
+  const holdingAddAgent = isAddAgentAdminMessage(message);
+  if (holdingCreateVault && !acquireOwnerGuard(createVaultInFlight, owner)) {
     return NextResponse.json(
       {
         error: 'A CreateVault request is already in progress for this owner',
@@ -167,11 +195,21 @@ export async function handleOwnerActionPost(args: {
       { status: 409 }
     );
   }
+  if (holdingAddAgent && !acquireOwnerGuard(addAgentInFlight, owner)) {
+    return NextResponse.json(
+      {
+        error: 'An AddAgent request is already in progress for this owner',
+        code: DASH_ADD_AGENT_IN_FLIGHT,
+      },
+      { status: 409 }
+    );
+  }
 
   try {
     const createDenied = await enforceOwnerActionLimit(
       () => checkCreateVaultLimits({ message, owner, views: args.views, env }),
-      logError
+      logError,
+      'vault'
     );
     if (createDenied) {
       return createDenied;
@@ -179,7 +217,8 @@ export async function handleOwnerActionPost(args: {
 
     const addAgentDenied = await enforceOwnerActionLimit(
       () => checkAddAgentLimits({ message, views: args.views, env }),
-      logError
+      logError,
+      'agent'
     );
     if (addAgentDenied) {
       return addAgentDenied;
@@ -199,6 +238,9 @@ export async function handleOwnerActionPost(args: {
   } finally {
     if (holdingCreateVault) {
       createVaultInFlight.delete(owner);
+    }
+    if (holdingAddAgent) {
+      addAgentInFlight.delete(owner);
     }
   }
 }

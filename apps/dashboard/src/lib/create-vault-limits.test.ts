@@ -106,6 +106,19 @@ describe('loadCreateVaultLimits', () => {
       capMode: 'total',
     });
   });
+
+  it('rejects scientific and hex env values instead of Number() coercion', () => {
+    expect(
+      loadCreateVaultLimits({
+        MAX_VAULTS_PER_OWNER: '1e1',
+        MAX_RELAY_VAULTS_TOTAL: '0x3',
+      })
+    ).toEqual({
+      maxVaultsPerOwner: 1,
+      maxRelayVaultsTotal: 10,
+      capMode: 'total',
+    });
+  });
 });
 
 describe('evaluateCreateVaultLimits', () => {

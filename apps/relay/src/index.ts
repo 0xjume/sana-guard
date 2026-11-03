@@ -10,6 +10,7 @@ import { createQuoteRouter } from './routes/quote.js';
 import { createHealthRouter } from './routes/health.js';
 import { createCorsMiddleware } from './middleware/cors.js';
 import { createUnknownResolver } from './resolve.js';
+import { recoverOrphanedReservations } from './startup.js';
 
 async function main() {
   const config = loadConfig();
@@ -45,6 +46,11 @@ async function main() {
 
   const db = new RelayDatabase(config.databaseUrl);
 
+  const promoted = recoverOrphanedReservations(db);
+  if (promoted > 0) {
+    logger.info({ promoted }, 'Promoted leftover pending reservations to unknown');
+  }
+
   const cleanupInterval = setInterval(
     () => {
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -54,6 +60,7 @@ async function main() {
   );
 
   const resolveUnknowns = createUnknownResolver(db, nearClient);
+  await resolveUnknowns();
   const resolveInterval = setInterval(() => {
     void resolveUnknowns();
   }, 60 * 1000);

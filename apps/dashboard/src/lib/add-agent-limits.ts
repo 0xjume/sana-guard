@@ -60,6 +60,9 @@ function parseDashboardFundingCap(raw: string | undefined): bigint {
   } catch {
     // Invalid NEAR amounts fall back to the hosted-demo default.
   }
+  console.warn('MAX_AGENT_GAS_FUNDING_NEAR is outside [0.15, 0.5] NEAR; falling back to 0.25', {
+    value: raw,
+  });
   return nearToYocto(DEFAULT_MAX_AGENT_GAS_FUNDING_NEAR);
 }
 
@@ -102,6 +105,10 @@ export function addAgentUiBlockedReason(
 
 export function addAgentFundingHint(minNear: string, maxNear: string): string {
   return `Add agent (${minNear}–${maxNear} NEAR)`;
+}
+
+export function isAddAgentAdminMessage(message: string): boolean {
+  return parseAddAgentAction(message).kind === 'add';
 }
 
 type ParsedAddAgent =

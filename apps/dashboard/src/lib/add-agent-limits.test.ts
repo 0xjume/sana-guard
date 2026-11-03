@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MIN_AGENT_FUNDING } from '@sana-guard/sdk';
 import {
   DASH_AGENT_FUNDING,
@@ -67,6 +67,10 @@ describe('loadAddAgentLimits', () => {
     });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('falls back when funding is below the contract min or above the relay 0.5 cap', () => {
     expect(
       loadAddAgentLimits({
@@ -83,6 +87,17 @@ describe('loadAddAgentLimits', () => {
         MAX_AGENTS_PER_VAULT: '0',
       }).maxAgentsPerVault
     ).toBe(3);
+  });
+
+  it('warns when MAX_AGENT_GAS_FUNDING_NEAR is out of [0.15, 0.5] and falls back', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(loadAddAgentLimits({ MAX_AGENT_GAS_FUNDING_NEAR: '0.6' }).maxAgentGasFundingNear).toBe(
+      '0.25'
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/MAX_AGENT_GAS_FUNDING_NEAR/),
+      expect.anything()
+    );
   });
 });
 

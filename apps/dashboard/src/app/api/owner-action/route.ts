@@ -11,6 +11,7 @@ export const runtime = 'nodejs';
 
 const rateStore = new Map<string, number[]>();
 const createVaultInFlight = new Set<string>();
+const addAgentInFlight = new Set<string>();
 
 /**
  * Public demo limits. Caps are server-only; the UI reads them here so
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
     env: process.env,
     rateStore,
     createVaultInFlight,
+    addAgentInFlight,
     ip: trustedClientIp(request.headers),
     logError: console.error,
   });
