@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -16,7 +15,6 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type { Policy, VaultView } from '@sana-guard/sdk';
-import { revalidateVault } from '@/app/vaults/[id]/revalidate';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig } from '@/lib/config';
@@ -175,7 +173,6 @@ export function VaultDetail({
   initialSnapshot?: SerializedVaultSnapshot;
 }) {
   const session = useOwnerSession();
-  const router = useRouter();
   const initial = initialSnapshot ? deserializeVaultSnapshot(initialSnapshot) : null;
   const [vault, setVault] = useState<VaultView | null>(initial?.vault ?? null);
   const [recipients, setRecipients] = useState<string[]>(initial?.recipients ?? []);
@@ -231,15 +228,18 @@ export function VaultDetail({
       window.clearTimeout(id);
     }
     followUps.current = [];
-    const once = () => {
-      void revalidateVault(vaultId).catch(() => undefined);
-      router.refresh();
-      void load();
-    };
-    planVaultRefresh(once, (ms, run) => {
-      followUps.current.push(window.setTimeout(run, ms));
-    });
-  }, [load, router, vaultId]);
+    // VaultDetail keeps its own state after mount, so a server refresh does not
+    // change the painted policy. Re-read from the client immediately, then again
+    // once a final view can see a tx that settled a moment earlier.
+    planVaultRefresh(
+      () => {
+        void load();
+      },
+      (ms, run) => {
+        followUps.current.push(window.setTimeout(run, ms));
+      }
+    );
+  }, [load]);
 
   useEffect(() => {
     void load();

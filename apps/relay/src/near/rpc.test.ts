@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createNearRpc, publicRpcFallback, type NearRpcTiming } from './rpc.js';
+import { createNearRpc, publicRpcFallback, singleBroadcastUrl, type NearRpcTiming } from './rpc.js';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -27,6 +27,25 @@ describe('publicRpcFallback', () => {
     expect(publicRpcFallback('http://127.0.0.1:9')).toBeNull();
     expect(publicRpcFallback('http://localhost:3030')).toBeNull();
     expect(publicRpcFallback('https://my-rpc.example')).toBeNull();
+  });
+});
+
+describe('singleBroadcastUrl', () => {
+  it('sends a public near.org host to fastnear and leaves every other URL alone', () => {
+    expect(singleBroadcastUrl('https://rpc.testnet.near.org')).toBe(
+      'https://test.rpc.fastnear.com'
+    );
+    expect(singleBroadcastUrl('https://archival-rpc.testnet.near.org')).toBe(
+      'https://test.rpc.fastnear.com'
+    );
+    expect(singleBroadcastUrl('https://rpc.mainnet.near.org')).toBe(
+      'https://rpc.mainnet.fastnear.com'
+    );
+    expect(singleBroadcastUrl('https://test.rpc.fastnear.com')).toBe(
+      'https://test.rpc.fastnear.com'
+    );
+    expect(singleBroadcastUrl('http://127.0.0.1:9')).toBe('http://127.0.0.1:9');
+    expect(singleBroadcastUrl('https://my-rpc.example')).toBe('https://my-rpc.example');
   });
 });
 

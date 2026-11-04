@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { VAULT_FOLLOW_UP_REFRESH_MS, planVaultRefresh } from './vault-refresh';
 
 describe('planVaultRefresh', () => {
-  it('refreshes immediately and again after finality can catch up', () => {
+  it('schedules only the client reload, immediately and after finality can catch up', () => {
     const ran: string[] = [];
     const scheduled: number[] = [];
     planVaultRefresh(

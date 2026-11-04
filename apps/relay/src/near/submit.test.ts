@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as nearAPI from 'near-api-js';
-import { NearClientImpl } from './client.js';
+import * as broadcast from './broadcast.js';
+import { NearClientImpl, OWNER_BROADCAST_TIMEOUT_MS } from './client.js';
 
 const { KeyPair, utils } = nearAPI;
 
@@ -26,7 +27,10 @@ function response(body: unknown): Response {
   });
 }
 
-async function clientWith(handler: (call: RpcCall) => Response | Promise<Response>): Promise<{
+async function clientWith(
+  handler: (call: RpcCall) => Response | Promise<Response>,
+  rpcUrl = RPC
+): Promise<{
   client: NearClientImpl;
   calls: RpcCall[];
 }> {
@@ -44,7 +48,7 @@ async function clientWith(handler: (call: RpcCall) => Response | Promise<Respons
 
   const client = new NearClientImpl(
     'testnet',
-    RPC,
+    rpcUrl,
     'relay.ci.testnet',
     KeyPair.fromRandom('ed25519').toString(),
     'guard.djume.testnet'
@@ -129,5 +133,33 @@ describe('submitOwnerAction signing prep', () => {
     await expect(submit(client)).rejects.toThrow(/rejected before acceptance/);
     expect(calls.map((call) => call.method)).toEqual(['query', 'send_tx']);
     expect(calls[0]?.params.request_type).toBe('view_access_key');
+  });
+
+  it('gives one send_tx 10s and does not also broadcast to near.org', async () => {
+    const spy = vi.spyOn(broadcast, 'broadcastSignedTransaction');
+    const primary = 'https://rpc.testnet.near.org';
+    const { client, calls } = await clientWith((call) => {
+      if (call.method === 'query') {
+        expect(call.url).toBe(primary);
+        return viewAccessKey(call);
+      }
+      expect(call.method).toBe('send_tx');
+      expect(call.url).toBe('https://test.rpc.fastnear.com');
+      return accepted();
+    }, primary);
+
+    await submit(client);
+    const sends = calls.filter((call) => call.method === 'send_tx');
+    expect(sends).toHaveLength(1);
+    expect(sends[0]?.url).toBe('https://test.rpc.fastnear.com');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rpcUrl: 'https://test.rpc.fastnear.com',
+        timeoutMs: OWNER_BROADCAST_TIMEOUT_MS,
+      })
+    );
+    expect(OWNER_BROADCAST_TIMEOUT_MS).toBe(10_000);
+    spy.mockRestore();
   });
 });

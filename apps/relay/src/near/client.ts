@@ -17,13 +17,20 @@ import {
 } from './errors.js';
 import { forgetAccessKey, rememberSignedNonce, shouldForgetAccessKey } from './nonceCache.js';
 import { broadcastSignedTransaction } from './broadcast.js';
-import { createNearRpc, type NearRpc } from './rpc.js';
+import { createNearRpc, singleBroadcastUrl, type NearRpc } from './rpc.js';
 import { parseTxStatusJson, type TxRpcResponse } from './txStatus.js';
 import { parseOwnerVaultCount } from '../viewCount.js';
 
 const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
 
 const TX_STATUS_TIMEOUT_MS = 10_000;
+
+/**
+ * One send_tx. 10s leaves room for a ~3.2s public endpoint when that is the
+ * only host we can use. A 4s cap turned those into "timed out but maybe
+ * accepted", which keeps a CreateVault in flight until the tx resolves.
+ */
+export const OWNER_BROADCAST_TIMEOUT_MS = 10_000;
 
 export class NearClientImpl implements NearClient {
   private connection!: nearAPI.Near;
@@ -209,11 +216,12 @@ export class NearClientImpl implements NearClient {
       try {
         // Do not use provider.sendTransaction: it long-polls EXECUTED_OPTIMISTIC
         // and retries timeouts. The hash is already known; execution is polled.
+        // Exactly one host: public near.org is sent to fastnear, never both.
         const broadcastStarted = Date.now();
         await broadcastSignedTransaction({
-          rpcUrl: this.rpc.preferredUrl(),
+          rpcUrl: singleBroadcastUrl(this.rpc.preferredUrl()),
           signedTxBase64,
-          timeoutMs: 4_000,
+          timeoutMs: OWNER_BROADCAST_TIMEOUT_MS,
         });
         logger.info(
           { txHash, step: 'send_tx', ms: Date.now() - broadcastStarted },

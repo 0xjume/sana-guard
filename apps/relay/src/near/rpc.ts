@@ -45,6 +45,15 @@ function hostname(url: string): string | null {
   }
 }
 
+/**
+ * One broadcast target. A public near.org host is replaced with fastnear so the
+ * single send does not sit on a ~3.2s endpoint. Already-fast and custom URLs
+ * stay put. Callers must send this URL once and must not also send the other.
+ */
+export function singleBroadcastUrl(preferredUrl: string): string {
+  return publicRpcFallback(preferredUrl) ?? preferredUrl;
+}
+
 /** Fallback only for the public NEAR endpoints whose steady latency is several seconds. */
 export function publicRpcFallback(primaryUrl: string): string | null {
   const host = hostname(primaryUrl);
