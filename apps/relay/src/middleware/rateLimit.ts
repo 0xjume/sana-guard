@@ -14,10 +14,13 @@ interface RateLimitEntry {
 
 const ADMIN_LIMIT = 10;
 const READ_LIMIT = 60;
+/** Dashboard confirmation polls share the server IP. Keep this above one create's poll budget. */
+const TX_STATUS_LIMIT = 240;
 const WINDOW_MS = 60 * 1000;
 
 const adminLimits = new Map<string, RateLimitEntry>();
 const readLimits = new Map<string, RateLimitEntry>();
+const txStatusLimits = new Map<string, RateLimitEntry>();
 
 function parseSingleIp(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -204,4 +207,8 @@ export function createReadRateLimit(config: ProxyConfig) {
   return createRateLimit(readLimits, READ_LIMIT, config);
 }
 
-export { adminLimits, readLimits };
+export function createTxStatusRateLimit(config: ProxyConfig) {
+  return createRateLimit(txStatusLimits, TX_STATUS_LIMIT, config);
+}
+
+export { adminLimits, readLimits, txStatusLimits };

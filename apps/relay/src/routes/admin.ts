@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { NearClient, VaultInfo } from '../near/interface.js';
-import type { RelayDatabase } from '../db.js';
+import { sha256Hex, type RelayDatabase } from '../db.js';
 import type { Config } from '../config.js';
 import {
   parseAdminMessage,
@@ -20,7 +20,7 @@ import {
 } from '../budget.js';
 import { yoctoToNearString } from '../constants.js';
 import { createRequestLogger } from '../logger.js';
-import { createAdminRateLimit } from '../middleware/rateLimit.js';
+import { createAdminRateLimit, createTxStatusRateLimit } from '../middleware/rateLimit.js';
 import { bodyLimit } from '../middleware/bodyLimit.js';
 import { tokensEqual } from '../crypto.js';
 import {
@@ -109,6 +109,13 @@ function nonceConflictBody(): { error: string; code: 'NONCE_IN_FLIGHT' } {
   };
 }
 
+function nonceReusedBody(): { error: string; code: 'NONCE_REUSED' } {
+  return {
+    error: 'This nonce is already in flight for a different signed message',
+    code: 'NONCE_REUSED',
+  };
+}
+
 function createVaultInFlightBody(): { error: string; code: 'CREATE_VAULT_IN_FLIGHT' } {
   return {
     error: 'CreateVault already in progress for this owner',
@@ -116,7 +123,10 @@ function createVaultInFlightBody(): { error: string; code: 'CREATE_VAULT_IN_FLIG
   };
 }
 
-function reserveFailCode(reason: string): 'NONCE_IN_FLIGHT' | 'LIMIT_EXCEEDED' | 'BUDGET_EXCEEDED' {
+function reserveFailCode(
+  reason: string
+): 'NONCE_REUSED' | 'NONCE_IN_FLIGHT' | 'LIMIT_EXCEEDED' | 'BUDGET_EXCEEDED' {
+  if (reason === 'NONCE_REUSED') return 'NONCE_REUSED';
   if (reason.includes('nonce')) return 'NONCE_IN_FLIGHT';
   if (reason.toLowerCase().includes('limit')) return 'LIMIT_EXCEEDED';
   return 'BUDGET_EXCEEDED';
@@ -162,6 +172,7 @@ async function reserveAdminRequest(args: {
   nearClient: NearClient;
   config: Config;
   owner: string;
+  msg: string;
   parsedMsg: ParsedAdminMessage;
   vault: VaultInfo | null;
   onChainNonce: number;
@@ -243,6 +254,7 @@ async function reserveAdminRequest(args: {
         gasCostYocto,
         nowMs,
         expiresAtMs,
+        msgSha256: sha256Hex(args.msg),
         config,
       });
       if (!result.ok) {
@@ -392,6 +404,26 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
       const floorYocto = config.relayBalanceFloorYocto;
 
       if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
+        const existing = db.getRequest(owner, parsedMsg.nonce);
+        const open = existing?.status === 'pending' || existing?.status === 'unknown';
+        const sameMessage = existing?.msgSha256 != null && existing.msgSha256 === sha256Hex(msg);
+        if (existing?.txHash && open && sameMessage) {
+          // Same signed message already has a broadcast hash. Resume that tx; do not sign another.
+          log.info(
+            { owner, nonce: parsedMsg.nonce, txHash: existing.txHash },
+            'Resuming in-flight tx'
+          );
+          return c.json({ success: true, pending: true, txHash: existing.txHash });
+        }
+        if (open && existing?.msgSha256 != null && !sameMessage) {
+          log.warn({ owner, nonce: parsedMsg.nonce }, 'Nonce reused for a different message');
+          return c.json(nonceReusedBody(), 409);
+        }
+        if (existing?.txHash && open && !sameMessage) {
+          // Legacy row with no stored hash, or a hash we cannot match. Do not hand back the old tx.
+          log.warn({ owner, nonce: parsedMsg.nonce }, 'Nonce reused for a different message');
+          return c.json(nonceReusedBody(), 409);
+        }
         log.warn({ owner, nonce: parsedMsg.nonce }, 'Nonce already in flight');
         return c.json(nonceConflictBody(), 409);
       }
@@ -454,6 +486,7 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
         nearClient,
         config,
         owner,
+        msg,
         parsedMsg,
         vault,
         onChainNonce,
@@ -474,6 +507,9 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
       }
       if (reserved.kind === 'reserve-fail') {
         const code = reserveFailCode(reserved.reason);
+        if (code === 'NONCE_REUSED') {
+          return c.json(nonceReusedBody(), 409);
+        }
         return c.json({ error: reserved.reason, code }, code === 'NONCE_IN_FLIGHT' ? 409 : 429);
       }
 
@@ -493,6 +529,18 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
               onSigned: (txHash) => db.attachTxHash(owner, parsedMsg.nonce, txHash),
             }
           );
+
+          if (result.pending) {
+            db.markUnknown(owner, parsedMsg.nonce, result.txHash);
+            log.info({ txHash: result.txHash }, 'Transaction broadcast; waiting for execution');
+            return c.json({
+              success: true,
+              pending: true,
+              txHash: result.txHash,
+              depositYocto,
+              depositNear: yoctoToNearString(depositYocto),
+            });
+          }
 
           const actualSpent = spentAfterOutcome({
             depositYocto,
@@ -557,7 +605,14 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
             );
           }
           db.markUnknown(owner, parsedMsg.nonce, broadcastHash);
-          return c.json({ error: 'Transaction status unknown; reservation held' }, 503);
+          return c.json(
+            {
+              error: 'Transaction status unknown; reservation held',
+              pending: Boolean(broadcastHash),
+              txHash: broadcastHash,
+            },
+            503
+          );
         }
       });
     } catch (error: unknown) {
@@ -567,6 +622,125 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
       }
       return c.json({ error: 'Internal server error' }, 500);
     }
+  });
+
+  app.get('/v1/admin/tx/:txHash', createTxStatusRateLimit(config), async (c) => {
+    const txHash = c.req.param('txHash') ?? '';
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,100}$/.test(txHash)) {
+      return c.json({ error: 'Invalid transaction hash' }, 400);
+    }
+    const row = db.getRequestByTxHash(txHash);
+    if (!row) {
+      return c.json({ error: 'Unknown transaction' }, 404);
+    }
+
+    const withOwner = (body: Record<string, unknown>) => ({ ...body, owner: row.owner });
+
+    if (row.status === 'released') {
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          txHash,
+          error: 'This transaction was rejected before NEAR accepted it.',
+          code: 'TX_REJECTED',
+        }),
+        400
+      );
+    }
+
+    if (row.status === 'settled-unverified') {
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          unverified: true,
+          txHash,
+          error: 'Could not verify this transaction. Check the transaction link.',
+          code: 'TX_UNVERIFIED',
+        })
+      );
+    }
+
+    const observed = await nearClient.getTransactionStatus(txHash);
+    const open = row.status === 'pending' || row.status === 'unknown';
+
+    if (!open) {
+      if (row.success === 1) {
+        return c.json(
+          withOwner({
+            success: true,
+            pending: false,
+            txHash,
+            vaultId: observed.vaultId,
+          })
+        );
+      }
+      if (row.success === 0) {
+        return c.json(
+          withOwner({
+            success: false,
+            pending: false,
+            txHash,
+            error: observed.errorMessage ?? 'Transaction failed',
+          }),
+          400
+        );
+      }
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          unverified: true,
+          txHash,
+          error: 'Could not verify this transaction. Check the transaction link.',
+          code: 'TX_UNVERIFIED',
+        })
+      );
+    }
+
+    if (observed.status === 'pending' || observed.status === 'unknown') {
+      return c.json(withOwner({ success: true, pending: true, txHash }));
+    }
+
+    const actualSpent = spentAfterOutcome({
+      depositYocto: row.depositYocto ?? '0',
+      tokensBurntYocto: observed.tokensBurntYocto,
+      success: observed.status === 'success',
+    });
+    db.reconcileBudget(
+      row.owner,
+      row.nonce,
+      actualSpent,
+      txHash,
+      observed.status === 'success',
+      Date.now()
+    );
+
+    if (observed.status === 'failure') {
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          txHash,
+          error: observed.errorMessage ?? 'Transaction failed',
+          code:
+            observed.errorMessage === 'Vault verification failed'
+              ? 'VAULT_VERIFICATION_FAILED'
+              : undefined,
+        }),
+        400
+      );
+    }
+
+    return c.json(
+      withOwner({
+        success: true,
+        pending: false,
+        txHash,
+        vaultId: observed.vaultId,
+      })
+    );
   });
 
   return app;

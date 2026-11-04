@@ -798,6 +798,273 @@ describe('POST /v1/admin', () => {
     expect((await res.json()).code).toBe('VAULT_LIMIT');
     expect(near.submitted.length).toBe(0);
   });
+
+  it('returns the tx hash before execution and does not submit the same nonce twice', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    near.result = { txHash, success: false, pending: true };
+    const msg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'AddRecipient', vault_id: 0, recipient: owner },
+    });
+    const body = JSON.stringify({
+      msg,
+      signature: signMsg(msg, keyPair.secretKey),
+      owner,
+    });
+    const first = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ success: true, pending: true, txHash });
+    expect(db.checkNonceInFlight(owner, 6)).toBe(true);
+
+    const second = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({ success: true, pending: true, txHash });
+    expect(near.submitted).toHaveLength(1);
+
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ success: true, pending: true, txHash });
+    expect(db.checkNonceInFlight(owner, 6)).toBe(true);
+  });
+
+  it('blocks a second CreateVault until the first broadcast settles', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    near.result = { txHash, success: false, pending: true };
+    const action = {
+      type: 'CreateVault',
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [['SOL', '1']],
+        daily_cap: [['SOL', '1']],
+        programs: ['11111111111111111111111111111111'],
+        max_priority_fee_lamports: '0',
+        max_memo_len: 0,
+        expires_at_ns: '1',
+        loosen_delay_ns: '1',
+      },
+    };
+    const headers = {
+      'content-type': 'application/json',
+      'x-invite-token': 'secret-invite',
+    };
+    const firstMsg = makeAdminMsg({ vault: 'null', nonce: 6, action });
+    const first = await app.request('/v1/admin', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        msg: firstMsg,
+        signature: signMsg(firstMsg, keyPair.secretKey),
+      }),
+    });
+    expect(first.status).toBe(200);
+    expect(near.submitted).toHaveLength(1);
+
+    const secondMsg = makeAdminMsg({ vault: 'null', nonce: 7, action });
+    const second = await app.request('/v1/admin', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        msg: secondMsg,
+        signature: signMsg(secondMsg, keyPair.secretKey),
+      }),
+    });
+    expect(second.status).toBe(409);
+    expect((await second.json()).code).toBe('CREATE_VAULT_IN_FLIGHT');
+    expect(near.submitted).toHaveLength(1);
+  });
+
+  it('settles the reservation and returns the vault id once execution is confirmed', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    near.result = { txHash, success: false, pending: true };
+    near.getTransactionStatus = async () => ({
+      status: 'success',
+      vaultId: 1,
+      tokensBurntYocto: '15',
+    });
+    const msg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'AddRecipient', vault_id: 0, recipient: owner },
+    });
+    const posted = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey), owner }),
+    });
+    expect(posted.status).toBe(200);
+
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toEqual({
+      success: true,
+      pending: false,
+      txHash,
+      vaultId: 1,
+      owner,
+    });
+    expect(db.checkNonceInFlight(owner, 6)).toBe(false);
+    const row = db.getRequest(owner, 6);
+    expect(row?.status).toBe('completed');
+    expect(row?.success).toBe(1);
+  });
+
+  it('does not report success when vault verification fails', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    near.result = { txHash, success: false, pending: true };
+    near.getTransactionStatus = async () => ({
+      status: 'failure',
+      errorMessage: 'Vault verification failed',
+      tokensBurntYocto: '4',
+    });
+    const action = {
+      type: 'CreateVault',
+      owner,
+      vault_address: owner,
+      policy: {
+        per_tx_limit: [['SOL', '1']],
+        daily_cap: [['SOL', '1']],
+        programs: ['11111111111111111111111111111111'],
+        max_priority_fee_lamports: '0',
+        max_memo_len: 0,
+        expires_at_ns: '1',
+        loosen_delay_ns: '1',
+      },
+    };
+    const msg = makeAdminMsg({ vault: 'null', nonce: 6, action });
+    const posted = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-invite-token': 'secret-invite',
+      },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey) }),
+    });
+    expect(posted.status).toBe(200);
+
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(400);
+    expect(await status.json()).toMatchObject({
+      success: false,
+      pending: false,
+      error: 'Vault verification failed',
+      code: 'VAULT_VERIFICATION_FAILED',
+    });
+    expect(db.checkNonceInFlight(owner, 6)).toBe(false);
+    expect(db.hasCreateVaultInFlight(owner)).toBe(false);
+  });
+
+  it('does not resume a different action that reused the owner nonce', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    near.result = { txHash, success: false, pending: true };
+    const firstMsg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'AddRecipient', vault_id: 0, recipient: owner },
+    });
+    const first = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        msg: firstMsg,
+        signature: signMsg(firstMsg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(first.status).toBe(200);
+
+    const secondMsg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'Pause', vault_id: 0 },
+    });
+    const second = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        msg: secondMsg,
+        signature: signMsg(secondMsg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(second.status).toBe(409);
+    const body = await second.json();
+    expect(body.code).toBe('NONCE_REUSED');
+    expect(body.success).toBeUndefined();
+    expect(body.txHash).toBeUndefined();
+    expect(near.submitted).toHaveLength(1);
+  });
+
+  it('does not hand a legacy in-flight hash to a new message', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    db.reserveBudget(owner, 6, 'Pause', '1', Date.now());
+    db.attachTxHash(owner, 6, txHash);
+    const msg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'Pause', vault_id: 0 },
+    });
+    const res = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey), owner }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('NONCE_REUSED');
+    expect(near.submitted).toHaveLength(0);
+  });
+
+  it('returns a terminal rejection for a released transaction hash', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    db.reserveBudget(owner, 9, 'Pause', '1', Date.now());
+    db.attachTxHash(owner, 9, txHash);
+    db.releaseBudget(owner, 9, Date.now());
+    let calls = 0;
+    near.getTransactionStatus = async () => {
+      calls += 1;
+      return { status: 'pending' };
+    };
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(400);
+    expect(await status.json()).toMatchObject({
+      success: false,
+      pending: false,
+      txHash,
+      code: 'TX_REJECTED',
+    });
+    expect(calls).toBe(0);
+  });
+
+  it('returns a terminal unverified state for settled-unverified rows', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    db.reserveBudget(owner, 9, 'Pause', '10', Date.now());
+    db.attachTxHash(owner, 9, txHash);
+    db.reconcileBudget(owner, 9, '10', txHash, null, Date.now(), { status: 'settled-unverified' });
+    let calls = 0;
+    near.getTransactionStatus = async () => {
+      calls += 1;
+      return { status: 'pending' };
+    };
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({
+      success: false,
+      pending: false,
+      unverified: true,
+      txHash,
+      code: 'TX_UNVERIFIED',
+    });
+    expect(calls).toBe(0);
+  });
 });
 
 describe('GET /v1/quote', () => {

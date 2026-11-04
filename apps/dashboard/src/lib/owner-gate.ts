@@ -53,6 +53,10 @@ export function decideOwnerGate(args: {
   ip: string;
   rateStore: Map<string, number[]>;
   now?: number;
+  /** Separate confirmation polls from the write limit. */
+  maxPerKey?: number;
+  /** Prefix so tx-status polls do not consume the owner-action budget. */
+  bucket?: string;
 }): OwnerGateOk | OwnerGateDenial {
   if (!args.configured) {
     return {
@@ -72,20 +76,22 @@ export function decideOwnerGate(args: {
     return { ok: false, status: 403, error: 'Owner is not on OWNER_ALLOWLIST' };
   }
   const now = args.now ?? Date.now();
+  const maxPerKey = args.maxPerKey ?? OWNER_ACTION_MAX_PER_KEY;
+  const bucket = args.bucket ?? '';
   if (
     !allowRateLimited(
       args.rateStore,
-      `ip:${args.ip}`,
+      `${bucket}ip:${args.ip}`,
       now,
       OWNER_ACTION_WINDOW_MS,
-      OWNER_ACTION_MAX_PER_KEY
+      maxPerKey
     ) ||
     !allowRateLimited(
       args.rateStore,
-      `owner:${args.owner}`,
+      `${bucket}owner:${args.owner}`,
       now,
       OWNER_ACTION_WINDOW_MS,
-      OWNER_ACTION_MAX_PER_KEY
+      maxPerKey
     )
   ) {
     return { ok: false, status: 429, error: 'Rate limited' };
@@ -102,6 +108,8 @@ export async function gateOwnerAction(args: {
   rateStore: Map<string, number[]>;
   verify: PrivyVerifier;
   now?: number;
+  maxPerKey?: number;
+  bucket?: string;
 }): Promise<OwnerGateOk | OwnerGateDenial> {
   let session: PrivySession | null = null;
   if (args.configured && args.accessToken) {
@@ -116,5 +124,7 @@ export async function gateOwnerAction(args: {
     ip: args.ip,
     rateStore: args.rateStore,
     now: args.now,
+    maxPerKey: args.maxPerKey,
+    bucket: args.bucket,
   });
 }

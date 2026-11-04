@@ -6,6 +6,7 @@ import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { submittedSuccess } from '@/lib/action-result-state';
 import { publicConfig } from '@/lib/config';
+import { createVaultButtonLabel, vaultCreatedMessage } from '@/lib/sign-progress';
 import {
   VAULT_LIMIT_UNAVAILABLE,
   createVaultUiBlockedReason,
@@ -17,6 +18,8 @@ import { defaultCreatePolicyForm } from '@/lib/policy';
 import { policyFromForm } from '@/lib/policy-form';
 import { ActionResult } from './action-result';
 import { AddressChip } from './address-chip';
+import { ProofLink } from './proof-link';
+import { useOwnerSignProgress } from './sign-review';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -44,6 +47,8 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
   const [derived, setDerived] = useState<string | null>(null);
   const [error, setError] = useState<GuardActionError | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [doneMessage, setDoneMessage] = useState<string | null>(null);
+  const progress = useOwnerSignProgress();
   const [ownerVaultCount, setOwnerVaultCount] = useState<number | null>(null);
   const [maxVaultsPerOwner, setMaxVaultsPerOwner] = useState<number | null>(null);
   const defaults = useMemo(() => defaultCreatePolicyForm(), []);
@@ -116,6 +121,7 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
     setBusy(true);
     setError(null);
     setTxHash(null);
+    setDoneMessage(null);
     try {
       const index = await ownerVaultCountFor(owner);
       setOwnerVaultCount(index);
@@ -134,10 +140,15 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
       );
       if (result.success) {
         setTxHash(result.txHash);
+        setDoneMessage(vaultCreatedMessage(result.vaultId));
         setOwnerVaultCount(index + 1);
         onCreated?.();
       } else {
         setError(result.error);
+        if (result.error.txHash) {
+          setTxHash(result.error.txHash);
+          onCreated?.();
+        }
       }
     } catch (err) {
       setError(asActionError(err, 'Create vault failed'));
@@ -173,7 +184,7 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
             Preview address
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={createDisabled}>
-            {busy ? 'Signing…' : 'Create vault'}
+            {createVaultButtonLabel(progress, busy)}
           </Button>
         </div>
         {derived ? (
@@ -194,11 +205,26 @@ export function CreateVaultForm({ onCreated }: { onCreated?: () => void }) {
             </div>
           </div>
         ) : null}
+        {progress?.phase === 'submitting' ? (
+          <p role="status" className="mt-4 text-sm text-muted-foreground">
+            Submitting…
+          </p>
+        ) : null}
+        {progress?.phase === 'confirming' ? (
+          <div role="status" className="mt-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Confirming on NEAR…</p>
+            <ProofLink value={progress.txHash} kind="near-tx" />
+          </div>
+        ) : null}
         <div className="mt-4">
           <ActionResult
             error={error}
-            txHash={txHash}
-            success={submittedSuccess(txHash, 'Vault created.')}
+            txHash={progress?.phase === 'confirming' ? null : txHash}
+            success={
+              progress?.phase === 'confirming'
+                ? null
+                : submittedSuccess(txHash, doneMessage ?? 'Vault created.')
+            }
           />
         </div>
       </CardContent>

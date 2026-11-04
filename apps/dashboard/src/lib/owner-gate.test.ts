@@ -68,6 +68,26 @@ describe('owner gate', () => {
     expect(parseOwnerAllowlist('')).toBeNull();
   });
 
+  it('keeps tx-status polls out of the owner-action budget', () => {
+    const rateStore = new Map<string, number[]>();
+    for (let i = 0; i < 8; i += 1) {
+      expect(allow({ rateStore, now: 1_000 + i }).ok).toBe(true);
+    }
+    expect(
+      allow({
+        rateStore,
+        now: 1_020,
+        maxPerKey: 120,
+        bucket: 'owner-tx:',
+      }).ok
+    ).toBe(true);
+    expect(allow({ rateStore, now: 1_021 })).toEqual({
+      ok: false,
+      status: 429,
+      error: 'Rate limited',
+    });
+  });
+
   it('rate-limits per IP and per owner', () => {
     const rateStore = new Map<string, number[]>();
     for (let i = 0; i < 8; i += 1) {

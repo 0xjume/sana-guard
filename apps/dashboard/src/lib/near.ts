@@ -20,30 +20,32 @@ export async function callNearViewRaw(
   methodName: string,
   args: Record<string, unknown> = {},
   rpcUrl: string = publicConfig.nearRpcUrl,
-  options: { revalidate?: number } = {}
+  options: { revalidate?: number; cache?: RequestCache } = {}
 ): Promise<string> {
   const argsBase64 = Buffer.from(JSON.stringify(args)).toString('base64');
-  const response = await fetchWithTimeout(
-    rpcUrl,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'sana-guard-dashboard',
-        method: 'query',
-        params: {
-          request_type: 'call_function',
-          finality: 'optimistic',
-          account_id: contractId,
-          method_name: methodName,
-          args_base64: argsBase64,
-        },
-      }),
-      next: options.revalidate === undefined ? undefined : { revalidate: options.revalidate },
-    },
-    'NEAR testnet RPC'
-  );
+  const init: RequestInit & { next?: { revalidate?: number } } = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'sana-guard-dashboard',
+      method: 'query',
+      params: {
+        request_type: 'call_function',
+        finality: 'optimistic',
+        account_id: contractId,
+        method_name: methodName,
+        args_base64: argsBase64,
+      },
+    }),
+  };
+  if (options.cache) {
+    init.cache = options.cache;
+  }
+  if (options.revalidate !== undefined) {
+    init.next = { revalidate: options.revalidate };
+  }
+  const response = await fetchWithTimeout(rpcUrl, init, 'NEAR testnet RPC');
 
   if (!response.ok) {
     throw new Error(`NEAR RPC HTTP ${response.status}`);
@@ -70,7 +72,7 @@ export async function callNearViewRaw(
 export function createViews(
   guardContract: string = publicConfig.guardContract,
   rpcUrl: string = publicConfig.nearRpcUrl,
-  options: { revalidate?: number } = {}
+  options: { revalidate?: number; cache?: RequestCache } = {}
 ): Views {
   const viewFunction = async (opts: {
     contractId: string;

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { logger } from './logger.js';
 import { Mutex } from './mutex.js';
@@ -33,6 +34,11 @@ export const PENDING_STALE_GRACE_MS = 5 * 60 * 1000;
 
 export function utcDate(nowMs: number): string {
   return new Date(nowMs).toISOString().split('T')[0]!;
+}
+
+/** Fingerprint of the exact admin message that was signed. Hex, not the message. */
+export function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 function reservedAmount(row: { reservedYocto?: string | null; spentYocto: string }): string {
@@ -73,6 +79,7 @@ export class RelayDatabase {
         reserved_yocto TEXT,
         deposit_yocto TEXT,
         expires_at_ms INTEGER,
+        msg_sha256 TEXT,
         tx_hash TEXT,
         success INTEGER,
         status TEXT NOT NULL
@@ -106,6 +113,9 @@ export class RelayDatabase {
     }
     if (!cols.some((c) => c.name === 'expires_at_ms')) {
       this.db.exec(`ALTER TABLE owner_requests ADD COLUMN expires_at_ms INTEGER`);
+    }
+    if (!cols.some((c) => c.name === 'msg_sha256')) {
+      this.db.exec(`ALTER TABLE owner_requests ADD COLUMN msg_sha256 TEXT`);
     }
   }
 
@@ -201,12 +211,17 @@ export class RelayDatabase {
     gasCostYocto: string;
     nowMs: number;
     expiresAtMs?: number;
+    msgSha256?: string;
     config: Config;
   }): { ok: true } | { ok: false; reason: string } {
     const spentYocto = (BigInt(args.depositYocto) + BigInt(args.gasCostYocto)).toString();
 
     return this.db.transaction(() => {
       if (this.checkNonceInFlight(args.owner, args.nonce)) {
+        const existing = this.getRequest(args.owner, args.nonce);
+        if (existing?.msgSha256 && args.msgSha256 && existing.msgSha256 !== args.msgSha256) {
+          return { ok: false as const, reason: 'NONCE_REUSED' };
+        }
         return { ok: false as const, reason: 'Request with same nonce already in progress' };
       }
 
@@ -235,6 +250,7 @@ export class RelayDatabase {
         depositYocto: args.depositYocto,
         nowMs: args.nowMs,
         expiresAtMs: args.expiresAtMs,
+        msgSha256: args.msgSha256,
       });
       return { ok: true as const };
     })();
@@ -246,7 +262,7 @@ export class RelayDatabase {
     actionType: string,
     spentYocto: string,
     nowMs: number,
-    extras: { depositYocto?: string | null; expiresAtMs?: number } = {}
+    extras: { depositYocto?: string | null; expiresAtMs?: number; msgSha256?: string | null } = {}
   ): void {
     const txn = this.db.transaction(() => {
       this.insertReservation({
@@ -257,6 +273,7 @@ export class RelayDatabase {
         depositYocto: extras.depositYocto === undefined ? '0' : extras.depositYocto,
         nowMs,
         expiresAtMs: extras.expiresAtMs,
+        msgSha256: extras.msgSha256,
       });
     });
     txn();
@@ -270,13 +287,14 @@ export class RelayDatabase {
     depositYocto: string | null;
     nowMs: number;
     expiresAtMs?: number;
+    msgSha256?: string | null;
   }): void {
     const today = utcDate(args.nowMs);
 
     this.db
       .prepare(
-        `INSERT INTO owner_requests (owner, timestamp, nonce, action_type, spent_yocto, reserved_yocto, deposit_yocto, expires_at_ms, tx_hash, success, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending')`
+        `INSERT INTO owner_requests (owner, timestamp, nonce, action_type, spent_yocto, reserved_yocto, deposit_yocto, expires_at_ms, msg_sha256, tx_hash, success, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending')`
       )
       .run(
         args.owner,
@@ -286,7 +304,8 @@ export class RelayDatabase {
         args.spentYocto,
         args.spentYocto,
         args.depositYocto,
-        args.expiresAtMs ?? null
+        args.expiresAtMs ?? null,
+        args.msgSha256 ?? null
       );
 
     const existing = this.db
@@ -530,12 +549,13 @@ export class RelayDatabase {
         success: number | null;
         txHash: string | null;
         timestamp: number;
+        msgSha256: string | null;
       }
     | undefined {
     return this.db
       .prepare(
         `SELECT status, spent_yocto as spentYocto, success,
-                tx_hash as txHash, timestamp
+                tx_hash as txHash, timestamp, msg_sha256 as msgSha256
          FROM owner_requests WHERE owner = ? AND nonce = ?
          ORDER BY timestamp DESC LIMIT 1`
       )
@@ -546,6 +566,36 @@ export class RelayDatabase {
           success: number | null;
           txHash: string | null;
           timestamp: number;
+          msgSha256: string | null;
+        }
+      | undefined;
+  }
+
+  getRequestByTxHash(txHash: string):
+    | {
+        owner: string;
+        nonce: number;
+        status: string;
+        success: number | null;
+        depositYocto: string | null;
+        txHash: string;
+      }
+    | undefined {
+    return this.db
+      .prepare(
+        `SELECT owner, nonce, status, success, deposit_yocto as depositYocto,
+                tx_hash as txHash
+         FROM owner_requests WHERE tx_hash = ?
+         ORDER BY timestamp DESC LIMIT 1`
+      )
+      .get(txHash) as
+      | {
+          owner: string;
+          nonce: number;
+          status: string;
+          success: number | null;
+          depositYocto: string | null;
+          txHash: string;
         }
       | undefined;
   }
