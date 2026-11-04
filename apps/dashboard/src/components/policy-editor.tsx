@@ -61,7 +61,7 @@ export function PolicyEditor({
 }: {
   vaultId: number;
   policy: Policy;
-  onUpdated?: () => void;
+  onUpdated?: (txHash?: string) => void;
 }) {
   const session = useOwnerSession();
   const [values, setValues] = useState<PolicyFormValues>(() => formFromPolicy(policy));
@@ -101,7 +101,7 @@ export function PolicyEditor({
       );
       if (result.success) {
         setTxHash(result.txHash);
-        onUpdated?.();
+        onUpdated?.(result.txHash);
       } else {
         setError(result.error);
       }

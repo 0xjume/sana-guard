@@ -25,7 +25,7 @@ export function RecipientsPanel({
   vaultId: number;
   recipients: string[];
   canEdit?: boolean;
-  onUpdated?: () => void;
+  onUpdated?: (txHash?: string) => void;
 }) {
   const session = useOwnerSession();
   const fieldId = useId();
@@ -47,7 +47,7 @@ export function RecipientsPanel({
       const result = await fn();
       if (result.success && result.txHash) {
         setTxHash(result.txHash);
-        onUpdated?.();
+        onUpdated?.(result.txHash);
       } else if (!result.success && result.error) {
         setError(result.error);
       }
