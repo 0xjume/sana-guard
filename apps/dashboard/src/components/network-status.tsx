@@ -27,7 +27,7 @@ export function NetworkStatus({ refreshKey = 0 }: { refreshKey?: number }) {
     setSnapshot(null);
     (async () => {
       try {
-        const views = createViews(undefined, undefined, { cache: 'no-store' });
+        const views = createViews();
         const programs = await views.supportedPrograms();
         const pageSize = 100;
         let from = 0;

@@ -196,22 +196,17 @@ export function deserializeVaultSnapshot(snapshot: SerializedVaultSnapshot): Vau
 
 /**
  * Initial vault/policy/agents/spend/balance read. Used by the vault RSC so first
- * paint has data. Client refresh uses the same helper without Next.js caching.
+ * paint has data. Reads are uncached and use final finality.
  */
 export async function loadVaultSnapshot(
   vaultId: number,
   options: {
-    revalidate?: number;
     views?: VaultSnapshotViews;
     getBalance?: (address: string) => Promise<bigint>;
   } = {}
 ): Promise<VaultSnapshot> {
-  const views =
-    options.views ?? createViews(undefined, undefined, { revalidate: options.revalidate });
-  const getBalance =
-    options.getBalance ??
-    ((address: string) =>
-      getSolanaBalanceLamports(address, undefined, { revalidate: options.revalidate }));
+  const views = options.views ?? createViews();
+  const getBalance = options.getBalance ?? ((address: string) => getSolanaBalanceLamports(address));
 
   const vaultPromise = views.getVault(vaultId);
   const detailsPromise = Promise.all([views.getRecipients(vaultId), views.getSpend24h(vaultId)]);

@@ -1,10 +1,11 @@
 import { Account as NearAccount } from 'near-api-js';
 import { Views, parseJsonIntegersAsStrings, type Policy, type VaultView } from '@sana-guard/sdk';
 import { publicConfig } from './config';
-import { fetchWithTimeout } from './fetch-timeout';
+import { fetchWithTimeout, RequestTimeoutError } from './fetch-timeout';
 
 interface NearRpcError {
   message?: string;
+  data?: unknown;
 }
 
 interface NearRpcResponse {
@@ -15,51 +16,175 @@ interface NearRpcResponse {
   error?: NearRpcError;
 }
 
+/** Painted vault state. Optimistic tips differ across nodes behind one public URL. */
+export type NearFinality = 'final' | 'optimistic';
+export const DISPLAY_FINALITY: NearFinality = 'final';
+
+/**
+ * One attempt. The public testnet endpoint is healthy around 3s; past this it
+ * is down, and the rest of this page read uses the fallback.
+ */
+const VIEW_ATTEMPT_MS = 4_000;
+
+export function fallbackRpcUrl(primaryUrl: string): string | null {
+  let host = '';
+  try {
+    host = new URL(primaryUrl).hostname;
+  } catch {
+    return null;
+  }
+  if (host === 'rpc.testnet.near.org' || host === 'archival-rpc.testnet.near.org') {
+    return 'https://test.rpc.fastnear.com';
+  }
+  if (host === 'rpc.mainnet.near.org' || host === 'archival-rpc.mainnet.near.org') {
+    return 'https://rpc.mainnet.fastnear.com';
+  }
+  return null;
+}
+
+export interface ViewRpc {
+  post(body: string): Promise<unknown>;
+  chosenUrl(): string;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('name' in error)) {
+    return false;
+  }
+  const name = String(error.name);
+  return name === 'TimeoutError' || name === 'AbortError' || name === 'RequestTimeoutError';
+}
+
+function httpStatus(error: unknown): number | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const match = /HTTP (\d+)/.exec(error.message);
+  return match ? Number(match[1]) : undefined;
+}
+
+function canFailOver(error: unknown): boolean {
+  if (isTimeoutError(error)) {
+    return true;
+  }
+  const status = httpStatus(error);
+  return status === 408 || status === 429 || (status !== undefined && status >= 500);
+}
+
+function isRpcTimeoutBody(body: NearRpcResponse): boolean {
+  const data = typeof body.error?.data === 'string' ? body.error.data : '';
+  const message = body.error?.message ?? '';
+  return /timeout|timed out/i.test(`${message} ${data}`);
+}
+
+export function createViewRpc(
+  primaryUrl: string,
+  options: {
+    fallbackUrl?: string | null;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  } = {}
+): ViewRpc {
+  const fallback =
+    options.fallbackUrl === undefined ? fallbackRpcUrl(primaryUrl) : options.fallbackUrl;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? VIEW_ATTEMPT_MS;
+  let url = primaryUrl;
+  let failedOver = false;
+
+  async function postOnce(target: string, body: string): Promise<unknown> {
+    let response: Response;
+    try {
+      response = await fetchImpl(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        throw new RequestTimeoutError('NEAR testnet RPC', timeoutMs);
+      }
+      throw error;
+    }
+    if (!response.ok) {
+      throw new Error(`NEAR RPC HTTP ${response.status}`);
+    }
+    return response.json() as Promise<unknown>;
+  }
+
+  return {
+    chosenUrl: () => url,
+    async post(body: string): Promise<unknown> {
+      try {
+        const parsed = (await postOnce(url, body)) as NearRpcResponse;
+        if (
+          parsed.error &&
+          isRpcTimeoutBody(parsed) &&
+          !failedOver &&
+          fallback &&
+          fallback !== url
+        ) {
+          failedOver = true;
+          url = fallback;
+          return postOnce(url, body);
+        }
+        return parsed;
+      } catch (error) {
+        if (!canFailOver(error) || failedOver || !fallback || fallback === url) {
+          throw error;
+        }
+        failedOver = true;
+        url = fallback;
+        return postOnce(url, body);
+      }
+    },
+  };
+}
+
+export function nearViewQueryBody(
+  contractId: string,
+  methodName: string,
+  args: Record<string, unknown>,
+  finality: NearFinality
+): string {
+  const argsBase64 = Buffer.from(JSON.stringify(args)).toString('base64');
+  return JSON.stringify({
+    jsonrpc: '2.0',
+    id: 'sana-guard-dashboard',
+    method: 'query',
+    params: {
+      request_type: 'call_function',
+      finality,
+      account_id: contractId,
+      method_name: methodName,
+      args_base64: argsBase64,
+    },
+  });
+}
+
 export async function callNearViewRaw(
   contractId: string,
   methodName: string,
   args: Record<string, unknown> = {},
-  rpcUrl: string = publicConfig.nearRpcUrl,
-  options: { revalidate?: number; cache?: RequestCache } = {}
+  rpc: ViewRpc = createViewRpc(publicConfig.nearRpcUrl),
+  finality: NearFinality = DISPLAY_FINALITY
 ): Promise<string> {
-  const argsBase64 = Buffer.from(JSON.stringify(args)).toString('base64');
-  const init: RequestInit & { next?: { revalidate?: number } } = {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 'sana-guard-dashboard',
-      method: 'query',
-      params: {
-        request_type: 'call_function',
-        finality: 'optimistic',
-        account_id: contractId,
-        method_name: methodName,
-        args_base64: argsBase64,
-      },
-    }),
-  };
-  if (options.cache) {
-    init.cache = options.cache;
+  const parsed = (await rpc.post(
+    nearViewQueryBody(contractId, methodName, args, finality)
+  )) as NearRpcResponse;
+  if (parsed.error?.message && !isRpcTimeoutBody(parsed)) {
+    throw new Error(parsed.error.message);
   }
-  if (options.revalidate !== undefined) {
-    init.next = { revalidate: options.revalidate };
+  if (parsed.error) {
+    throw new Error('NEAR RPC error');
   }
-  const response = await fetchWithTimeout(rpcUrl, init, 'NEAR testnet RPC');
-
-  if (!response.ok) {
-    throw new Error(`NEAR RPC HTTP ${response.status}`);
+  if (parsed.result?.error) {
+    throw new Error(parsed.result.error);
   }
 
-  const body = (await response.json()) as NearRpcResponse;
-  if (body.error?.message) {
-    throw new Error(body.error.message);
-  }
-  if (body.result?.error) {
-    throw new Error(body.result.error);
-  }
-
-  const raw = body.result?.result;
+  const raw = parsed.result?.result;
   if (typeof raw === 'string') {
     return Buffer.from(raw, 'base64').toString('utf8');
   }
@@ -72,8 +197,10 @@ export async function callNearViewRaw(
 export function createViews(
   guardContract: string = publicConfig.guardContract,
   rpcUrl: string = publicConfig.nearRpcUrl,
-  options: { revalidate?: number; cache?: RequestCache } = {}
+  options: { finality?: NearFinality } = {}
 ): Views {
+  const finality = options.finality ?? DISPLAY_FINALITY;
+  const rpc = createViewRpc(rpcUrl);
   const viewFunction = async (opts: {
     contractId: string;
     methodName: string;
@@ -84,8 +211,8 @@ export function createViews(
       opts.contractId,
       opts.methodName,
       opts.args ?? {},
-      rpcUrl,
-      options
+      rpc,
+      finality
     );
     if (opts.parse) {
       return opts.parse(Buffer.from(text, 'utf8'));
@@ -135,8 +262,7 @@ export async function listOwnerVaults(
 
 export async function getSolanaBalanceLamports(
   address: string,
-  rpcUrl: string = publicConfig.solanaRpcUrl,
-  options: { revalidate?: number } = {}
+  rpcUrl: string = publicConfig.solanaRpcUrl
 ): Promise<bigint> {
   const response = await fetchWithTimeout(
     rpcUrl,
@@ -149,7 +275,7 @@ export async function getSolanaBalanceLamports(
         method: 'getBalance',
         params: [address],
       }),
-      next: options.revalidate === undefined ? undefined : { revalidate: options.revalidate },
+      cache: 'no-store',
     },
     'Solana RPC'
   );

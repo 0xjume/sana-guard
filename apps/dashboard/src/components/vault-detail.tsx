@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -15,6 +16,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type { Policy, VaultView } from '@sana-guard/sdk';
+import { revalidateVault } from '@/app/vaults/[id]/revalidate';
 import { ownerActionHelpers } from '@/hooks/use-owner-actions';
 import { useOwnerSession } from '@/hooks/use-owner-session';
 import { publicConfig } from '@/lib/config';
@@ -29,6 +31,7 @@ import {
 } from '@/lib/format';
 import { clonePolicy } from '@/lib/near';
 import { ownerCanEdit } from '@/lib/owner-can-edit';
+import { planVaultRefresh } from '@/lib/vault-refresh';
 import {
   GENERIC_VAULT_LOAD_ERROR,
   applyClientVaultRefresh,
@@ -172,6 +175,7 @@ export function VaultDetail({
   initialSnapshot?: SerializedVaultSnapshot;
 }) {
   const session = useOwnerSession();
+  const router = useRouter();
   const initial = initialSnapshot ? deserializeVaultSnapshot(initialSnapshot) : null;
   const [vault, setVault] = useState<VaultView | null>(initial?.vault ?? null);
   const [recipients, setRecipients] = useState<string[]>(initial?.recipients ?? []);
@@ -184,6 +188,7 @@ export function VaultDetail({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const paintedRef = useRef(Boolean(initial?.vault));
+  const followUps = useRef<number[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -221,9 +226,33 @@ export function VaultDetail({
     void load();
   }, [load]);
 
+  const refreshFromChain = useCallback(() => {
+    for (const id of followUps.current) {
+      window.clearTimeout(id);
+    }
+    followUps.current = [];
+    const once = () => {
+      void revalidateVault(vaultId).catch(() => undefined);
+      router.refresh();
+      void load();
+    };
+    planVaultRefresh(once, (ms, run) => {
+      followUps.current.push(window.setTimeout(run, ms));
+    });
+  }, [load, router, vaultId]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const timers = followUps;
+    return () => {
+      for (const id of timers.current) {
+        window.clearTimeout(id);
+      }
+    };
+  }, []);
 
   const run = async (
     fn: () => Promise<{ success: boolean; txHash?: string; error?: GuardActionError }>
@@ -235,7 +264,7 @@ export function VaultDetail({
       const result = await fn();
       if (result.success && result.txHash) {
         setTxHash(result.txHash);
-        await load();
+        refreshFromChain();
       } else if (!result.success && result.error) {
         setActionError(result.error);
       }
@@ -439,7 +468,7 @@ export function VaultDetail({
                   <PolicyEditor
                     vaultId={vaultId}
                     policy={vault.policy}
-                    onUpdated={() => void load()}
+                    onUpdated={refreshFromChain}
                   />
                 </div>
               ) : null}
@@ -450,13 +479,13 @@ export function VaultDetail({
             vaultId={vaultId}
             recipients={recipients}
             canEdit={canEdit}
-            onUpdated={() => void load()}
+            onUpdated={refreshFromChain}
           />
           <AgentsPanel
             vaultId={vaultId}
             agents={vault.agents}
             canEdit={canEdit}
-            onUpdated={() => void load()}
+            onUpdated={refreshFromChain}
           />
           <ActivityFeed vaultId={vaultId} />
           <AttackLabPanel vaultId={vaultId} />
