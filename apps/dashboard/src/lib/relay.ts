@@ -5,6 +5,9 @@ import { readPrivyAccessToken } from './privy-browser-token';
 export interface RelayAdminSuccess {
   success: true;
   txHash: string;
+  /** True until execution, including CreateVault's `vault_created` log, is observed. */
+  pending?: boolean;
+  vaultId?: number;
   depositYocto?: string;
   depositNear?: string | number;
 }
@@ -15,6 +18,30 @@ export interface RelayAdminFailure {
 }
 
 export type RelayAdminResult = RelayAdminSuccess | RelayAdminFailure;
+
+export function readRelaySuccess(
+  httpStatus: number,
+  body: Record<string, unknown>
+): RelayAdminSuccess | null {
+  const txHash = typeof body.txHash === 'string' ? body.txHash : null;
+  if (!txHash) {
+    return null;
+  }
+  const vaultId =
+    typeof body.vaultId === 'number' && Number.isInteger(body.vaultId) ? body.vaultId : undefined;
+  const depositYocto = typeof body.depositYocto === 'string' ? body.depositYocto : undefined;
+  const depositNear =
+    typeof body.depositNear === 'string' || typeof body.depositNear === 'number'
+      ? body.depositNear
+      : undefined;
+  if (body.pending === true) {
+    return { success: true, pending: true, txHash, vaultId, depositYocto, depositNear };
+  }
+  if (httpStatus === 200 && body.success === true) {
+    return { success: true, pending: false, txHash, vaultId, depositYocto, depositNear };
+  }
+  return null;
+}
 
 export async function postAdminToRelay(args: {
   message: string;
@@ -51,16 +78,9 @@ export async function postAdminToRelay(args: {
   }
 
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (response.ok && body.success === true && typeof body.txHash === 'string') {
-    return {
-      success: true,
-      txHash: body.txHash,
-      depositYocto: typeof body.depositYocto === 'string' ? body.depositYocto : undefined,
-      depositNear:
-        typeof body.depositNear === 'string' || typeof body.depositNear === 'number'
-          ? body.depositNear
-          : undefined,
-    };
+  const accepted = readRelaySuccess(response.status, body);
+  if (accepted) {
+    return accepted;
   }
 
   const explained = explainGuardError(body);
@@ -113,16 +133,9 @@ export async function submitOwnerAction(args: {
   }
 
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (response.ok && body.success === true && typeof body.txHash === 'string') {
-    return {
-      success: true,
-      txHash: body.txHash,
-      depositYocto: typeof body.depositYocto === 'string' ? body.depositYocto : undefined,
-      depositNear:
-        typeof body.depositNear === 'string' || typeof body.depositNear === 'number'
-          ? body.depositNear
-          : undefined,
-    };
+  const accepted = readRelaySuccess(response.status, body);
+  if (accepted) {
+    return accepted;
   }
 
   if (body.success === false && body.error && typeof body.error === 'object') {

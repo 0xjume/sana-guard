@@ -14,7 +14,9 @@ import {
 } from '@sana-guard/sdk';
 import { adminNetworkTag, publicConfig } from '@/lib/config';
 import { createViews } from '@/lib/near';
+import { pollOwnerTxUntilSettled } from '@/lib/owner-tx';
 import { submitOwnerAction, type RelayAdminResult } from '@/lib/relay';
+import { reportOwnerSignProgress } from '@/lib/sign-progress';
 import type { Ed25519Signer } from '@sana-guard/sdk';
 
 async function nextNonce(owner: string): Promise<number> {
@@ -27,13 +29,22 @@ export async function runOwnerAction(args: {
   signer: Ed25519Signer;
   build: (nonce: number) => Promise<{ message: string; signature: Uint8Array }>;
 }): Promise<RelayAdminResult> {
-  const nonce = await nextNonce(args.owner);
-  const signed = await args.build(nonce);
-  return submitOwnerAction({
-    message: signed.message,
-    signature: signed.signature,
-    owner: args.owner,
-  });
+  try {
+    const nonce = await nextNonce(args.owner);
+    const signed = await args.build(nonce);
+    const submitted = await submitOwnerAction({
+      message: signed.message,
+      signature: signed.signature,
+      owner: args.owner,
+    });
+    if (submitted.success && submitted.pending) {
+      reportOwnerSignProgress({ phase: 'confirming', txHash: submitted.txHash });
+      return pollOwnerTxUntilSettled({ txHash: submitted.txHash, owner: args.owner });
+    }
+    return submitted;
+  } finally {
+    reportOwnerSignProgress(null);
+  }
 }
 
 export function ownerActionHelpers(owner: string, signer: Ed25519Signer) {

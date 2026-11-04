@@ -144,7 +144,7 @@ export default function HomePage() {
           )}
         </div>
         <aside className="space-y-6 lg:sticky lg:top-28">
-          <NetworkStatus />
+          <NetworkStatus refreshKey={refreshKey} />
           {session.authenticated ? <HowItWorks /> : null}
         </aside>
       </div>

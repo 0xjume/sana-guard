@@ -550,6 +550,35 @@ export class RelayDatabase {
       | undefined;
   }
 
+  getRequestByTxHash(txHash: string):
+    | {
+        owner: string;
+        nonce: number;
+        status: string;
+        success: number | null;
+        depositYocto: string | null;
+        txHash: string;
+      }
+    | undefined {
+    return this.db
+      .prepare(
+        `SELECT owner, nonce, status, success, deposit_yocto as depositYocto,
+                tx_hash as txHash
+         FROM owner_requests WHERE tx_hash = ?
+         ORDER BY timestamp DESC LIMIT 1`
+      )
+      .get(txHash) as
+      | {
+          owner: string;
+          nonce: number;
+          status: string;
+          success: number | null;
+          depositYocto: string | null;
+          txHash: string;
+        }
+      | undefined;
+  }
+
   releaseBudget(owner: string, nonce: number, _nowMs: number): void {
     const txn = this.db.transaction(() => {
       const row = this.db

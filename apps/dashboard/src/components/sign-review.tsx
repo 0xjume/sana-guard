@@ -1,8 +1,15 @@
 'use client';
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ShieldAlert } from 'lucide-react';
 import { describeAdminMessage, type AdminMessageReview } from '@/lib/admin-message';
+import {
+  bindOwnerSignProgress,
+  reportOwnerSignProgress,
+  signDialogButtonLabel,
+  type OwnerSignProgress,
+} from '@/lib/sign-progress';
+import { ProofLink } from './proof-link';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,9 +24,14 @@ import {
 export type ReviewAdminMessage = (message: string) => Promise<boolean>;
 
 const SignReviewContext = createContext<ReviewAdminMessage>(async () => false);
+const SignProgressContext = createContext<OwnerSignProgress | null>(null);
 
 export function useSignReview(): ReviewAdminMessage {
   return useContext(SignReviewContext);
+}
+
+export function useOwnerSignProgress(): OwnerSignProgress | null {
+  return useContext(SignProgressContext);
 }
 
 interface Pending {
@@ -109,12 +121,33 @@ function signVariant(
  */
 export function SignReviewProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<Pending | null>(null);
+  const [progress, setProgress] = useState<OwnerSignProgress | null>(null);
   const resolver = useRef<((approved: boolean) => void) | null>(null);
 
-  const settle = useCallback((approved: boolean) => {
-    resolver.current?.(approved);
+  useEffect(() => {
+    return bindOwnerSignProgress((next) => {
+      setProgress(next);
+      if (next === null) {
+        setPending(null);
+      }
+    });
+  }, []);
+
+  const cancel = useCallback(() => {
+    resolver.current?.(false);
     resolver.current = null;
+    setProgress(null);
     setPending(null);
+  }, []);
+
+  const approve = useCallback(() => {
+    const resolve = resolver.current;
+    if (!resolve) {
+      return;
+    }
+    resolver.current = null;
+    reportOwnerSignProgress({ phase: 'submitting' });
+    resolve(true);
   }, []);
 
   const review = useCallback<ReviewAdminMessage>((message) => {
@@ -127,6 +160,7 @@ export function SignReviewProvider({ children }: { children: React.ReactNode }) 
     } catch (err) {
       error = err instanceof Error ? err.message : 'unknown format';
     }
+    setProgress(null);
     setPending({ message, review: decoded, error });
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
@@ -135,34 +169,61 @@ export function SignReviewProvider({ children }: { children: React.ReactNode }) 
 
   return (
     <SignReviewContext.Provider value={review}>
-      {children}
-      <Dialog open={pending !== null} onOpenChange={(open) => (open ? undefined : settle(false))}>
-        <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="shrink-0 px-6 pb-2 pt-6">
-            <p className="kicker">Review before signing</p>
-            <DialogTitle>{pending?.review?.title ?? 'Owner action'}</DialogTitle>
-            <DialogDescription>
-              Your wallet will sign exactly the message below. The guard contract verifies the
-              signature and applies it on-chain.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-            {pending ? <ReviewBody pending={pending} /> : null}
-          </div>
-          <DialogFooter className="shrink-0 border-t border-border bg-card px-6 py-4 sm:justify-between">
-            <Button type="button" variant="outline" onClick={() => settle(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant={signVariant(pending?.review?.tone)}
-              onClick={() => settle(true)}
-            >
-              Sign with wallet
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SignProgressContext.Provider value={progress}>
+        {children}
+        <Dialog
+          open={pending !== null}
+          onOpenChange={(open) => {
+            if (open) {
+              return;
+            }
+            if (resolver.current) {
+              cancel();
+              return;
+            }
+            setPending(null);
+          }}
+        >
+          <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col gap-0 overflow-hidden p-0">
+            <DialogHeader className="shrink-0 px-6 pb-2 pt-6">
+              <p className="kicker">Review before signing</p>
+              <DialogTitle>{pending?.review?.title ?? 'Owner action'}</DialogTitle>
+              <DialogDescription>
+                Your wallet will sign exactly the message below. The guard contract verifies the
+                signature and applies it on-chain.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              {pending ? <ReviewBody pending={pending} /> : null}
+              {progress?.phase === 'submitting' ? (
+                <p role="status" className="mt-4 text-sm text-muted-foreground">
+                  Submitting…
+                </p>
+              ) : null}
+              {progress?.phase === 'confirming' ? (
+                <div role="status" className="mt-4 space-y-3">
+                  <p className="text-sm text-muted-foreground">Confirming on NEAR…</p>
+                  <ProofLink value={progress.txHash} kind="near-tx" />
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter className="shrink-0 border-t border-border bg-card px-6 py-4 sm:justify-between">
+              <Button type="button" variant="outline" onClick={cancel} disabled={progress !== null}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant={signVariant(pending?.review?.tone)}
+                onClick={approve}
+                disabled={progress !== null}
+                aria-busy={progress !== null}
+              >
+                {signDialogButtonLabel(progress)}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </SignProgressContext.Provider>
     </SignReviewContext.Provider>
   );
 }

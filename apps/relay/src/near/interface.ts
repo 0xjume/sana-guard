@@ -1,13 +1,24 @@
 export interface NearTransaction {
   txHash: string;
   success: boolean;
+  /**
+   * Broadcast was accepted (or the hash is known) but execution is not settled.
+   * The caller must poll `getTransactionStatus` before treating this as final.
+   */
+  pending?: boolean;
   errorMessage?: string;
   tokensBurntYocto?: string;
+  vaultId?: number;
 }
 
 export interface TxStatusResult {
   status: 'success' | 'failure' | 'pending' | 'unknown';
   tokensBurntYocto?: string;
+  /** Set when a settled CreateVault receipt emitted `vault_created`. */
+  vaultId?: number;
+  /** Stable message safe to return to clients. Never raw RPC text. */
+  errorMessage?: string;
+  finalExecutionStatus?: string;
 }
 
 export interface VaultInfo {

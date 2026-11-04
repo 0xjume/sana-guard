@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { countContractVaults, vaultListHasMore } from '@/lib/contract-vault-count';
 import { publicConfig } from '@/lib/config';
 import { createViews } from '@/lib/near';
 import { Server } from 'lucide-react';
@@ -17,7 +18,7 @@ interface Snapshot {
   error?: string;
 }
 
-export function NetworkStatus() {
+export function NetworkStatus({ refreshKey = 0 }: { refreshKey?: number }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -26,13 +27,21 @@ export function NetworkStatus() {
     setSnapshot(null);
     (async () => {
       try {
-        const views = createViews();
-        const [programs, vaults] = await Promise.all([
-          views.supportedPrograms(),
-          views.listVaults(0, 50),
-        ]);
+        const views = createViews(undefined, undefined, { cache: 'no-store' });
+        const programs = await views.supportedPrograms();
+        const pageSize = 100;
+        let from = 0;
+        let vaultCount = 0;
+        for (;;) {
+          const page = await views.listVaults(from, pageSize);
+          vaultCount += countContractVaults(page);
+          if (!vaultListHasMore(page.length, pageSize)) {
+            break;
+          }
+          from += page.length;
+        }
         if (!cancelled) {
-          setSnapshot({ programs, vaultCount: vaults.length });
+          setSnapshot({ programs, vaultCount });
         }
       } catch (error) {
         if (!cancelled) {
@@ -47,7 +56,7 @@ export function NetworkStatus() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, refreshKey]);
 
   return (
     <Card>

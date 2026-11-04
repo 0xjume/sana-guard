@@ -12,10 +12,12 @@ import {
   errorMessage,
   isOnChainExecutionError,
   isPreAcceptanceRejection,
+  isPreSignError,
   PreSignError,
 } from './errors.js';
 import { forgetAccessKey, rememberSignedNonce } from './nonceCache.js';
-import { parseTxStatusJson, sumTokensBurnt, type TxRpcResponse } from './txStatus.js';
+import { broadcastSignedTransaction } from './broadcast.js';
+import { parseTxStatusJson, type TxRpcResponse } from './txStatus.js';
 import { parseOwnerVaultCount } from '../viewCount.js';
 
 const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
@@ -149,23 +151,27 @@ export class NearClientImpl implements NearClient {
         ),
       ];
 
+      // These two reads are independent. Each public-RPC round trip is a few
+      // seconds, so they run together instead of one after the other.
       let accessKeyInfo: Awaited<ReturnType<typeof this.account.findAccessKey>>;
+      let block: { header: { hash: string } };
       try {
-        accessKeyInfo = await this.account.findAccessKey(this.contractId, actions);
+        [accessKeyInfo, block] = await Promise.all([
+          this.account.findAccessKey(this.contractId, actions).catch((error: unknown) => {
+            throw new PreSignError('Failed to load access key', { cause: error });
+          }),
+          this.connection.connection.provider
+            .block({ finality: 'final' })
+            .catch((error: unknown) => {
+              throw new PreSignError('Failed to fetch latest block', { cause: error });
+            }),
+        ]);
       } catch (error: unknown) {
-        throw new PreSignError('Failed to load access key', { cause: error });
+        if (isPreSignError(error)) throw error;
+        throw new PreSignError('Failed to prepare transaction', { cause: error });
       }
       if (!accessKeyInfo) {
         throw new PreSignError('No matching access key for the relay account');
-      }
-
-      let block: { header: { hash: string } };
-      try {
-        block = await this.connection.connection.provider.block({
-          finality: 'final',
-        });
-      } catch (error: unknown) {
-        throw new PreSignError('Failed to fetch latest block', { cause: error });
       }
 
       const nonce = BigInt(accessKeyInfo.accessKey.nonce) + 1n;
@@ -189,6 +195,12 @@ export class NearClientImpl implements NearClient {
       }
 
       const txHash = utils.serialize.base_encode(hashBytes);
+      let signedTxBase64: string;
+      try {
+        signedTxBase64 = Buffer.from(signedTx.encode()).toString('base64');
+      } catch (error: unknown) {
+        throw new PreSignError('Failed to encode transaction', { cause: error });
+      }
       hooks?.onSigned?.(txHash);
 
       rememberSignedNonce(
@@ -199,8 +211,14 @@ export class NearClientImpl implements NearClient {
       );
 
       try {
-        const outcome = await this.connection.connection.provider.sendTransaction(signedTx);
-        return this.outcomeToResult(outcome, txHash, depositYocto);
+        // Do not use provider.sendTransaction: it long-polls EXECUTED_OPTIMISTIC
+        // and retries timeouts. The hash is already known; execution is polled.
+        await broadcastSignedTransaction({
+          rpcUrl: this.rpcUrl,
+          signedTxBase64,
+        });
+        logger.info({ txHash }, 'NEAR transaction broadcast');
+        return { txHash, success: false, pending: true };
       } catch (error: unknown) {
         forgetAccessKey(this.account.accessKeyByPublicKeyCache, publicKey);
         logger.error({ error, txHash }, 'NEAR transaction failed');
@@ -219,63 +237,6 @@ export class NearClientImpl implements NearClient {
         throw wrapped;
       }
     });
-  }
-
-  private outcomeToResult(
-    outcome: {
-      transaction: { hash: string | Uint8Array };
-      receipts_outcome?: Array<{ outcome?: { logs?: string[]; tokens_burnt?: string } }>;
-      transaction_outcome?: { outcome?: { tokens_burnt?: string } };
-      status: unknown;
-    },
-    fallbackHash: string,
-    depositYocto: string
-  ): NearTransaction {
-    const txHash =
-      typeof outcome.transaction.hash === 'string'
-        ? outcome.transaction.hash
-        : utils.serialize.base_encode(outcome.transaction.hash) || fallbackHash;
-
-    const logs: string[] = [];
-    if (outcome.receipts_outcome) {
-      for (const receipt of outcome.receipts_outcome) {
-        logs.push(...(receipt.outcome?.logs ?? []));
-      }
-    }
-
-    const status = asRecord(outcome.status) ?? {};
-    const success = 'SuccessValue' in status || 'SuccessReceiptId' in status;
-
-    let errorMessageText: string | undefined;
-    if (!success && 'Failure' in status) {
-      errorMessageText = this.extractErrorMessage(status.Failure, logs);
-    }
-
-    const tokensBurntYocto = sumTokensBurnt(outcome);
-
-    logger.info(
-      { txHash, success, logs, depositYocto, tokensBurntYocto },
-      'NEAR transaction complete'
-    );
-
-    return { txHash, success, errorMessage: errorMessageText, tokensBurntYocto };
-  }
-
-  private extractErrorMessage(failure: unknown, logs: string[]): string {
-    const sgError = logs.find((log) => log.includes('SG_E'));
-    if (sgError) return sgError;
-
-    const failureRecord = asRecord(failure);
-    if (!failureRecord || !('ActionError' in failureRecord)) {
-      return JSON.stringify(failure);
-    }
-
-    const actionError = failureRecord.ActionError;
-    const kind = asRecord(actionError)?.kind;
-    const execution = asRecord(asRecord(kind)?.FunctionCallError)?.ExecutionError;
-    if (execution !== undefined) return String(execution);
-    if (asRecord(kind)) return JSON.stringify(kind);
-    return JSON.stringify(actionError);
   }
 
   /**
@@ -318,11 +279,4 @@ export class NearClientImpl implements NearClient {
       clearTimeout(timer);
     }
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (value && typeof value === 'object') {
-    return value as Record<string, unknown>;
-  }
-  return undefined;
 }
