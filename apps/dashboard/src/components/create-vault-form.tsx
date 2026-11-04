@@ -28,16 +28,13 @@ function asActionError(err: unknown, fallback: string): GuardActionError {
 }
 
 async function ownerVaultCountFor(owner: string): Promise<number> {
-  return createViews().getOwnerVaultCount(owner);
+  return createViews(undefined, undefined, { finality: 'optimistic' }).getOwnerVaultCount(owner);
 }
 
 async function previewVaultAddress(owner: string, index: number): Promise<string> {
-  const address = await createViews().deriveVaultAddress(
-    publicConfig.mpcContract,
-    owner,
-    index,
-    publicConfig.mpcDomainId
-  );
+  const address = await createViews(undefined, undefined, {
+    finality: 'optimistic',
+  }).deriveVaultAddress(publicConfig.mpcContract, owner, index, publicConfig.mpcDomainId);
   return address.toBase58();
 }
 

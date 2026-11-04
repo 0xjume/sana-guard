@@ -195,18 +195,21 @@ export function SignReviewProvider({ children }: { children: React.ReactNode }) 
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
               {pending ? <ReviewBody pending={pending} /> : null}
-              {progress?.phase === 'submitting' ? (
-                <p role="status" className="mt-4 text-sm text-muted-foreground">
-                  Submitting…
-                </p>
-              ) : null}
-              {progress?.phase === 'confirming' ? (
-                <div role="status" className="mt-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">Confirming on NEAR…</p>
-                  <ProofLink value={progress.txHash} kind="near-tx" />
-                </div>
-              ) : null}
             </div>
+            {progress ? (
+              <div className="shrink-0 border-t border-border px-6 py-3">
+                {progress.phase === 'submitting' ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Submitting…
+                  </p>
+                ) : (
+                  <div role="status" className="space-y-2">
+                    <p className="text-sm text-muted-foreground">Confirming on NEAR…</p>
+                    <ProofLink value={progress.txHash} kind="near-tx" />
+                  </div>
+                )}
+              </div>
+            ) : null}
             <DialogFooter className="shrink-0 border-t border-border bg-card px-6 py-4 sm:justify-between">
               <Button type="button" variant="outline" onClick={cancel} disabled={progress !== null}>
                 Cancel

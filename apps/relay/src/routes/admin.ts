@@ -433,21 +433,32 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
         return c.json(createVaultInFlightBody(), 409);
       }
 
-      // Slow RPC views happen before the global lock.
+      // Vault and nonce are independent. One round trip, then the balance
+      // check stays inside the reserve lock.
+      const viewsStarted = Date.now();
       let vault: VaultInfo | null = null;
+      let onChainNonce: number;
       if (parsedMsg.action.type !== 'CreateVault') {
         if (vaultIdFromAction === null) {
           return c.json({ error: 'Vault ID is required' }, 400);
         }
-        vault = await nearClient.getVault(vaultIdFromAction);
+        const loaded = await Promise.all([
+          nearClient.getVault(vaultIdFromAction),
+          nearClient.getOwnerNonce(owner),
+        ]);
+        vault = loaded[0];
+        onChainNonce = loaded[1];
+        log.info({ step: 'vault-and-nonce', ms: Date.now() - viewsStarted }, 'owner action timing');
         if (!vault) {
           return c.json({ error: 'Vault not found' }, 404);
         }
         if (vault.owner !== owner) {
           return c.json({ error: 'Owner does not match vault' }, 401);
         }
+      } else {
+        onChainNonce = await nearClient.getOwnerNonce(owner);
+        log.info({ step: 'owner-nonce', ms: Date.now() - viewsStarted }, 'owner action timing');
       }
-      const onChainNonce = await nearClient.getOwnerNonce(owner);
       if (parsedMsg.nonce <= onChainNonce) {
         return c.json({ error: 'Nonce too old', provided: parsedMsg.nonce, onChainNonce }, 400);
       }
@@ -520,6 +531,7 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
 
       return await db.withOwnerLock(owner, async () => {
         try {
+          const submitStarted = Date.now();
           const result = await nearClient.submitOwnerAction(
             msg,
             parsed.signature,
@@ -528,6 +540,10 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
             {
               onSigned: (txHash) => db.attachTxHash(owner, parsedMsg.nonce, txHash),
             }
+          );
+          log.info(
+            { step: 'submit', ms: Date.now() - submitStarted, pending: Boolean(result.pending) },
+            'owner action timing'
           );
 
           if (result.pending) {

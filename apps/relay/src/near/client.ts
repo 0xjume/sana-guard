@@ -17,12 +17,20 @@ import {
 } from './errors.js';
 import { forgetAccessKey, rememberSignedNonce, shouldForgetAccessKey } from './nonceCache.js';
 import { broadcastSignedTransaction } from './broadcast.js';
+import { createNearRpc, singleBroadcastUrl, type NearRpc } from './rpc.js';
 import { parseTxStatusJson, type TxRpcResponse } from './txStatus.js';
 import { parseOwnerVaultCount } from '../viewCount.js';
 
 const { connect, keyStores, KeyPair, transactions, utils } = nearAPI;
 
 const TX_STATUS_TIMEOUT_MS = 10_000;
+
+/**
+ * One send_tx. 10s leaves room for a ~3.2s public endpoint when that is the
+ * only host we can use. A 4s cap turned those into "timed out but maybe
+ * accepted", which keeps a CreateVault in flight until the tx resolves.
+ */
+export const OWNER_BROADCAST_TIMEOUT_MS = 10_000;
 
 export class NearClientImpl implements NearClient {
   private connection!: nearAPI.Near;
@@ -33,6 +41,7 @@ export class NearClientImpl implements NearClient {
   private readonly rpcUrl: string;
   private readonly privateKey: string;
   private readonly submitMutex = new Mutex();
+  private readonly rpc: NearRpc;
   private initPromise: Promise<void> | undefined;
 
   constructor(
@@ -48,6 +57,7 @@ export class NearClientImpl implements NearClient {
     this.accountId = accountId;
     this.rpcUrl = rpcUrl;
     this.privateKey = privateKey;
+    this.rpc = createNearRpc({ primaryUrl: rpcUrl });
   }
 
   /**
@@ -83,33 +93,42 @@ export class NearClientImpl implements NearClient {
   }
 
   async getBalance(): Promise<string> {
-    const state = await this.account.state();
-    return state.amount;
+    const state = await this.rpc.call(
+      'query',
+      {
+        request_type: 'view_account',
+        finality: 'optimistic',
+        account_id: this.accountId,
+      },
+      'view_account'
+    );
+    const amount =
+      state && typeof state === 'object' && 'amount' in state
+        ? (state as { amount: unknown }).amount
+        : null;
+    if (typeof amount !== 'string') {
+      throw new Error('NEAR RPC error');
+    }
+    return amount;
   }
 
   async getOwnerNonce(ownerB58: string): Promise<number> {
-    const result = await this.account.viewFunction({
-      contractId: this.contractId,
-      methodName: 'owner_nonce',
-      args: { owner_b58: ownerB58 },
-    });
+    const result = await this.viewCall(this.contractId, 'owner_nonce', { owner_b58: ownerB58 });
     return Number(result);
   }
 
   async getOwnerVaultCount(ownerB58: string): Promise<number> {
-    const result = await this.account.viewFunction({
-      contractId: this.contractId,
-      methodName: 'owner_vault_count',
-      args: { owner_b58: ownerB58 },
+    const result = await this.viewCall(this.contractId, 'owner_vault_count', {
+      owner_b58: ownerB58,
     });
     return parseOwnerVaultCount(result);
   }
 
   async getDerivedPublicKey(path: string, predecessor: string): Promise<string> {
-    const result: unknown = await this.account.viewFunction({
-      contractId: this.mpcContractId,
-      methodName: 'derived_public_key',
-      args: { path, predecessor, domain_id: 1 },
+    const result = await this.viewCall(this.mpcContractId, 'derived_public_key', {
+      path,
+      predecessor,
+      domain_id: 1,
     });
     if (typeof result === 'string') {
       return result;
@@ -126,12 +145,8 @@ export class NearClientImpl implements NearClient {
   }
 
   async getVault(vaultId: number): Promise<VaultInfo | null> {
-    const result = await this.account.viewFunction({
-      contractId: this.contractId,
-      methodName: 'get_vault',
-      args: { vault_id: vaultId },
-    });
-    return result;
+    const result = await this.viewCall(this.contractId, 'get_vault', { vault_id: vaultId });
+    return result as VaultInfo | null;
   }
 
   async submitOwnerAction(
@@ -151,31 +166,19 @@ export class NearClientImpl implements NearClient {
         ),
       ];
 
-      // These two reads are independent. Each public-RPC round trip is a few
-      // seconds, so they run together instead of one after the other.
-      let accessKeyInfo: Awaited<ReturnType<typeof this.account.findAccessKey>>;
-      let block: { header: { hash: string } };
+      // One raw query for the key (it includes a recent block hash). A cached
+      // nonce still needs a block hash, and that is the only extra read.
+      // near-api-js findAccessKey/block() retry Timeout up to 12 times.
+      let prepared: { publicKey: string; accessKey: { nonce: bigint }; blockHash: string };
       try {
-        [accessKeyInfo, block] = await Promise.all([
-          this.account.findAccessKey(this.contractId, actions).catch((error: unknown) => {
-            throw new PreSignError('Failed to load access key', { cause: error });
-          }),
-          this.connection.connection.provider
-            .block({ finality: 'final' })
-            .catch((error: unknown) => {
-              throw new PreSignError('Failed to fetch latest block', { cause: error });
-            }),
-        ]);
+        prepared = await this.prepareSigningMaterial();
       } catch (error: unknown) {
         if (isPreSignError(error)) throw error;
         throw new PreSignError('Failed to prepare transaction', { cause: error });
       }
-      if (!accessKeyInfo) {
-        throw new PreSignError('No matching access key for the relay account');
-      }
 
-      const nonce = BigInt(accessKeyInfo.accessKey.nonce) + 1n;
-      const publicKey = accessKeyInfo.publicKey.toString();
+      const nonce = prepared.accessKey.nonce + 1n;
+      const publicKey = prepared.publicKey;
 
       let hashBytes: Uint8Array;
       let signedTx: nearAPI.transactions.SignedTransaction;
@@ -185,7 +188,7 @@ export class NearClientImpl implements NearClient {
           this.contractId,
           nonce,
           actions,
-          utils.serialize.base_decode(block.header.hash),
+          utils.serialize.base_decode(prepared.blockHash),
           this.account.connection.signer,
           this.accountId,
           this.networkId
@@ -206,18 +209,24 @@ export class NearClientImpl implements NearClient {
       rememberSignedNonce(
         this.account.accessKeyByPublicKeyCache,
         publicKey,
-        accessKeyInfo.accessKey,
+        prepared.accessKey,
         nonce
       );
 
       try {
         // Do not use provider.sendTransaction: it long-polls EXECUTED_OPTIMISTIC
         // and retries timeouts. The hash is already known; execution is polled.
+        // Exactly one host: public near.org is sent to fastnear, never both.
+        const broadcastStarted = Date.now();
         await broadcastSignedTransaction({
-          rpcUrl: this.rpcUrl,
+          rpcUrl: singleBroadcastUrl(this.rpc.preferredUrl()),
           signedTxBase64,
+          timeoutMs: OWNER_BROADCAST_TIMEOUT_MS,
         });
-        logger.info({ txHash }, 'NEAR transaction broadcast');
+        logger.info(
+          { txHash, step: 'send_tx', ms: Date.now() - broadcastStarted },
+          'owner action timing'
+        );
         return { txHash, success: false, pending: true };
       } catch (error: unknown) {
         // A timeout may still be in the mempool. Dropping the cached nonce makes
@@ -257,30 +266,134 @@ export class NearClientImpl implements NearClient {
     method: 'EXPERIMENTAL_tx_status' | 'tx',
     txHash: string
   ): Promise<TxStatusResult | undefined> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TX_STATUS_TIMEOUT_MS);
     try {
-      const res = await fetch(this.rpcUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'relay-tx-status',
-          method,
-          params: {
-            tx_hash: txHash,
-            sender_account_id: this.accountId,
-            wait_until: 'NONE',
-          },
-        }),
-        signal: controller.signal,
-      });
-      const json = (await res.json()) as TxRpcResponse;
-      return parseTxStatusJson(json);
+      const json = await this.rpc.request(
+        method,
+        {
+          tx_hash: txHash,
+          sender_account_id: this.accountId,
+          wait_until: 'NONE',
+        },
+        method,
+        TX_STATUS_TIMEOUT_MS
+      );
+      if (!json) return undefined;
+      return parseTxStatusJson(json as TxRpcResponse);
     } catch {
       return undefined;
-    } finally {
-      clearTimeout(timer);
     }
   }
+
+  private async viewCall(
+    contractId: string,
+    methodName: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const result = await this.rpc.call(
+      'query',
+      {
+        request_type: 'call_function',
+        finality: 'optimistic',
+        account_id: contractId,
+        method_name: methodName,
+        args_base64: Buffer.from(JSON.stringify(args)).toString('base64'),
+      },
+      methodName
+    );
+    return decodeViewResult(result);
+  }
+
+  /**
+   * Nonce comes from the in-memory cache when this process already signed,
+   * otherwise from one `view_access_key` (optimistic, so it is not behind a
+   * finalized lag). The same response carries a block hash new enough to sign
+   * with (validity is 86400 blocks). A warm cache only fetches the hash.
+   */
+  private async prepareSigningMaterial(): Promise<{
+    publicKey: string;
+    accessKey: { nonce: bigint };
+    blockHash: string;
+  }> {
+    const key = await this.account.connection.signer.getPublicKey(this.accountId, this.networkId);
+    if (!key) {
+      throw new PreSignError('No matching access key for the relay account');
+    }
+    const publicKey = key.toString();
+    const cached = this.account.accessKeyByPublicKeyCache[publicKey] as
+      { nonce?: bigint } | undefined;
+    if (cached && typeof cached.nonce === 'bigint') {
+      return {
+        publicKey,
+        accessKey: { nonce: cached.nonce },
+        blockHash: await this.latestBlockHash(),
+      };
+    }
+
+    let raw: { nonce?: unknown; block_hash?: unknown; permission?: unknown };
+    try {
+      raw = (await this.rpc.call(
+        'query',
+        {
+          request_type: 'view_access_key',
+          finality: 'optimistic',
+          account_id: this.accountId,
+          public_key: publicKey,
+        },
+        'access_key'
+      )) as { nonce?: unknown; block_hash?: unknown; permission?: unknown };
+    } catch (error: unknown) {
+      throw new PreSignError('Failed to load access key', { cause: error });
+    }
+
+    const blockHash = typeof raw.block_hash === 'string' ? raw.block_hash : '';
+    if (!blockHash) {
+      throw new PreSignError('Failed to fetch latest block');
+    }
+    const accessKey = {
+      nonce: BigInt(typeof raw.nonce === 'string' || typeof raw.nonce === 'number' ? raw.nonce : 0),
+      permission: raw.permission,
+    };
+    const raced = this.account.accessKeyByPublicKeyCache[publicKey] as
+      { nonce?: bigint } | undefined;
+    if (raced && typeof raced.nonce === 'bigint') {
+      return { publicKey, accessKey: { nonce: raced.nonce }, blockHash };
+    }
+    this.account.accessKeyByPublicKeyCache[publicKey] = accessKey as never;
+    return { publicKey, accessKey, blockHash };
+  }
+
+  private async latestBlockHash(): Promise<string> {
+    try {
+      const block = (await this.rpc.call('block', { finality: 'optimistic' }, 'block')) as {
+        header?: { hash?: unknown };
+      };
+      const hash = block.header?.hash;
+      if (typeof hash !== 'string' || hash.length === 0) {
+        throw new Error('missing hash');
+      }
+      return hash;
+    } catch (error: unknown) {
+      if (isPreSignError(error)) throw error;
+      throw new PreSignError('Failed to fetch latest block', { cause: error });
+    }
+  }
+}
+
+function decodeViewResult(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || !('result' in result)) {
+    throw new Error('NEAR RPC error');
+  }
+  const raw = (result as { result?: unknown }).result;
+  const bytes =
+    typeof raw === 'string'
+      ? Buffer.from(raw, 'base64')
+      : Array.isArray(raw)
+        ? Buffer.from(raw)
+        : null;
+  if (!bytes) {
+    throw new Error('NEAR RPC error');
+  }
+  const text = bytes.toString('utf8');
+  if (text.length === 0) return null;
+  return JSON.parse(text) as unknown;
 }

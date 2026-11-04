@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     request,
     configError: publicConfig.configError,
     disableReason: ownerActionDisableReason(),
-    views: createViews(),
+    views: createViews(undefined, undefined, { finality: 'optimistic' }),
     postAdmin: postAdminToRelay,
     verify: verifyPrivyAccessToken,
     allowlist: parseOwnerAllowlist(process.env.OWNER_ALLOWLIST),

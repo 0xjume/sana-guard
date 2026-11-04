@@ -29,6 +29,7 @@ import {
 } from '@/lib/format';
 import { clonePolicy } from '@/lib/near';
 import { ownerCanEdit } from '@/lib/owner-can-edit';
+import { planVaultRefresh } from '@/lib/vault-refresh';
 import {
   GENERIC_VAULT_LOAD_ERROR,
   applyClientVaultRefresh,
@@ -184,6 +185,7 @@ export function VaultDetail({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const paintedRef = useRef(Boolean(initial?.vault));
+  const followUps = useRef<number[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -221,9 +223,36 @@ export function VaultDetail({
     void load();
   }, [load]);
 
+  const refreshFromChain = useCallback(() => {
+    for (const id of followUps.current) {
+      window.clearTimeout(id);
+    }
+    followUps.current = [];
+    // VaultDetail keeps its own state after mount, so a server refresh does not
+    // change the painted policy. Re-read from the client immediately, then again
+    // once a final view can see a tx that settled a moment earlier.
+    planVaultRefresh(
+      () => {
+        void load();
+      },
+      (ms, run) => {
+        followUps.current.push(window.setTimeout(run, ms));
+      }
+    );
+  }, [load]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const timers = followUps;
+    return () => {
+      for (const id of timers.current) {
+        window.clearTimeout(id);
+      }
+    };
+  }, []);
 
   const run = async (
     fn: () => Promise<{ success: boolean; txHash?: string; error?: GuardActionError }>
@@ -235,7 +264,7 @@ export function VaultDetail({
       const result = await fn();
       if (result.success && result.txHash) {
         setTxHash(result.txHash);
-        await load();
+        refreshFromChain();
       } else if (!result.success && result.error) {
         setActionError(result.error);
       }
@@ -439,7 +468,7 @@ export function VaultDetail({
                   <PolicyEditor
                     vaultId={vaultId}
                     policy={vault.policy}
-                    onUpdated={() => void load()}
+                    onUpdated={refreshFromChain}
                   />
                 </div>
               ) : null}
@@ -450,13 +479,13 @@ export function VaultDetail({
             vaultId={vaultId}
             recipients={recipients}
             canEdit={canEdit}
-            onUpdated={() => void load()}
+            onUpdated={refreshFromChain}
           />
           <AgentsPanel
             vaultId={vaultId}
             agents={vault.agents}
             canEdit={canEdit}
-            onUpdated={() => void load()}
+            onUpdated={refreshFromChain}
           />
           <ActivityFeed vaultId={vaultId} />
           <AttackLabPanel vaultId={vaultId} />

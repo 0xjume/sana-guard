@@ -224,12 +224,21 @@ export async function handleOwnerActionPost(args: {
       return addAgentDenied;
     }
 
+    const relayStarted = Date.now();
     const result = await args.postAdmin({
       message,
       signature,
       owner,
       inviteToken: env.INVITE_TOKEN?.trim() || undefined,
     });
+    console.info(
+      JSON.stringify({
+        source: 'owner-action',
+        step: 'relay',
+        ms: Date.now() - relayStarted,
+        pending: result.success ? result.pending === true : false,
+      })
+    );
 
     if (result.success) {
       return NextResponse.json(result);

@@ -277,6 +277,44 @@ describe('POST /v1/admin', () => {
     expect(body.error).toBe('Invalid JSON body');
   });
 
+  it('loads the vault and the owner nonce together', async () => {
+    let releaseVault: () => void = () => undefined;
+    const vaultGate = new Promise<void>((resolve) => {
+      releaseVault = resolve;
+    });
+    let vaultEntered = false;
+    let nonceEntered = false;
+    near.getVault = async () => {
+      vaultEntered = true;
+      await vaultGate;
+      return near.vault;
+    };
+    near.getOwnerNonce = async () => {
+      nonceEntered = true;
+      return near.nonce;
+    };
+    const msg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'AddRecipient', vault_id: 0, recipient: owner },
+    });
+    const pending = app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey), owner }),
+    });
+    const deadline = Date.now() + 1_000;
+    while ((!vaultEntered || !nonceEntered) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(vaultEntered).toBe(true);
+    expect(nonceEntered).toBe(true);
+    releaseVault();
+    const res = await pending;
+    expect(res.status).toBe(200);
+    expect((await res.json()).txHash).toBe('testhash');
+  });
+
   it('returns 500 for an unexpected error after a valid JSON body', async () => {
     near.getVault = async () => {
       throw new Error('Unexpected token in JSON at position 0');

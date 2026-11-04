@@ -18,6 +18,23 @@ export function reportOwnerSignProgress(progress: OwnerSignProgress | null): voi
   listener?.(progress);
 }
 
+/** Lets the confirming stage paint before the status poll starts. */
+export function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+export function logOwnerActionTiming(
+  step: string,
+  startedMs: number,
+  extra: Record<string, string | number | boolean> = {}
+): void {
+  console.info(
+    JSON.stringify({ source: 'owner-action', step, ms: Date.now() - startedMs, ...extra })
+  );
+}
+
 export function signDialogButtonLabel(progress: OwnerSignProgress | null): string {
   if (progress?.phase === 'confirming') return 'Confirming on NEAR…';
   if (progress?.phase === 'submitting') return 'Submitting…';
