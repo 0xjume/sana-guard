@@ -82,8 +82,8 @@ Confirm these labels (live `get_vault` + UI):
 | Path | `vault/DeF8KCnMiARMuEUjc1iD4wGh8g8D7ygSUVGnYw8XMvmB/0` |
 | Per-tx SOL | `0.05 SOL` |
 | Rolling 24h SOL cap | `0.1 SOL` |
-| Max compute-unit price | `100000 lamports / CU` |
-| Max total priority fee / tx | `No cap` |
+| Max compute-unit price | `1 lamports / CU` |
+| Max total priority fee / tx | `0.001 SOL` |
 | Expiry | `2026-11-29 12:17:41 UTC` |
 | Loosen delay | `1h` |
 | Programs | `System`, `Compute Budget` |
