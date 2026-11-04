@@ -10,7 +10,9 @@ import {
   type OwnerSignProgress,
 } from '@/lib/sign-progress';
 import { ProofLink } from './proof-link';
+import { ActionErrorBoundary } from './action-error-boundary';
 import { Button } from '@/components/ui/button';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -185,45 +187,60 @@ export function SignReviewProvider({ children }: { children: React.ReactNode }) 
           }}
         >
           <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col gap-0 overflow-hidden p-0">
-            <DialogHeader className="shrink-0 px-6 pb-2 pt-6">
-              <p className="kicker">Review before signing</p>
-              <DialogTitle>{pending?.review?.title ?? 'Owner action'}</DialogTitle>
-              <DialogDescription>
-                Your wallet will sign exactly the message below. The guard contract verifies the
-                signature and applies it on-chain.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-              {pending ? <ReviewBody pending={pending} /> : null}
-            </div>
-            {progress ? (
-              <div className="shrink-0 border-t border-border px-6 py-3">
-                {progress.phase === 'submitting' ? (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    Submitting…
-                  </p>
-                ) : (
-                  <div role="status" className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Confirming on NEAR…</p>
-                    <ProofLink value={progress.txHash} kind="near-tx" />
+            {/* This dialog is portaled from the root layout, outside AppShell's TooltipProvider.
+                ProofLink in the confirming stage needs its own provider or Radix throws and the
+                root error boundary replaces the console. */}
+            <ActionErrorBoundary
+              scope="sign-review"
+              txHash={progress?.phase === 'confirming' ? progress.txHash : null}
+            >
+              <TooltipProvider delayDuration={200}>
+                <DialogHeader className="shrink-0 px-6 pb-2 pt-6">
+                  <p className="kicker">Review before signing</p>
+                  <DialogTitle>{pending?.review?.title ?? 'Owner action'}</DialogTitle>
+                  <DialogDescription>
+                    Your wallet will sign exactly the message below. The guard contract verifies the
+                    signature and applies it on-chain.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                  {pending ? <ReviewBody pending={pending} /> : null}
+                </div>
+                {progress ? (
+                  <div className="shrink-0 border-t border-border px-6 py-3">
+                    {progress.phase === 'submitting' ? (
+                      <p role="status" className="text-sm text-muted-foreground">
+                        Submitting…
+                      </p>
+                    ) : (
+                      <div role="status" className="space-y-2">
+                        <p className="text-sm text-muted-foreground">Confirming on NEAR…</p>
+                        <ProofLink value={progress.txHash} kind="near-tx" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ) : null}
-            <DialogFooter className="shrink-0 border-t border-border bg-card px-6 py-4 sm:justify-between">
-              <Button type="button" variant="outline" onClick={cancel} disabled={progress !== null}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant={signVariant(pending?.review?.tone)}
-                onClick={approve}
-                disabled={progress !== null}
-                aria-busy={progress !== null}
-              >
-                {signDialogButtonLabel(progress)}
-              </Button>
-            </DialogFooter>
+                ) : null}
+                <DialogFooter className="shrink-0 border-t border-border bg-card px-6 py-4 sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={cancel}
+                    disabled={progress !== null}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={signVariant(pending?.review?.tone)}
+                    onClick={approve}
+                    disabled={progress !== null}
+                    aria-busy={progress !== null}
+                  >
+                    {signDialogButtonLabel(progress)}
+                  </Button>
+                </DialogFooter>
+              </TooltipProvider>
+            </ActionErrorBoundary>
           </DialogContent>
         </Dialog>
       </SignProgressContext.Provider>

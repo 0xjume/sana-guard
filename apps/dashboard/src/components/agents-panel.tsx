@@ -46,7 +46,7 @@ export function AgentsPanel({
   vaultId: number;
   agents: string[];
   canEdit?: boolean;
-  onUpdated?: () => void;
+  onUpdated?: (txHash?: string) => void;
 }) {
   const session = useOwnerSession();
   const fieldId = useId();
@@ -110,7 +110,7 @@ export function AgentsPanel({
       );
       if (result.success) {
         setTxHash(result.txHash);
-        onUpdated?.();
+        onUpdated?.(result.txHash);
       } else {
         setError(result.error);
       }
@@ -134,7 +134,7 @@ export function AgentsPanel({
       );
       if (result.success) {
         setTxHash(result.txHash);
-        onUpdated?.();
+        onUpdated?.(result.txHash);
       } else {
         setError(result.error);
       }

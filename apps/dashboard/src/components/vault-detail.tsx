@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowLeft,
@@ -37,6 +37,7 @@ import {
   loadVaultSnapshot,
   type SerializedVaultSnapshot,
 } from '@/lib/vault-snapshot';
+import { ActionErrorBoundary } from './action-error-boundary';
 import { ActionResult } from './action-result';
 import { ActivityFeed } from './activity-feed';
 import { AddressChip } from './address-chip';
@@ -172,6 +173,23 @@ export function VaultDetail({
   vaultId: number;
   initialSnapshot?: SerializedVaultSnapshot;
 }) {
+  const txHashRef = useRef<string | null>(null);
+  return (
+    <ActionErrorBoundary scope="vault-detail" txHashRef={txHashRef}>
+      <VaultDetailView vaultId={vaultId} initialSnapshot={initialSnapshot} txHashRef={txHashRef} />
+    </ActionErrorBoundary>
+  );
+}
+
+function VaultDetailView({
+  vaultId,
+  initialSnapshot,
+  txHashRef,
+}: {
+  vaultId: number;
+  initialSnapshot?: SerializedVaultSnapshot;
+  txHashRef: RefObject<string | null>;
+}) {
   const session = useOwnerSession();
   const initial = initialSnapshot ? deserializeVaultSnapshot(initialSnapshot) : null;
   const [vault, setVault] = useState<VaultView | null>(initial?.vault ?? null);
@@ -223,23 +241,29 @@ export function VaultDetail({
     void load();
   }, [load]);
 
-  const refreshFromChain = useCallback(() => {
-    for (const id of followUps.current) {
-      window.clearTimeout(id);
-    }
-    followUps.current = [];
-    // VaultDetail keeps its own state after mount, so a server refresh does not
-    // change the painted policy. Re-read from the client immediately, then again
-    // once a final view can see a tx that settled a moment earlier.
-    planVaultRefresh(
-      () => {
-        void load();
-      },
-      (ms, run) => {
-        followUps.current.push(window.setTimeout(run, ms));
+  const refreshFromChain = useCallback(
+    (txHash?: string) => {
+      if (txHash) {
+        txHashRef.current = txHash;
       }
-    );
-  }, [load]);
+      for (const id of followUps.current) {
+        window.clearTimeout(id);
+      }
+      followUps.current = [];
+      // VaultDetail keeps its own state after mount, so a server refresh does not
+      // change the painted policy. Re-read from the client immediately, then again
+      // once a final view can see a tx that settled a moment earlier.
+      planVaultRefresh(
+        () => {
+          void load();
+        },
+        (ms, run) => {
+          followUps.current.push(window.setTimeout(run, ms));
+        }
+      );
+    },
+    [load, txHashRef]
+  );
 
   useEffect(() => {
     void load();
@@ -263,6 +287,7 @@ export function VaultDetail({
     try {
       const result = await fn();
       if (result.success && result.txHash) {
+        txHashRef.current = result.txHash;
         setTxHash(result.txHash);
         refreshFromChain();
       } else if (!result.success && result.error) {
