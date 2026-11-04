@@ -1,3 +1,5 @@
+import { logger } from '../logger.js';
+
 /**
  * Broadcast a signed transaction without near-api-js's long poll.
  *
@@ -43,6 +45,22 @@ function throwRejected(kind: 'InvalidNonce' | 'InvalidTransaction'): never {
   throw error;
 }
 
+/** Name/code only. RPC message and data stay off the client and out of this string. */
+export function broadcastRpcErrorType(error: unknown): string {
+  if (!error || typeof error !== 'object') return 'unknown';
+  const record = error as { name?: unknown; code?: unknown; cause?: { name?: unknown } };
+  const cause = typeof record.cause?.name === 'string' ? record.cause.name : '';
+  const name = typeof record.name === 'string' ? record.name : '';
+  const code =
+    typeof record.code === 'number' || typeof record.code === 'string' ? String(record.code) : '';
+  return [cause, name, code].filter(Boolean).join('/') || 'unknown';
+}
+
+function throwBroadcastTimeout(error: unknown): never {
+  logger.warn({ rpcErrorType: broadcastRpcErrorType(error) }, 'NEAR broadcast treated as timeout');
+  throw new Error('NEAR broadcast timed out');
+}
+
 export function interpretBroadcastResponse(payload: unknown): void {
   if (!payload || typeof payload !== 'object') {
     throw new Error('NEAR broadcast timed out');
@@ -54,12 +72,7 @@ export function interpretBroadcastResponse(payload: unknown): void {
   if (body.error) {
     const kind = rejectionType(body.error);
     if (kind) throwRejected(kind);
-    const message = typeof body.error.message === 'string' ? body.error.message : '';
-    const data = typeof body.error.data === 'string' ? body.error.data : '';
-    if (/timeout/i.test(message) || /timeout/i.test(data)) {
-      throw new Error('NEAR broadcast timed out');
-    }
-    throw new Error('NEAR broadcast timed out');
+    throwBroadcastTimeout(body.error);
   }
   if (body.result === undefined) {
     throw new Error('NEAR broadcast timed out');

@@ -962,6 +962,109 @@ describe('POST /v1/admin', () => {
     expect(db.checkNonceInFlight(owner, 6)).toBe(false);
     expect(db.hasCreateVaultInFlight(owner)).toBe(false);
   });
+
+  it('does not resume a different action that reused the owner nonce', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    near.result = { txHash, success: false, pending: true };
+    const firstMsg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'AddRecipient', vault_id: 0, recipient: owner },
+    });
+    const first = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        msg: firstMsg,
+        signature: signMsg(firstMsg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(first.status).toBe(200);
+
+    const secondMsg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'Pause', vault_id: 0 },
+    });
+    const second = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        msg: secondMsg,
+        signature: signMsg(secondMsg, keyPair.secretKey),
+        owner,
+      }),
+    });
+    expect(second.status).toBe(409);
+    const body = await second.json();
+    expect(body.code).toBe('NONCE_REUSED');
+    expect(body.success).toBeUndefined();
+    expect(body.txHash).toBeUndefined();
+    expect(near.submitted).toHaveLength(1);
+  });
+
+  it('does not hand a legacy in-flight hash to a new message', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    db.reserveBudget(owner, 6, 'Pause', '1', Date.now());
+    db.attachTxHash(owner, 6, txHash);
+    const msg = makeAdminMsg({
+      vault: '0',
+      nonce: 6,
+      action: { type: 'Pause', vault_id: 0 },
+    });
+    const res = await app.request('/v1/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ msg, signature: signMsg(msg, keyPair.secretKey), owner }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('NONCE_REUSED');
+    expect(near.submitted).toHaveLength(0);
+  });
+
+  it('returns a terminal rejection for a released transaction hash', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    db.reserveBudget(owner, 9, 'Pause', '1', Date.now());
+    db.attachTxHash(owner, 9, txHash);
+    db.releaseBudget(owner, 9, Date.now());
+    let calls = 0;
+    near.getTransactionStatus = async () => {
+      calls += 1;
+      return { status: 'pending' };
+    };
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(400);
+    expect(await status.json()).toMatchObject({
+      success: false,
+      pending: false,
+      txHash,
+      code: 'TX_REJECTED',
+    });
+    expect(calls).toBe(0);
+  });
+
+  it('returns a terminal unverified state for settled-unverified rows', async () => {
+    const txHash = 'AdVf7Fxbh6YESDMnJKsBo2Q9oA2AqXDQYSYuYAsLsvh1';
+    db.reserveBudget(owner, 9, 'Pause', '10', Date.now());
+    db.attachTxHash(owner, 9, txHash);
+    db.reconcileBudget(owner, 9, '10', txHash, null, Date.now(), { status: 'settled-unverified' });
+    let calls = 0;
+    near.getTransactionStatus = async () => {
+      calls += 1;
+      return { status: 'pending' };
+    };
+    const status = await app.request(`/v1/admin/tx/${txHash}`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({
+      success: false,
+      pending: false,
+      unverified: true,
+      txHash,
+      code: 'TX_UNVERIFIED',
+    });
+    expect(calls).toBe(0);
+  });
 });
 
 describe('GET /v1/quote', () => {

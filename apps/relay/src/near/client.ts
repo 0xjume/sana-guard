@@ -15,7 +15,7 @@ import {
   isPreSignError,
   PreSignError,
 } from './errors.js';
-import { forgetAccessKey, rememberSignedNonce } from './nonceCache.js';
+import { forgetAccessKey, rememberSignedNonce, shouldForgetAccessKey } from './nonceCache.js';
 import { broadcastSignedTransaction } from './broadcast.js';
 import { parseTxStatusJson, type TxRpcResponse } from './txStatus.js';
 import { parseOwnerVaultCount } from '../viewCount.js';
@@ -220,7 +220,11 @@ export class NearClientImpl implements NearClient {
         logger.info({ txHash }, 'NEAR transaction broadcast');
         return { txHash, success: false, pending: true };
       } catch (error: unknown) {
-        forgetAccessKey(this.account.accessKeyByPublicKeyCache, publicKey);
+        // A timeout may still be in the mempool. Dropping the cached nonce makes
+        // the next send re-read the chain and reuse that nonce (InvalidNonce).
+        if (shouldForgetAccessKey(error)) {
+          forgetAccessKey(this.account.accessKeyByPublicKeyCache, publicKey);
+        }
         logger.error({ error, txHash }, 'NEAR transaction failed');
         if (isPreAcceptanceRejection(error)) {
           throw error;

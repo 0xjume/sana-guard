@@ -4,6 +4,7 @@ import {
   createVaultButtonLabel,
   reportOwnerSignProgress,
   signDialogButtonLabel,
+  ownerTxTerminalMessage,
   vaultCreatedMessage,
 } from './sign-progress';
 
@@ -20,6 +21,13 @@ describe('sign progress labels', () => {
     expect(createVaultButtonLabel({ phase: 'confirming', txHash: 'abc' }, true)).toBe(
       'Confirming on NEAR…'
     );
+  });
+
+  it('names rejected and unverified transactions instead of leaving them confirming', () => {
+    expect(ownerTxTerminalMessage('TX_REJECTED')).toMatch(/rejected before NEAR accepted/);
+    expect(ownerTxTerminalMessage('TX_UNVERIFIED')).toMatch(/Could not verify/);
+    expect(ownerTxTerminalMessage('TX_UNVERIFIED')).toMatch(/transaction link/);
+    expect(ownerTxTerminalMessage(undefined)).toBeNull();
   });
 
   it('names the vault id once the callback log is known', () => {

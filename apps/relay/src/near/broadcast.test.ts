@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  broadcastRpcErrorType,
   broadcastSignedTransaction,
   broadcastTxBody,
   interpretBroadcastResponse,
@@ -37,6 +38,18 @@ describe('interpretBroadcastResponse', () => {
     } catch (error) {
       expect((error as { type?: string }).type).toBe('InvalidNonce');
     }
+  });
+
+  it('keeps other RPC failures as a timeout and records only the error type', () => {
+    const error = {
+      name: 'HANDLER_ERROR',
+      cause: { name: 'REQUEST_VALIDATION_ERROR' },
+      message: 'secret rpc dump',
+      data: 'secret rpc dump',
+    };
+    expect(broadcastRpcErrorType(error)).toBe('REQUEST_VALIDATION_ERROR/HANDLER_ERROR');
+    expect(broadcastRpcErrorType(error)).not.toMatch(/secret/);
+    expect(() => interpretBroadcastResponse({ error })).toThrow(/^NEAR broadcast timed out$/);
   });
 
   it('does not surface raw RPC text on a timeout payload', () => {

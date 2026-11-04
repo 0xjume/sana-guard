@@ -1,6 +1,7 @@
 import type { RelayAdminResult } from './relay';
 import { explainGuardError } from './errors';
 import { readPrivyAccessToken } from './privy-browser-token';
+import { ownerTxTerminalMessage } from './sign-progress';
 
 export const OWNER_TX_POLL_INTERVAL_MS = 1_000;
 export const OWNER_TX_POLL_DEADLINE_MS = 30_000;
@@ -36,7 +37,10 @@ export function interpretOwnerTxStatus(httpStatus: number, body: unknown): Relay
   if (txHash) {
     explained.txHash = txHash;
   }
-  if (!explained.message) {
+  const terminal = ownerTxTerminalMessage(explained.code);
+  if (terminal) {
+    explained.message = terminal;
+  } else if (!explained.message) {
     explained.message = `Owner tx HTTP ${httpStatus}`;
   }
   return { success: false, error: explained };

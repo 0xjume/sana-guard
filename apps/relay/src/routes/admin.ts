@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { NearClient, VaultInfo } from '../near/interface.js';
-import type { RelayDatabase } from '../db.js';
+import { sha256Hex, type RelayDatabase } from '../db.js';
 import type { Config } from '../config.js';
 import {
   parseAdminMessage,
@@ -109,6 +109,13 @@ function nonceConflictBody(): { error: string; code: 'NONCE_IN_FLIGHT' } {
   };
 }
 
+function nonceReusedBody(): { error: string; code: 'NONCE_REUSED' } {
+  return {
+    error: 'This nonce is already in flight for a different signed message',
+    code: 'NONCE_REUSED',
+  };
+}
+
 function createVaultInFlightBody(): { error: string; code: 'CREATE_VAULT_IN_FLIGHT' } {
   return {
     error: 'CreateVault already in progress for this owner',
@@ -116,7 +123,10 @@ function createVaultInFlightBody(): { error: string; code: 'CREATE_VAULT_IN_FLIG
   };
 }
 
-function reserveFailCode(reason: string): 'NONCE_IN_FLIGHT' | 'LIMIT_EXCEEDED' | 'BUDGET_EXCEEDED' {
+function reserveFailCode(
+  reason: string
+): 'NONCE_REUSED' | 'NONCE_IN_FLIGHT' | 'LIMIT_EXCEEDED' | 'BUDGET_EXCEEDED' {
+  if (reason === 'NONCE_REUSED') return 'NONCE_REUSED';
   if (reason.includes('nonce')) return 'NONCE_IN_FLIGHT';
   if (reason.toLowerCase().includes('limit')) return 'LIMIT_EXCEEDED';
   return 'BUDGET_EXCEEDED';
@@ -162,6 +172,7 @@ async function reserveAdminRequest(args: {
   nearClient: NearClient;
   config: Config;
   owner: string;
+  msg: string;
   parsedMsg: ParsedAdminMessage;
   vault: VaultInfo | null;
   onChainNonce: number;
@@ -243,6 +254,7 @@ async function reserveAdminRequest(args: {
         gasCostYocto,
         nowMs,
         expiresAtMs,
+        msgSha256: sha256Hex(args.msg),
         config,
       });
       if (!result.ok) {
@@ -393,13 +405,24 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
 
       if (db.checkNonceInFlight(owner, parsedMsg.nonce)) {
         const existing = db.getRequest(owner, parsedMsg.nonce);
-        if (existing?.txHash && (existing.status === 'pending' || existing.status === 'unknown')) {
-          // Same nonce already has a broadcast hash. Resume that tx; do not sign another.
+        const open = existing?.status === 'pending' || existing?.status === 'unknown';
+        const sameMessage = existing?.msgSha256 != null && existing.msgSha256 === sha256Hex(msg);
+        if (existing?.txHash && open && sameMessage) {
+          // Same signed message already has a broadcast hash. Resume that tx; do not sign another.
           log.info(
             { owner, nonce: parsedMsg.nonce, txHash: existing.txHash },
             'Resuming in-flight tx'
           );
           return c.json({ success: true, pending: true, txHash: existing.txHash });
+        }
+        if (open && existing?.msgSha256 != null && !sameMessage) {
+          log.warn({ owner, nonce: parsedMsg.nonce }, 'Nonce reused for a different message');
+          return c.json(nonceReusedBody(), 409);
+        }
+        if (existing?.txHash && open && !sameMessage) {
+          // Legacy row with no stored hash, or a hash we cannot match. Do not hand back the old tx.
+          log.warn({ owner, nonce: parsedMsg.nonce }, 'Nonce reused for a different message');
+          return c.json(nonceReusedBody(), 409);
         }
         log.warn({ owner, nonce: parsedMsg.nonce }, 'Nonce already in flight');
         return c.json(nonceConflictBody(), 409);
@@ -463,6 +486,7 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
         nearClient,
         config,
         owner,
+        msg,
         parsedMsg,
         vault,
         onChainNonce,
@@ -483,6 +507,9 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
       }
       if (reserved.kind === 'reserve-fail') {
         const code = reserveFailCode(reserved.reason);
+        if (code === 'NONCE_REUSED') {
+          return c.json(nonceReusedBody(), 409);
+        }
         return c.json({ error: reserved.reason, code }, code === 'NONCE_IN_FLIGHT' ? 409 : 429);
       }
 
@@ -607,10 +634,36 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
       return c.json({ error: 'Unknown transaction' }, 404);
     }
 
+    const withOwner = (body: Record<string, unknown>) => ({ ...body, owner: row.owner });
+
+    if (row.status === 'released') {
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          txHash,
+          error: 'This transaction was rejected before NEAR accepted it.',
+          code: 'TX_REJECTED',
+        }),
+        400
+      );
+    }
+
+    if (row.status === 'settled-unverified') {
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          unverified: true,
+          txHash,
+          error: 'Could not verify this transaction. Check the transaction link.',
+          code: 'TX_UNVERIFIED',
+        })
+      );
+    }
+
     const observed = await nearClient.getTransactionStatus(txHash);
     const open = row.status === 'pending' || row.status === 'unknown';
-
-    const withOwner = (body: Record<string, unknown>) => ({ ...body, owner: row.owner });
 
     if (!open) {
       if (row.success === 1) {
@@ -634,7 +687,16 @@ export function createAdminRouter(nearClient: NearClient, db: RelayDatabase, con
           400
         );
       }
-      return c.json(withOwner({ success: true, pending: true, txHash }));
+      return c.json(
+        withOwner({
+          success: false,
+          pending: false,
+          unverified: true,
+          txHash,
+          error: 'Could not verify this transaction. Check the transaction link.',
+          code: 'TX_UNVERIFIED',
+        })
+      );
     }
 
     if (observed.status === 'pending' || observed.status === 'unknown') {

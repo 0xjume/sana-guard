@@ -34,3 +34,15 @@ export function createVaultButtonLabel(progress: OwnerSignProgress | null, busy:
 export function vaultCreatedMessage(vaultId: number | undefined): string {
   return vaultId === undefined ? 'Vault created.' : `Vault ${vaultId} created.`;
 }
+
+export const TX_REJECTED_MESSAGE = 'This transaction was rejected before NEAR accepted it.';
+
+export const TX_UNVERIFIED_MESSAGE =
+  'Could not verify this transaction. Check the transaction link.';
+
+/** Copy for terminal relay statuses that must not look like "still confirming". */
+export function ownerTxTerminalMessage(code: string | undefined): string | null {
+  if (code === 'TX_REJECTED') return TX_REJECTED_MESSAGE;
+  if (code === 'TX_UNVERIFIED') return TX_UNVERIFIED_MESSAGE;
+  return null;
+}

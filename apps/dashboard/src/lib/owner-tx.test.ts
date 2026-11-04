@@ -63,6 +63,72 @@ describe('pollOwnerTxUntilSettled', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it('stops on a rejected broadcast instead of saying it is still confirming', async () => {
+    const fetcher = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          pending: false,
+          txHash: TX,
+          error: 'This transaction was rejected before NEAR accepted it.',
+          code: 'TX_REJECTED',
+        }),
+        { status: 400 }
+      );
+    });
+    const result = await pollOwnerTxUntilSettled({
+      txHash: TX,
+      owner: 'owner',
+      fetcher: fetcher as unknown as typeof fetch,
+      sleep: async () => {
+        throw new Error('should not keep polling');
+      },
+      now: () => 0,
+      deadlineMs: 30_000,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('TX_REJECTED');
+      expect(result.error.txHash).toBe(TX);
+      expect(result.error.message).toMatch(/rejected before NEAR accepted/);
+      expect(result.error.message).not.toMatch(/still confirming/);
+    }
+  });
+
+  it('stops when the relay cannot verify the transaction', async () => {
+    const fetcher = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          pending: false,
+          unverified: true,
+          txHash: TX,
+          error: 'Could not verify this transaction. Check the transaction link.',
+          code: 'TX_UNVERIFIED',
+        }),
+        { status: 200 }
+      );
+    });
+    const result = await pollOwnerTxUntilSettled({
+      txHash: TX,
+      owner: 'owner',
+      fetcher: fetcher as unknown as typeof fetch,
+      sleep: async () => {
+        throw new Error('should not keep polling');
+      },
+      now: () => 0,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('TX_UNVERIFIED');
+      expect(result.error.message).toMatch(/Could not verify/);
+      expect(result.error.message).toMatch(/transaction link/);
+      expect(result.error.txHash).toBe(TX);
+    }
+  });
+
   it('keeps the hash when confirmation outlasts the deadline', async () => {
     const fetcher = vi.fn(async () => {
       return new Response(JSON.stringify({ success: true, pending: true, txHash: TX }), {
