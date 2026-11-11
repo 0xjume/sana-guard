@@ -63,6 +63,25 @@ describe('classifyAttackOutcome', () => {
     expect(NO_SIGNATURE_NOTE).toMatch(/no signature/i);
   });
 
+  it('is rejected when E062 arrives as the human message plus its code', () => {
+    const result = {
+      ...base,
+      attempts: [
+        {
+          pass: 1,
+          result: {
+            message: 'Per-transaction limit exceeded for mint',
+            code: 'SG_E062_PER_TX_LIMIT_EXCEEDED',
+          },
+        },
+      ],
+    };
+    expect(result.attempts[0]?.result.message).not.toMatch(/SG_E062/);
+    expect(classifyAttackOutcome(result)).toBe('rejected');
+    expect(isOnChainRejection(result)).toBe(true);
+    expect(attackOutcomeHeading('rejected')).toBe('Blocked by guard');
+  });
+
   it('is bypassed only when a signature actually returned', () => {
     expect(
       classifyAttackOutcome({
