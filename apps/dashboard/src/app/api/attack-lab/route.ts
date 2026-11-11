@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { connect, keyStores, KeyPair, type Account as NearAccount } from 'near-api-js';
-import { AgentClient, createSanaGuardError, parseErrorCode } from '@sana-guard/sdk';
+import { AgentClient } from '@sana-guard/sdk';
 import {
   ATTACK_EXPECTED,
   ATTACK_KINDS,
@@ -9,6 +9,7 @@ import {
   buildAttackMessage,
   expectedRejectionForMessage,
 } from '@/lib/attack-lab';
+import { attackLabErrorPayload } from '@/lib/attack-lab-error';
 import {
   ATTACK_LAB_TOKEN_HEADER,
   allowAttackLabRequest,
@@ -70,12 +71,6 @@ async function connectAgent(config: DemoAgentConfig): Promise<NearAccount> {
     keyStore,
   });
   return near.account(config.accountId);
-}
-
-function errorPayload(error: unknown): { message: string; code?: string } {
-  const mapped = createSanaGuardError(error instanceof Error ? error.message : String(error));
-  const code = mapped.code ?? parseErrorCode(mapped.message) ?? undefined;
-  return { message: mapped.message, code };
 }
 
 export async function GET() {
@@ -174,7 +169,7 @@ export async function POST(request: Request) {
     });
     attempt = { unexpected: 'request_sign succeeded; the guard should have rejected this' };
   } catch (error) {
-    attempt = errorPayload(error);
+    attempt = attackLabErrorPayload(error);
   }
 
   return NextResponse.json({
