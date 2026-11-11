@@ -55,10 +55,10 @@ AI Security & Defense is about agents that cannot be socially engineered into mo
 | Source | https://github.com/0xjume/sana-guard |
 | Contract explorer | https://testnet.nearblocks.io/address/guard.djume.testnet |
 | Sample signed Solana tx (devnet) | https://explorer.solana.com/tx/5w6yEG25bVffWMFERM4LF9oJVmtGutZqbC1WrA7bx43UWvEJcCeFueU9xDaYkNrLuRrVkySSjQZcm5FsuBY1CX1r?cluster=devnet |
-| Demo video | `<VIDEO_URL>` |
+| Demo video | https://x.com/sanafionchain/status/2120479118026297779 |
 | Demo script | https://github.com/0xjume/sana-guard/blob/main/docs/DEMO.md |
 | Pitch / README | https://github.com/0xjume/sana-guard/blob/main/README.md |
-| X / social post | `<X_POST_URL>` |
+| X / social post | https://x.com/sanafionchain/status/2120479118026297779 |
 | Slide deck | `<DECK_URL>` |
 
 ## How to judge (60 seconds)

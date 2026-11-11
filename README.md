@@ -6,7 +6,7 @@ The agent never holds the Solana private key. The key stays inside NEAR's MPC si
 
 NEAR Hackathon, **1–15 Nov 2026**, track **AI Security & Defense**. This submission is NEAR **testnet** and Solana **devnet**. The form notes in [`docs/SUBMISSION.md`](./docs/SUBMISSION.md) use a deadline of **14 Nov 2026, 23:59 WIB**.
 
-**Demo video:** `<VIDEO_URL>` — recording script in [`docs/DEMO.md`](./docs/DEMO.md).
+**Demo video:** [public demo on X](https://x.com/sanafionchain/status/2120479118026297779) — recording script in [`docs/DEMO.md`](./docs/DEMO.md).
 
 ## Live
 
@@ -18,7 +18,7 @@ NEAR Hackathon, **1–15 Nov 2026**, track **AI Security & Defense**. This submi
 | Guard contract | [`guard.djume.testnet`](https://testnet.nearblocks.io/address/guard.djume.testnet) |
 | Vault 0 Solana address (devnet) | [`Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU`](https://explorer.solana.com/address/Fkk515Q2ZKeg3aqkcpSwVvFbDVj8VVDesHwWttbtMbgU?cluster=devnet) |
 | Recorded signed devnet transfer | [explorer](https://explorer.solana.com/tx/5w6yEG25bVffWMFERM4LF9oJVmtGutZqbC1WrA7bx43UWvEJcCeFueU9xDaYkNrLuRrVkySSjQZcm5FsuBY1CX1r?cluster=devnet) (5000 lamports, vault `Fkk515…` → `DeF8…`, linked from [`docs/DEMO.md`](./docs/DEMO.md)) |
-| Demo video | `<VIDEO_URL>` |
+| Demo video | [public demo on X](https://x.com/sanafionchain/status/2120479118026297779) |
 
 Vault 0 loads without a Privy session. The page shows policy, balance, recipients, and the Attack lab. Pause and policy edits appear only when the signed-in Privy wallet is that vault's owner. The hosted Attack lab is enabled for vault 0 (`GET /api/attack-lab`). Running it needs the server-side `ATTACK_LAB_TOKEN` (name only; never commit the value). Self-hosting the lab also needs `DEMO_AGENT_ACCOUNT_ID`, `DEMO_AGENT_PRIVATE_KEY`, and `DEMO_AGENT_VAULT_ID`.
 
